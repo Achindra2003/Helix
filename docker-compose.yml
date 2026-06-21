@@ -1,0 +1,47 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helix}
+      POSTGRES_DB: ${POSTGRES_DB:-helix}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helix}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      # Inside the compose network, Postgres is reachable at host "postgres".
+      DATABASE_URL: postgresql://${POSTGRES_USER:-helix}:${POSTGRES_PASSWORD:-helix}@postgres:5432/${POSTGRES_DB:-helix}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      # Live-reload: edits on the host are reflected in the container.
+      - ./backend:/app
+
+  # Optional local LLM. Enable with:  docker compose --profile ollama up
+  ollama:
+    image: ollama/ollama:latest
+    profiles: ["ollama"]
+    restart: unless-stopped
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+
+volumes:
+  postgres-data:
+  ollama-data:

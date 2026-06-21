@@ -1,0 +1,353 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Helix — Proof of Concept</title>
+<style>
+  :root{
+    --bg:#0b0e14; --panel:#121722; --panel2:#171d2b; --line:#222a3a;
+    --txt:#e6ebf5; --mut:#8a95ad; --acc:#6ea8fe; --acc2:#9d7bff;
+    --ok:#37d399; --warn:#ffcc66; --bad:#ff6b81;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;font-family:'Segoe UI',system-ui,Roboto,sans-serif;background:var(--bg);color:var(--txt);height:100vh;overflow:hidden}
+  button{font-family:inherit;cursor:pointer}
+  .hidden{display:none!important}
+
+  /* Login */
+  #login{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:radial-gradient(1200px 600px at 30% 20%,#16203a,#0b0e14)}
+  .card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:42px 46px;width:420px;text-align:center;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+  .logo{font-size:40px;font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,var(--acc),var(--acc2));-webkit-background-clip:text;background-clip:text;color:transparent}
+  .tag{color:var(--mut);margin:6px 0 26px;font-size:13px}
+  .field{display:block;width:100%;padding:12px 14px;margin:8px 0;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--txt);font-size:14px}
+  .btn{background:linear-gradient(90deg,var(--acc),var(--acc2));border:none;color:#0b0e14;font-weight:700;padding:12px 18px;border-radius:10px;width:100%;margin-top:14px;font-size:15px}
+  .btn:hover{filter:brightness(1.08)}
+  .demohint{margin-top:18px;color:var(--mut);font-size:12px}
+
+  /* App */
+  #app{display:grid;grid-template-rows:54px 1fr;height:100vh}
+  .topbar{display:flex;align-items:center;gap:14px;padding:0 16px;border-bottom:1px solid var(--line);background:var(--panel)}
+  .topbar .logo{font-size:22px}
+  .ws{display:flex;align-items:center;gap:8px;color:var(--mut);font-size:13px}
+  .ws b{color:var(--txt)}
+  .spacer{flex:1}
+  .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;color:#0b0e14;border:2px solid var(--panel);margin-left:-8px}
+  .pill{font-size:11px;color:var(--mut);border:1px solid var(--line);padding:4px 10px;border-radius:20px;margin-left:10px}
+  .dot{width:8px;height:8px;border-radius:50%;background:var(--ok);display:inline-block;margin-right:6px;box-shadow:0 0 8px var(--ok)}
+
+  .cols{display:grid;grid-template-columns:248px 1fr 360px;height:100%;overflow:hidden}
+  .panel{overflow:auto;background:var(--bg);border-right:1px solid var(--line)}
+  .panel.right{border-right:none;border-left:1px solid var(--line);background:var(--panel)}
+  .ph{padding:11px 14px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--mut);border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;background:var(--bg);z-index:2}
+  .panel.right .ph{background:var(--panel)}
+  .addbtn{background:var(--panel2);border:1px solid var(--line);color:var(--acc);border-radius:6px;font-size:11px;padding:3px 8px}
+  .addbtn:hover{border-color:var(--acc)}
+
+  /* Left: conversations + branches */
+  .list{padding:8px}
+  .conv{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:8px;margin:2px 0;cursor:pointer;font-size:13px}
+  .conv:hover{background:var(--panel2)}
+  .conv.active{background:#1b2740;outline:1px solid var(--acc)}
+  .conv .vis{font-size:9px;padding:1px 6px;border-radius:8px;border:1px solid var(--line);color:var(--mut);margin-left:auto}
+  .conv .vis.shared{color:var(--ok);border-color:var(--ok)}
+  .conv .vis.private{color:var(--warn);border-color:var(--warn)}
+  .sub{padding:10px 14px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--mut);border-top:1px solid var(--line);margin-top:6px}
+  .node{display:flex;align-items:center;gap:8px;padding:6px 10px;border-radius:8px;margin:2px 8px;cursor:pointer;font-size:12px;position:relative}
+  .node:hover{background:var(--panel2)}
+  .node.active{background:#1b2740}
+  .node .glyph{width:10px;height:10px;border-radius:50%;border:2px solid var(--acc);flex:none}
+  .node.child{margin-left:24px}
+  .node.child::before{content:"";position:absolute;left:-10px;top:-6px;bottom:50%;width:12px;border-left:2px solid var(--line);border-bottom:2px solid var(--line);border-bottom-left-radius:6px}
+
+  /* Center: chat */
+  .center{display:flex;flex-direction:column;height:100%}
+  .thread{flex:1;overflow:auto;padding:18px 22px}
+  .msg{margin-bottom:16px;max-width:760px}
+  .who{font-size:12px;color:var(--mut);margin-bottom:5px;display:flex;align-items:center;gap:7px}
+  .who .t2{font-size:10px;padding:1px 7px;border-radius:10px;background:var(--panel2);border:1px solid var(--line)}
+  .bubble{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:11px 14px;font-size:14px;line-height:1.55}
+  .bubble.ai{background:linear-gradient(180deg,#141b2c,#121722);border-color:#283250}
+  .bubble.deep{border-color:#3a2d5e;background:linear-gradient(180deg,#191333,#121722)}
+  .seq{font-size:10px;color:var(--mut);margin-left:auto}
+  .composer{border-top:1px solid var(--line);padding:10px 16px;background:var(--panel)}
+  .ctools{display:flex;gap:8px;margin-bottom:8px}
+  .ctools button{font-size:12px;background:var(--panel2);border:1px solid var(--line);color:var(--mut);padding:5px 10px;border-radius:8px}
+  .ctools button:hover{color:var(--txt);border-color:var(--acc)}
+  .crow{display:flex;gap:10px}
+  .crow input{flex:1;padding:12px 14px;background:var(--panel2);border:1px solid var(--line);border-radius:10px;color:var(--txt);font-size:14px}
+  .send{background:linear-gradient(90deg,var(--acc),var(--acc2));border:none;color:#0b0e14;font-weight:700;padding:0 18px;border-radius:10px}
+  .deep{background:linear-gradient(90deg,#9d7bff,#6e8bff);border:none;color:#0b0e14;font-weight:700;padding:0 14px;border-radius:10px}
+  .deep:hover,.send:hover{filter:brightness(1.08)}
+
+  /* Library overlay */
+  .overlay{position:absolute;inset:54px 0 0 248px;background:rgba(8,11,18,.86);backdrop-filter:blur(3px);z-index:20;display:flex;align-items:flex-start;justify-content:center;padding-top:40px}
+  .libcard{background:var(--panel);border:1px solid var(--line);border-radius:14px;width:560px;max-height:75vh;overflow:auto;padding:18px}
+  .libcard h3{margin:0 0 4px}
+  .libcard .x{float:right;color:var(--mut);background:none;border:none;font-size:20px}
+  .libsearch{width:100%;padding:9px 12px;margin:10px 0;background:var(--panel2);border:1px solid var(--line);border-radius:8px;color:var(--txt)}
+  .prompt{border:1px solid var(--line);border-radius:10px;padding:11px 13px;margin:8px 0}
+  .prompt b{font-size:14px}
+  .prompt p{margin:5px 0;font-size:12px;color:var(--mut)}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:6px}
+  .tag-chip{font-size:10px;background:var(--panel2);border:1px solid var(--line);color:var(--acc);padding:2px 8px;border-radius:10px;cursor:pointer}
+  .use{float:right;font-size:11px;background:var(--panel2);border:1px solid var(--line);color:var(--ok);padding:4px 10px;border-radius:8px}
+  .use:hover{border-color:var(--ok)}
+
+  /* Monitor */
+  .mon{padding:14px}
+  .monidle{color:var(--mut);font-size:13px;text-align:center;padding:30px 14px;line-height:1.6}
+  .topo{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px;background:var(--bg);border:1px solid var(--line);border-radius:12px}
+  .gnode{font-size:11px;padding:7px 10px;border-radius:18px;border:1px solid var(--line);color:var(--mut);background:var(--panel2);transition:.25s}
+  .gnode.on{color:#0b0e14;background:linear-gradient(90deg,var(--acc),var(--acc2));border-color:transparent;box-shadow:0 0 16px rgba(110,168,254,.5);transform:scale(1.06)}
+  .meters{margin:14px 0;display:grid;gap:10px}
+  .meter{font-size:12px}.meter .ml{display:flex;justify-content:space-between;color:var(--mut);margin-bottom:4px}
+  .bar{height:8px;background:var(--panel2);border-radius:6px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .3s}
+  .bar.energy i{background:linear-gradient(90deg,var(--ok),#7ef)} .bar.tok i{background:linear-gradient(90deg,var(--acc),var(--acc2))} .bar.rate i{background:linear-gradient(90deg,var(--warn),var(--bad))}
+  .controls{display:flex;gap:8px;margin:12px 0}
+  .ctl{flex:1;padding:10px;border-radius:9px;border:1px solid var(--line);background:var(--panel2);color:var(--txt);font-size:13px;font-weight:600}
+  .ctl.kill{border-color:var(--bad);color:var(--bad)} .ctl.kill:hover{background:var(--bad);color:#0b0e14}
+  .ctl.steer:hover{border-color:var(--acc);color:var(--acc)}
+  .ctl:disabled{opacity:.4;cursor:not-allowed}
+  .trace{margin-top:6px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .step{padding:8px 11px;border-bottom:1px solid var(--line);font-size:12px;animation:fade .3s}.step:last-child{border-bottom:none}
+  .step .sn{color:var(--acc);font-weight:700}.step small{color:var(--mut)}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  .status{font-size:11px;padding:3px 9px;border-radius:12px;border:1px solid var(--line)}
+  .status.run{color:var(--ok);border-color:var(--ok)} .status.idle{color:var(--mut)} .status.killed{color:var(--bad);border-color:var(--bad)}
+  .exp{display:flex;gap:8px;padding:12px 14px}
+  .exp button{flex:1;font-size:12px;padding:8px;border-radius:8px;border:1px solid var(--line);background:var(--panel2);color:var(--mut)}
+  .exp button:hover{color:var(--txt);border-color:var(--acc)}
+  .toast{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--panel);border:1px solid var(--acc);padding:11px 18px;border-radius:10px;font-size:13px;box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:50}
+</style>
+</head>
+<body>
+
+<div id="login">
+  <div class="card">
+    <div class="logo">Helix</div>
+    <div class="tag">A collaborative AI workspace for teams</div>
+    <input class="field" id="email" value="achindra@team.dev"/>
+    <input class="field" id="pw" type="password" value="••••••••"/>
+    <button class="btn" onclick="enter()">Enter Workspace →</button>
+    <div class="demohint">Proof-of-concept prototype · simulated · no backend</div>
+  </div>
+</div>
+
+<div id="app" class="hidden">
+  <div class="topbar">
+    <span class="logo">Helix</span>
+    <span class="ws">workspace / <b>rag-quality</b></span>
+    <span class="spacer"></span>
+    <span id="presence"></span>
+    <span class="pill"><span class="dot"></span>3 online</span>
+    <span class="pill">Owner</span>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT: conversations + branches -->
+    <div class="panel">
+      <div class="ph">Conversations <button class="addbtn" onclick="newConv()">+ New</button></div>
+      <div class="list" id="convList"></div>
+      <div class="sub">Branches · <span id="curConvName"></span></div>
+      <div id="tree"></div>
+    </div>
+
+    <!-- CENTER: chat -->
+    <div class="panel" style="border-right:none;background:var(--bg);position:relative">
+      <div class="center">
+        <div class="ph" style="justify-content:flex-start;gap:8px">
+          <span id="convTitle">Conversation</span>
+          <span class="vis shared" id="convVis" style="font-size:9px;padding:1px 6px;border-radius:8px;border:1px solid var(--ok);color:var(--ok)">shared</span>
+        </div>
+        <div class="thread" id="thread"></div>
+        <div class="composer">
+          <div class="ctools">
+            <button onclick="openLib()">📚 Prompt Library</button>
+            <button onclick="saveToLib()">💾 Save prompt</button>
+            <button onclick="forkHere()">⑂ Fork</button>
+          </div>
+          <div class="crow">
+            <input id="prompt" placeholder="Message the team's AI…" onkeydown="if(event.key==='Enter')sendChat()"/>
+            <button class="send" onclick="sendChat()" title="Quick reply">Send</button>
+            <button class="deep" onclick="goDeep()" title="Escalate to recursive reasoning">🧠 Deep Reasoning</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Library overlay -->
+      <div class="overlay hidden" id="libOverlay">
+        <div class="libcard">
+          <button class="x" onclick="closeLib()">×</button>
+          <h3>Shared Prompt Library</h3>
+          <div style="color:var(--mut);font-size:12px">The team's record of what's been tried — tagged & searchable.</div>
+          <input class="libsearch" id="libSearch" placeholder="Search prompts or #tags…" oninput="renderLib()"/>
+          <div id="libList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: monitor -->
+    <div class="panel right">
+      <div class="ph">Deep Reasoning Monitor <span class="status idle" id="runStatus">idle</span></div>
+      <div id="monBody">
+        <div class="monidle" id="monIdle">No active run.<br><br>Hit <b>🧠 Deep Reasoning</b> on a hard question to escalate — the recursive reasoning run appears here with a live trace, kill switch, steering, and a cost budget meter.</div>
+        <div class="mon hidden" id="monLive">
+          <div class="topo" id="topo"></div>
+          <div class="meters">
+            <div class="meter"><div class="ml"><span>⚡ Energy</span><span id="energyV">80</span></div><div class="bar energy"><i id="energyB" style="width:80%"></i></div></div>
+            <div class="meter"><div class="ml"><span>🔢 Tokens (budget 8000)</span><span id="tokV">0</span></div><div class="bar tok"><i id="tokB"></i></div></div>
+            <div class="meter"><div class="ml"><span>📡 Rate (req/min · limit 30)</span><span id="rateV">0</span></div><div class="bar rate"><i id="rateB"></i></div></div>
+            <div class="meter"><div class="ml"><span>🌀 Recursion depth (guard 6)</span><span id="depthV">0</span></div><div class="bar tok"><i id="depthB"></i></div></div>
+          </div>
+          <div class="controls">
+            <button class="ctl steer" id="steerBtn" onclick="steer()" disabled>⏸ Steer</button>
+            <button class="ctl kill" id="killBtn" onclick="kill()" disabled>⛔ Kill</button>
+          </div>
+          <div class="ph" style="border:none;padding:6px 0;background:none">Live Step Trace</div>
+          <div class="trace" id="trace"></div>
+        </div>
+      </div>
+      <div class="exp">
+        <button onclick="exp('JSON')">⬇ JSON</button>
+        <button onclick="exp('Markdown')">⬇ Markdown</button>
+        <button onclick="replay()">⏪ Replay</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const members=[{n:'Achindra',c:'#6ea8fe'},{n:'Nilesh',c:'#37d399'},{n:'Abhishek',c:'#ffcc66'}];
+const ME=members[0];
+const GRAPH=['ingest','think','reflect','affective','logical','memory','synthesize'];
+const THOUGHTS={ingest:'Parsing the question and shared context…',think:'Framing: retrieval bottleneck vs chunking bottleneck.',reflect:'Checking my own assumption before committing.',affective:'Team is time-pressured → bias toward a cheap diagnostic.',logical:'A recall@k probe isolates retrieval; a boundary check isolates chunking.',memory:'Recall: last week we leaned on chunk-size heuristics.',synthesize:'Converging: run both probes on the 50 failing queries; bigger gap wins.'};
+
+let convs=[
+  {id:'c1',title:'Error samples triage',vis:'shared',msgs:[
+    {who:members[1],text:'Dropped 40 failing queries in the sheet — mostly multi-hop questions.',ai:false},
+    {who:{n:'Helix AI',c:'#9d7bff'},text:'Common pattern: the right passage exists but ranks below top-k. Worth probing retrieval recall first.',ai:true}
+  ],branches:[{id:'main',label:'main',child:false}]},
+  {id:'c2',title:'My scratch notes',vis:'private',msgs:[{who:ME,text:'todo: compare pgvector hnsw params',ai:false}],branches:[{id:'main',label:'main',child:false}]}
+];
+let cur='c1';
+let lib=[
+  {title:'Failure classification',body:'Classify each failing query as retrieval-miss, chunking-miss, or generation-error, with a one-line reason.',tags:['rag','triage']},
+  {title:'Socratic debug',body:'Don\'t give the answer. Ask me 3 questions that would localise the bug.',tags:['debug']},
+  {title:'ADR draft',body:'Summarise this decision as an Architecture Decision Record: context, options, decision, consequences.',tags:['docs','decision']}
+];
+let running=false,paused=false,timer=null,tokens=0,rate=0,depth=0,energy=80,stepIdx=0;
+
+function enter(){
+  document.getElementById('login').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const p=document.getElementById('presence');
+  members.forEach(m=>{const a=document.createElement('span');a.className='av';a.style.background=m.c;a.textContent=m.n[0];a.title=m.n;p.appendChild(a);});
+  renderTopo();renderConvs();openConv('c1');
+}
+
+/* conversations */
+function C(){return convs.find(c=>c.id===cur);}
+function renderConvs(){
+  const l=document.getElementById('convList');l.innerHTML='';
+  convs.forEach(c=>{
+    const d=document.createElement('div');d.className='conv'+(c.id===cur?' active':'');d.onclick=()=>openConv(c.id);
+    d.innerHTML=`<span>💬 ${c.title}</span><span class="vis ${c.vis}">${c.vis}</span>`;l.appendChild(d);
+  });
+}
+function openConv(id){cur=id;const c=C();
+  document.getElementById('convTitle').textContent=c.title;
+  const v=document.getElementById('convVis');v.textContent=c.vis;v.style.color=c.vis==='shared'?'var(--ok)':'var(--warn)';v.style.borderColor=v.style.color;
+  document.getElementById('curConvName').textContent=c.title;
+  renderConvs();renderThread();renderTree();
+}
+function newConv(){
+  const t=prompt('Conversation title?','New conversation');if(!t)return;
+  const vis=confirm('Shared with the team? (OK = shared, Cancel = private)')?'shared':'private';
+  const id='c'+Math.random().toString(36).slice(2,5);
+  convs.push({id,title:t,vis,msgs:[],branches:[{id:'main',label:'main',child:false}]});openConv(id);toast('New '+vis+' conversation');
+}
+function renderThread(){
+  const t=document.getElementById('thread');t.innerHTML='';
+  C().msgs.forEach((m,i)=>{
+    const d=document.createElement('div');d.className='msg';
+    const cls=m.deep?'deep':(m.ai?'ai':'');
+    d.innerHTML=`<div class="who"><span class="av" style="width:20px;height:20px;font-size:10px;margin:0;background:${m.who.c}">${m.who.n[0]}</span>${m.who.n}${m.ai?'<span class="t2">'+(m.deep?'deep reasoning':'AI')+'</span>':''}<span class="seq">#${i+1}</span></div><div class="bubble ${cls}">${m.text}</div>`;
+    t.appendChild(d);
+  });t.scrollTop=t.scrollHeight;
+}
+
+/* branches */
+function renderTree(){
+  const t=document.getElementById('tree');t.innerHTML='';
+  C().branches.forEach(b=>{const d=document.createElement('div');d.className='node'+(b.child?' child':'')+(b.id==='main'?' active':'');
+    d.innerHTML=`<span class="glyph"></span><span>${b.label}</span>`;t.appendChild(d);});
+}
+function forkHere(){const c=C();const id='b'+Math.random().toString(36).slice(2,4);
+  c.branches.push({id,label:'branch @ msg '+c.msgs.length,child:true});renderTree();toast('⑂ Forked conversation — new branch (O(1), context inherited)');}
+
+/* chat gear */
+function sendChat(){
+  const i=document.getElementById('prompt');const v=i.value.trim();if(!v)return;i.value='';
+  C().msgs.push({who:ME,text:v});renderThread();
+  setTimeout(()=>{C().msgs.push({who:{n:'Helix AI',c:'#9d7bff'},text:quickReply(v),ai:true});renderThread();},500);
+}
+function quickReply(q){return 'Quick take: '+q.replace(/\?+$/,'')+' — start by isolating the variable with the cheapest test. Want me to reason this through deeply? Hit 🧠 Deep Reasoning.';}
+
+/* prompt library */
+function openLib(){document.getElementById('libOverlay').classList.remove('hidden');renderLib();}
+function closeLib(){document.getElementById('libOverlay').classList.add('hidden');}
+function renderLib(){
+  const q=(document.getElementById('libSearch').value||'').toLowerCase().replace('#','');
+  const l=document.getElementById('libList');l.innerHTML='';
+  lib.filter(p=>!q||p.title.toLowerCase().includes(q)||p.body.toLowerCase().includes(q)||p.tags.some(t=>t.includes(q))).forEach(p=>{
+    const d=document.createElement('div');d.className='prompt';
+    d.innerHTML=`<button class="use">Use →</button><b>${p.title}</b><p>${p.body}</p><div class="tags">${p.tags.map(t=>'<span class="tag-chip">#'+t+'</span>').join('')}</div>`;
+    d.querySelector('.use').onclick=()=>{document.getElementById('prompt').value=p.body;closeLib();toast('Inserted "'+p.title+'" into composer');};
+    d.querySelectorAll('.tag-chip').forEach(c=>c.onclick=()=>{document.getElementById('libSearch').value=c.textContent;renderLib();});
+    l.appendChild(d);
+  });
+}
+function saveToLib(){const v=document.getElementById('prompt').value.trim();if(!v){toast('Type a prompt first, then Save');return;}
+  const t=prompt('Save prompt as (title):','Saved prompt');if(!t)return;
+  const tags=(prompt('Tags (comma-separated):','rag')||'').split(',').map(s=>s.trim()).filter(Boolean);
+  lib.unshift({title:t,body:v,tags});toast('💾 Saved to shared library — the team can reuse it');}
+
+/* deep reasoning */
+function renderTopo(){const c=document.getElementById('topo');c.innerHTML='';GRAPH.forEach(g=>{const s=document.createElement('span');s.className='gnode';s.id='g-'+g;s.textContent=g;c.appendChild(s);});}
+function lite(n){GRAPH.forEach(g=>document.getElementById('g-'+g).classList.toggle('on',g===n));}
+function setMeters(){energyV.textContent=Math.round(energy);energyB.style.width=energy+'%';tokV.textContent=tokens;tokB.style.width=Math.min(100,tokens/8000*100)+'%';rateV.textContent=rate;rateB.style.width=Math.min(100,rate/30*100)+'%';depthV.textContent=depth;depthB.style.width=(depth/6*100)+'%';}
+function setStatus(c,t){const e=document.getElementById('runStatus');e.className='status '+c;e.textContent=t;}
+function addStep(n,th,tok,lat){const t=document.getElementById('trace');const d=document.createElement('div');d.className='step';d.innerHTML=`<span class="sn">${n}</span> · <small>${lat}ms · ${tok} tok · depth ${depth} · energy ${Math.round(energy)}</small><br>${th}`;t.appendChild(d);t.scrollTop=t.scrollHeight;}
+function goDeep(){
+  const i=document.getElementById('prompt');const v=i.value.trim()||'Is our 30% error rate a retrieval or a chunking problem, and what is the cheapest experiment to find out?';i.value='';
+  C().msgs.push({who:ME,text:v});renderThread();
+  document.getElementById('monIdle').classList.add('hidden');document.getElementById('monLive').classList.remove('hidden');
+  running=true;paused=false;stepIdx=0;tokens=0;rate=0;depth=0;energy=80;
+  document.getElementById('trace').innerHTML='';killBtn.disabled=false;steerBtn.disabled=false;setStatus('run','running');setMeters();
+  toast('🧠 Escalated to Deep Reasoning — the team can watch, steer, and stop it');
+  timer=setInterval(()=>{
+    if(paused)return;
+    if(stepIdx>=GRAPH.length){finishRun();return;}
+    const n=GRAPH[stepIdx];lite(n);
+    const tok=20+Math.floor(Math.random()*60);tokens+=tok;rate=Math.min(30,rate+3);
+    if(n==='reflect'||n==='synthesize')depth++;energy=Math.max(8,energy-7-Math.random()*4);
+    addStep(n,THOUGHTS[n],tok,80+Math.floor(Math.random()*200));setMeters();
+    if(tokens>6800)toast('⚠ Token budget 85% — controller will halt soon');
+    stepIdx++;
+  },650);
+}
+function finishRun(){clearInterval(timer);running=false;lite(null);killBtn.disabled=true;steerBtn.disabled=true;setStatus('idle','converged ✓');
+  C().msgs.push({who:{n:'Helix AI',c:'#9d7bff'},deep:true,ai:true,text:'<b>Synthesis:</b> Run the same 50 failing queries through a retrieval recall@k probe and a chunk-boundary check; whichever shows the larger gap is the culprit. Halted on convergence · '+tokens+' tokens.'});renderThread();
+  toast('Run complete · stop_reason: converged · '+tokens+' tokens');}
+function kill(){if(!running)return;clearInterval(timer);running=false;lite(null);killBtn.disabled=true;steerBtn.disabled=true;setStatus('killed','killed ⛔');addStep('KILLED','Terminated mid-loop by Owner. State checkpointed — resumable/forkable.',0,0);toast('⛔ Killed at '+GRAPH[Math.max(0,stepIdx-1)]+' · state preserved');}
+function steer(){if(!running)return;paused=!paused;steerBtn.textContent=paused?'▶ Resume':'⏸ Steer';setStatus(paused?'idle':'run',paused?'paused — awaiting input':'running');addStep('STEER',paused?'Paused — awaiting human guidance.':'Resumed with injected guidance.',0,0);if(paused)toast('⏸ Paused. Inject guidance, then Resume.');}
+
+function exp(f){toast('⬇ Exported "'+C().title+'" as '+f);}
+function replay(){const s=[...document.querySelectorAll('#trace .step')];if(!s.length){toast('Run Deep Reasoning first');return;}s.forEach((e,i)=>{e.style.opacity=.15;setTimeout(()=>{e.style.opacity=1;e.scrollIntoView({block:'nearest'});},i*330);});toast('⏪ Replaying '+s.length+' steps');}
+
+let tt;function toast(m){clearTimeout(tt);let e=document.getElementById('_t');if(!e){e=document.createElement('div');e.id='_t';e.className='toast';document.body.appendChild(e);}e.textContent=m;e.style.display='block';tt=setTimeout(()=>e.style.display='none',2600);}
+</script>
+</body>
+</html>
