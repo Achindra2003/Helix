@@ -1,0 +1,99 @@
+@import "tailwindcss";
+
+/* ─── Double Helix theme ─────────────────────────────────────────────
+   All design tokens live here as CSS variables, so the theme is swappable
+   without touching components. Tailwind v4 turns these into utilities
+   (bg-bg, text-fg, border-line, text-violet, …). */
+@theme {
+  --color-bg: #0a0a12;
+  --color-surface: #12121c;
+  --color-surface-2: #191926;
+  --color-line: #262640;
+  --color-fg: #e8e9f3;
+  --color-muted: #9a9cb5;
+  --color-violet: #7c5cff;
+  --color-cyan: #22d3ee;
+  --color-danger: #f5566b;
+  --color-success: #36d399;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto,
+    Helvetica, Arial, sans-serif;
+  --font-mono: ui-monospace, "JetBrains Mono", "SFMono-Regular", Menlo,
+    Consolas, monospace;
+}
+
+:root {
+  color-scheme: dark;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ─── Brand helpers ─────────────────────────────────────────────────── */
+.gradient-helix {
+  background-image: linear-gradient(135deg, var(--color-violet), var(--color-cyan));
+}
+
+.text-helix {
+  background-image: linear-gradient(135deg, var(--color-violet), var(--color-cyan));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+.border-helix {
+  border-image: linear-gradient(135deg, var(--color-violet), var(--color-cyan)) 1;
+}
+
+/* Ambient page glow used behind auth + empty states. */
+.app-glow {
+  background:
+    radial-gradient(
+      55rem 28rem at 15% -10%,
+      color-mix(in oklab, var(--color-violet) 20%, transparent),
+      transparent
+    ),
+    radial-gradient(
+      45rem 26rem at 100% 0%,
+      color-mix(in oklab, var(--color-cyan) 14%, transparent),
+      transparent
+    );
+}
+
+/* Quiet, themed scrollbars. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 9999px;
+}
+
+/* Streaming caret for live token output. */
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+.caret::after {
+  content: "▌";
+  margin-left: 1px;
+  animation: blink 1s step-end infinite;
+  color: var(--color-cyan);
+}
