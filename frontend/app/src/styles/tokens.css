@@ -1,0 +1,66 @@
+/* Helix design tokens — "alchemical manuscript" (parchment grimoire).
+   Ported from Helix.dc.html; palette WCAG-validated in design_critique.md. */
+:root {
+  /* surfaces */
+  --paper: #e6dcc2;
+  --paper-2: #ded2b4;
+  --paper-3: #d3c5a2;
+  --paper-4: #c8b68f;
+  /* ink */
+  --ink: #241b12;
+  --ink-2: #4b3d2a;
+  --ink-3: #796a4f;
+  --ink-faint: #a2906e;
+  /* rules / hairlines */
+  --rule: rgba(36, 27, 18, 0.26);
+  --rule-soft: rgba(36, 27, 18, 0.13);
+  /* accents */
+  --oxblood: #8c2b1e;
+  --oxblood-2: #a8341f;
+  --cinnabar: #b23a22;
+  --gilt: #9a7a2c;
+  --gilt-1: #7e6320; /* darker brass — legible as outline-button/label text on paper */
+  --gilt-2: #c0992f;
+  --verde: #46624c;
+  --violet: #6e5aa8;
+  --violet-bright: #8b73d6;
+  --ember: #c5752a;
+  --char: #15110b;
+  --ash: #c2b393;
+  --ash-2: #8c7e62;
+
+  /* typography — body is the aged manuscript serif (matches the design folder).
+     "Inter" is kept only as a fallback for chrome that opts into --font-ui. */
+  --font-body: "IM Fell English", Georgia, serif;
+  --font-read: "IM Fell English", Georgia, serif;
+  --font-ui: "Inter", system-ui, sans-serif;
+  --font-display: "Cinzel", serif;
+  --font-brand: "Cinzel Decorative", "Cinzel", serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+
+  /* type scale (px) */
+  --t-micro: 12px;
+  --t-meta: 14px;
+  --t-body: 16px;
+  --t-card: 20px;
+  --t-title: 26px;
+  --t-hero: 42px;
+
+  /* spacing (8px grid) */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  --radius: 9px;
+  --radius-lg: 13px;
+
+  /* golden-ratio 3-pane widths (chat) */
+  --pane-left: 248px;
+  --pane-right: 360px;
+
+  --focus: var(--violet-bright);
+}

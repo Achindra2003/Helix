@@ -26,5 +26,18 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
 
+    # --- Deep Reasoning (Ouroboros) power feature ---
+    # Always runs on Groq (its own provider enum — never the chat `llm_provider`,
+    # which may be `stub`). Uses `groq_api_key` above.
+    deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize
+    deep_reasoning_adaptive: bool = True
+    deep_reasoning_compute_budget: int = 4
+    deep_reasoning_token_budget: int = 200_000
+    # Convergence thresholds, calibrated to the active (lexical-fallback) embedder so
+    # an adaptive run halts on a real `converged` signal (the answer has settled)
+    # instead of always exhausting the budget. Proven in demo_helix.py. Demo-safe.
+    deep_reasoning_stability_threshold: float = 0.78
+    deep_reasoning_confidence_threshold: float = 0.7
+
 
 settings = Settings()

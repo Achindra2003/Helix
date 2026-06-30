@@ -140,19 +140,19 @@ MM Mohd. Mansoor  → Backend & infrastructure · Rajnish Kumar → Frontend & U
 | Week(s) | Task / Module | Description | Person Responsible |
 |---|---|---|---|
 | 0 | Setup | Monorepo, Docker Compose (Postgres + Redis + Ollama), shared schemas | All |
-| 1–2 | M1 — Auth & Workspace | Accounts, JWT, workspaces, invite links, roles, DB schema | Nilesh Gupta |
+| 1–2 | M1 — Auth & Workspace | Accounts, JWT, workspaces, invite links, roles, DB schema | Rajnish Kumar |
 | 1–2 | M2 — Conversations | Provider interface (Groq/Ollama); shared & private conversations; streaming chat | Achindra Sharma |
-| 1–2 | Auth & workspace UI | Login/register, workspace dashboard, chat view | Abhishek Suresh Kumar |
-| 3–4 | M3 — Real-Time Sync & Presence | In-memory WebSocket rooms, presence, ordered message log (Redis optional, later) | Nilesh Gupta |
+| 1–2 | Auth & workspace UI | Login/register, workspace dashboard, chat view | M M Mohamed Mansoor |
+| 3–4 | M3 — Real-Time Sync & Presence | In-memory WebSocket rooms, presence, ordered message log (Redis optional, later) | Rajnish Kumar |
 | 3–4 | Shared context | Append to shared thread, token budgeting, summarisation | Achindra Sharma |
-| 3–4 | Collaboration UI | Multi-user shared view, presence avatars, stream fan-out | Abhishek Suresh Kumar |
-| 5 | M4 — Fork & Branch Tree | Fork conversation via parent pointers; branch context | Achindra Sharma / Nilesh Gupta |
-| 5 | M5 — Shared Prompt Library | Save/tag/search prompts; reuse into a conversation | Abhishek Suresh Kumar |
+| 3–4 | Collaboration UI | Multi-user shared view, presence avatars, stream fan-out | M M Mohamed Mansoor |
+| 5 | M4 — Fork & Branch Tree | Fork conversation via parent pointers; branch context | Achindra Sharma / Rajnish Kumar |
+| 5 | M5 — Shared Prompt Library | Save/tag/search prompts; reuse into a conversation | M M Mohamed Mansoor |
 | 6–7 | M6 — Deep Reasoning Mode | Embed recursive engine; escalation path; checkpoint fork | Achindra Sharma |
-| 6–7 | M7 — Monitor (backend) | Persist runs/steps, stream events, kill/steer endpoints, budget metering | Nilesh Gupta |
-| 6–7 | M7 — Monitor (UI) | Deep Reasoning button, live trace/topology, kill switch, steer, budget meter | Abhishek Suresh Kumar |
+| 6–7 | M7 — Monitor (backend) | Persist runs/steps, stream events, kill/steer endpoints, budget metering | Rajnish Kumar |
+| 6–7 | M7 — Monitor (UI) | Deep Reasoning button, live trace/topology, kill switch, steer, budget meter | M M Mohamed Mansoor |
 | 8 | M8 — History, Replay & Export | Replay any branch; JSON/Markdown export | Achindra Sharma |
-| 8 | M9 — Permission Layer | Role-gated actions; tool allowlist for Deep Reasoning | Nilesh Gupta |
+| 8 | M9 — Permission Layer | Role-gated actions; tool allowlist for Deep Reasoning | Rajnish Kumar |
 | 8 | Hardening & demo | Tenant isolation (RLS), deployment, performance test, demo video, README | All |
 
 **Minimum viable demo:** shared + private conversations with real-time sync (M1–M3),

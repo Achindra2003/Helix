@@ -1,0 +1,113 @@
+import { useState } from "react";
+import { useNavigate } from "react-router-dom";
+import { createWorkspace, acceptInvite, listWorkspaces } from "@/lib/api";
+import { useSession } from "@/store/session";
+import { useToast } from "@/components/common/Toast";
+import { Button } from "@/components/common/Button";
+import { Input } from "@/components/common/Input";
+import { Dialog } from "@/components/common/Dialog";
+import { Logo } from "@/components/brand/Logo";
+import { ROLE_META } from "@/lib/rbac";
+import s from "./picker.module.css";
+
+export function WorkspacePicker() {
+  const nav = useNavigate();
+  const { push } = useToast();
+  const { user, workspaces, setWorkspaces, setActiveWorkspace, logout } = useSession();
+  const [dialog, setDialog] = useState<null | "create" | "invite">(null);
+  const [text, setText] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  function enter(id: string) {
+    setActiveWorkspace(id);
+    nav(`/w/${id}`);
+  }
+
+  async function refresh() {
+    setWorkspaces(await listWorkspaces());
+  }
+
+  async function doCreate() {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      const ws = await createWorkspace(text.trim());
+      await refresh();
+      setDialog(null); setText("");
+      enter(ws.id);
+    } catch (e: any) { push(e?.message ?? "Create failed", "error"); }
+    finally { setBusy(false); }
+  }
+
+  async function doAccept() {
+    if (!text.trim()) return;
+    setBusy(true);
+    try {
+      const ws = await acceptInvite(text.trim());
+      await refresh();
+      setDialog(null); setText("");
+      enter(ws.id);
+    } catch (e: any) { push(e?.message ?? "Invalid invite", "error"); }
+    finally { setBusy(false); }
+  }
+
+  return (
+    <div className={s.wrap}>
+      <div className={s.head}>
+        <div className={s.brandRow}><Logo size={40} /><div className={`brand ${s.brand}`}>Helix</div></div>
+        <div className={s.who}>
+          <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{user?.email}</span>
+          <Button variant="ghost" onClick={() => { logout(); nav("/auth"); }}>Sign out</Button>
+        </div>
+      </div>
+
+      <div className={s.body}>
+        <div className={s.title}>
+          <div className="serif-d" style={{ fontSize: 32 }}>Your workspaces</div>
+          <div style={{ color: "var(--ink-3)", marginTop: 6 }}>A workspace is a tenant — its conversations, prompts and members are sealed from every other.</div>
+        </div>
+
+        <div className={s.grid}>
+          {workspaces.map((w) => (
+            <button key={w.id} className={s.card} onClick={() => enter(w.id)}>
+              <div className={s.cardMark}>{w.name.charAt(0).toUpperCase()}</div>
+              <div className={s.cardName}>{w.name}</div>
+              <div className={`mono ${s.cardRole}`}>{ROLE_META[w.role].sigil} {w.role}</div>
+            </button>
+          ))}
+          <div className={s.actions}>
+            <Button variant="primary" onClick={() => { setText(""); setDialog("create"); }}>+ New workspace</Button>
+            <Button variant="ghost" onClick={() => { setText(""); setDialog("invite"); }}>Join via invite</Button>
+          </div>
+        </div>
+
+        {workspaces.length === 0 && (
+          <div style={{ color: "var(--ink-3)", fontStyle: "italic", marginTop: 24 }}>
+            You're not in any workspace yet — create one to begin.
+          </div>
+        )}
+      </div>
+
+      {dialog === "create" && (
+        <Dialog title="New workspace" onClose={() => setDialog(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
+            <Button variant="primary" onClick={doCreate} disabled={busy}>Create</Button>
+          </>}>
+          <Input placeholder="Workspace name (e.g. Cipher Labs)" value={text} autoFocus
+            onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doCreate()} />
+        </Dialog>
+      )}
+      {dialog === "invite" && (
+        <Dialog title="Join via invite" onClose={() => setDialog(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
+            <Button variant="primary" onClick={doAccept} disabled={busy}>Join</Button>
+          </>}>
+          <Input placeholder="Paste invite token" value={text} autoFocus
+            onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doAccept()} />
+        </Dialog>
+      )}
+    </div>
+  );
+}

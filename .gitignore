@@ -36,3 +36,7 @@ ollama-data/
 # Local SQLite dev database
 *.db
 helix.db
+
+# Standalone Ouroboros clone (own git repo + 256MB venv + real .env); the
+# engine Helix uses is vendored at backend/engine/ouroboros/.
+/Ouroboros/

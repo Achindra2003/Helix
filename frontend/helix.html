@@ -1,0 +1,871 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Helix — collaborative workspace for the recursive mind</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cinzel+Decorative:wght@400;700;900&family=IM+Fell+English:ital@0;1&family=JetBrains+Mono:wght@400;500;600&family=UnifrakturMaguntia&display=swap" rel="stylesheet">
+<style>
+  /* ===== Alchemical-manuscript theme (ported from Helix.html design tokens) ===== */
+  :root{
+    --paper:#E6DCC2; --paper-2:#DED2B4; --paper-3:#D3C5A2; --paper-4:#C8B68F;
+    --ink:#241B12; --ink-2:#4B3D2A; --ink-3:#796A4F; --ink-faint:#A2906E;
+    --rule:rgba(36,27,18,0.26); --rule-soft:rgba(36,27,18,0.13);
+    --oxblood:#8C2B1E; --oxblood-2:#A8341F; --cinnabar:#B23A22;
+    --gilt:#9A7A2C; --gilt-2:#C0992F; --verde:#46624C;
+    --char:#15110B; --char-2:#1F1810; --char-3:#2A2114;
+    --ember:#C5752A; --ash:#C2B393; --ash-2:#8C7E62;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;height:100%;background:var(--paper-2);color:var(--ink);
+    font-family:'IM Fell English',Georgia,serif;font-size:16px;overflow:hidden;}
+  button{font-family:inherit;cursor:pointer;}
+  ::selection{background:rgba(140,43,30,0.22);color:var(--ink);}
+  ::-webkit-scrollbar{width:11px;height:11px;}
+  ::-webkit-scrollbar-thumb{background:rgba(36,27,18,0.22);border:3px solid transparent;background-clip:content-box;}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(36,27,18,0.38);background-clip:content-box;}
+  ::-webkit-scrollbar-track{background:transparent;}
+  textarea::placeholder,input::placeholder{color:var(--ink-faint);font-style:italic;}
+  .mono{font-family:'JetBrains Mono',monospace;}
+  .serif-d{font-family:'Cinzel',serif;}
+  @keyframes hx-grain{0%,100%{transform:translate(0,0);}20%{transform:translate(-3%,2%);}40%{transform:translate(2%,-2%);}60%{transform:translate(-2%,1%);}80%{transform:translate(1%,3%);}}
+  @keyframes hx-spin{to{transform:rotate(360deg);}}
+  @keyframes hx-spin-rev{to{transform:rotate(-360deg);}}
+  @keyframes hx-breathe{0%,100%{opacity:.45;}50%{opacity:1;}}
+  @keyframes hx-blink{0%,49%{opacity:1;}50%,100%{opacity:0;}}
+  @keyframes hx-rise{from{opacity:0;transform:translateY(14px);}to{opacity:1;transform:none;}}
+  @keyframes hx-draw{to{stroke-dashoffset:0;}}
+  /* texture overlays */
+  .tex-grain{position:fixed;inset:-12%;width:124%;height:124%;pointer-events:none;opacity:.07;mix-blend-mode:multiply;z-index:60;animation:hx-grain 9s steps(5) infinite;}
+  .tex-vig{position:fixed;inset:0;pointer-events:none;z-index:58;background:radial-gradient(125% 105% at 50% 38%, rgba(230,220,194,0) 52%, rgba(60,42,22,0.20) 100%);}
+  .tex-warm{position:fixed;inset:0;pointer-events:none;z-index:59;background:radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%),radial-gradient(50% 40% at 88% 90%, rgba(140,43,30,0.05), transparent 60%);}
+  /* generic */
+  .pane{background:var(--paper);min-height:0;display:flex;flex-direction:column;}
+  .eyebrow{font-size:11px;letter-spacing:.16em;text-transform:uppercase;color:var(--ink-3);font-weight:600;font-family:'Cinzel',serif;}
+  .chip{font-family:'JetBrains Mono',monospace;font-size:11px;border:1px solid var(--rule-soft);border-radius:5px;padding:2px 7px;display:inline-flex;gap:5px;align-items:center;}
+  .btn{border:1px solid var(--rule);background:var(--paper-3);color:var(--ink);border-radius:8px;padding:8px 13px;font-size:13px;display:inline-flex;align-items:center;gap:7px;}
+  .btn:hover{background:var(--paper-4);}
+  .btn-gilt{background:linear-gradient(180deg,var(--gilt-2),var(--gilt));color:#1A1404;border:none;font-weight:700;box-shadow:0 4px 16px rgba(154,122,44,0.28);}
+  .btn-gilt:hover{filter:brightness(1.06);}
+  .row-hover:hover{background:var(--paper-3);}
+  a{color:var(--oxblood);}
+</style>
+</head>
+<body>
+<div class="tex-grain"><svg width="100%" height="100%"><filter id="hxGrain"><feTurbulence type="fractalNoise" baseFrequency="0.85" numOctaves="2" stitchTiles="stitch"/></filter><rect width="100%" height="100%" filter="url(#hxGrain)"/></svg></div>
+<div class="tex-vig"></div>
+<div class="tex-warm"></div>
+<div id="app" style="position:relative;z-index:1;height:100%;"></div>
+
+<script>
+/* =========================================================================
+   Helix demo frontend — vanilla JS, wired to the live FastAPI backend.
+   Backend must run on :8000; serve THIS file on :5173 (CORS allows that origin).
+   ========================================================================= */
+const CONFIG = {
+  API: 'http://127.0.0.1:8000',
+  WS: 'w1',           // workspace_id (backend default tenant)
+  ME: 'u1',           // author_id for "you"
+  ME_NAME: 'Maren',
+};
+
+/* ---- small helpers ---- */
+const $ = sel => document.querySelector(sel);
+const el = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const initialOf = n => (n || '?').trim().charAt(0).toUpperCase();
+const nowTime = () => { const d=new Date(); return String(d.getHours()).padStart(2,'0')+':'+String(d.getMinutes()).padStart(2,'0'); };
+
+async function api(path, opts={}){
+  const res = await fetch(CONFIG.API + path, {
+    headers:{'Content-Type':'application/json'}, ...opts,
+  });
+  if(!res.ok){ let e; try{ e=await res.json(); }catch{ e={}; } throw new Error(e?.error?.message || ('HTTP '+res.status)); }
+  return res.json();
+}
+
+/* SSE over POST: backend streams `data: {json}\n\n` frames, ending with `data: [DONE]`. */
+async function streamSSE(path, body, onEvent, signal){
+  const res = await fetch(CONFIG.API + path, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify(body), signal,
+  });
+  if(!res.ok){ let e; try{ e=await res.json(); }catch{ e={}; } throw new Error(e?.error?.message || ('HTTP '+res.status)); }
+  const reader = res.body.getReader();
+  const dec = new TextDecoder();
+  let buf = '';
+  while(true){
+    const {value, done} = await reader.read();
+    if(done) break;
+    buf += dec.decode(value, {stream:true});
+    let i;
+    while((i = buf.indexOf('\n\n')) >= 0){
+      const frame = buf.slice(0,i); buf = buf.slice(i+2);
+      const line = frame.split('\n').find(l => l.startsWith('data: '));
+      if(!line) continue;
+      const data = line.slice(6);
+      if(data === '[DONE]'){ onEvent({kind:'done'}); continue; }
+      try{ onEvent(JSON.parse(data)); }catch(_){}
+    }
+  }
+}
+
+/* =========================== app state =========================== */
+const state = {
+  screen: 'auth',          // auth | app
+  view: 'chat',            // chat | library | members
+  role: 'owner',           // owner | collaborator | observer
+  conversations: [],       // {id, branchId, title, visibility, branches:[{id,name,parentId,depth,deep}], activeBranch}
+  activeConvId: null,
+  prompts: [],
+  library: { search: '' },
+  run: null,               // deep-reasoning run state
+  busy: false,             // chat streaming in flight
+};
+
+const canAct = () => state.role === 'owner' || state.role === 'collaborator';
+const activeConv = () => state.conversations.find(c => c.id === state.activeConvId) || null;
+const activeBranchId = () => { const c = activeConv(); return c ? c.activeBranch : null; };
+const activeBranch = () => { const c = activeConv(); return c ? c.branches.find(b => b.id === c.activeBranch) : null; };
+
+/* =========================== ICON helpers =========================== */
+const logoSvg = (size=34) => `
+  <svg viewBox="0 0 44 44" style="width:${size}px;height:${size}px;">
+    <circle cx="22" cy="22" r="18" fill="none" stroke="var(--gilt)" stroke-width="1.4" stroke-dasharray="92 16" stroke-linecap="round"/>
+    <circle cx="22" cy="22" r="12.5" fill="none" stroke="var(--oxblood)" stroke-width="1" opacity="0.7"/>
+    <circle cx="6.5" cy="22" r="2.1" fill="var(--gilt-2)"/>
+  </svg>`;
+
+/* =========================== AUTH SCREEN =========================== */
+function renderAuth(){
+  const root = $('#app');
+  root.innerHTML = '';
+  root.appendChild(el(`
+  <div style="height:100%;display:flex;align-items:stretch;background:radial-gradient(130% 110% at 50% 0%, #ECE2C8 0%, #DED2B4 50%, #CDBC95 100%);">
+    <div style="flex:1;position:relative;display:flex;align-items:center;justify-content:center;border-right:1px solid var(--rule);overflow:hidden;">
+      <svg viewBox="0 0 700 700" style="width:760px;height:760px;color:var(--ink);opacity:.9;">
+        <g fill="none" stroke="currentColor" stroke-width="1.1" opacity="0.30">
+          <circle cx="350" cy="350" r="300" style="stroke-dasharray:1885;stroke-dashoffset:1885;animation:hx-draw 3s ease forwards .1s;"/>
+          <circle cx="350" cy="350" r="232" stroke-dasharray="3 9"/>
+          <circle cx="350" cy="350" r="168" style="stroke-dasharray:1056;stroke-dashoffset:1056;animation:hx-draw 3s ease forwards .5s;"/>
+          <polygon points="350,70 593,490 107,490" style="stroke-dasharray:1460;stroke-dashoffset:1460;animation:hx-draw 3.4s ease forwards .3s;"/>
+          <polygon points="350,630 107,210 593,210" style="stroke-dasharray:1460;stroke-dashoffset:1460;animation:hx-draw 3.4s ease forwards .6s;"/>
+          <line x1="50" y1="350" x2="650" y2="350"/>
+          <line x1="350" y1="50" x2="350" y2="650"/>
+        </g>
+      </svg>
+      <div style="position:absolute;bottom:34px;left:0;right:0;text-align:center;color:var(--ink-3);font-style:italic;font-size:14px;">"As above, so below — one shared context, many branching minds."</div>
+    </div>
+    <div style="width:480px;display:flex;align-items:center;justify-content:center;padding:0 56px;">
+      <div style="width:100%;display:flex;flex-direction:column;gap:22px;animation:hx-rise .8s ease both;">
+        <div style="display:flex;align-items:center;gap:14px;">
+          ${logoSvg(52)}
+          <div>
+            <div style="font-family:'Cinzel Decorative',serif;font-weight:700;font-size:40px;letter-spacing:.04em;color:var(--oxblood);line-height:1;">Helix</div>
+            <div style="font-style:italic;font-size:14px;color:var(--ink-3);margin-top:4px;">A collaborative workspace for the recursive mind</div>
+          </div>
+        </div>
+        <div style="display:flex;gap:4px;background:var(--paper-3);border:1px solid var(--rule-soft);border-radius:10px;padding:4px;">
+          <button id="tab-in" style="flex:1;border:none;border-radius:7px;padding:9px;font-size:14px;background:var(--paper);color:var(--ink);box-shadow:0 1px 3px rgba(0,0,0,.12);">Sign in</button>
+          <button id="tab-up" style="flex:1;border:none;border-radius:7px;padding:9px;font-size:14px;background:transparent;color:var(--ink-3);">Create account</button>
+        </div>
+        <label style="display:flex;flex-direction:column;gap:6px;">
+          <span class="eyebrow">Email</span>
+          <input class="mono" value="maren@cipherlabs.io" style="background:var(--paper);border:1px solid var(--rule);border-radius:9px;padding:12px 14px;color:var(--ink);font-size:14px;outline:none;">
+        </label>
+        <label style="display:flex;flex-direction:column;gap:6px;">
+          <span class="eyebrow">Password</span>
+          <input class="mono" type="password" value="alchemist" style="background:var(--paper);border:1px solid var(--rule);border-radius:9px;padding:12px 14px;color:var(--ink);font-size:14px;outline:none;">
+        </label>
+        <button id="enter" class="btn-gilt" style="border-radius:9px;padding:13px;font-size:15px;justify-content:center;">Enter workspace ⟶</button>
+        <div id="auth-status" class="mono" style="font-size:11.5px;color:var(--ink-faint);display:flex;gap:12px;align-items:center;justify-content:center;">
+          <span>☉ groq</span><span>·</span><span>☽ ollama</span><span>·</span><span id="health">checking…</span>
+        </div>
+      </div>
+    </div>
+  </div>`));
+  $('#enter').onclick = enterApp;
+  // live health check so the presenter knows the backend is reachable
+  api('/health').then(h => { $('#health').textContent = 'api ✓ ('+h.provider+')'; $('#health').style.color='var(--verde)'; })
+                .catch(() => { $('#health').textContent = 'api offline — start backend :8000'; $('#health').style.color='var(--oxblood)'; });
+}
+
+async function enterApp(){
+  state.screen = 'app';
+  renderApp();
+  try { await bootstrap(); } catch(e){ console.error(e); }
+}
+
+/* =========================== BOOTSTRAP (seed data) =========================== */
+async function bootstrap(){
+  // 1) Seed the prompt library if empty (cheap, no LLM calls).
+  let lib = await api(`/workspaces/${CONFIG.WS}/prompts`).catch(()=>({prompts:[]}));
+  if(!lib.prompts || lib.prompts.length === 0){
+    const seed = [
+      {title:'Socratic critique', body:'Interrogate the argument above. Surface its weakest assumption, then steelman the opposite view in three sentences.', tags:['review','reasoning']},
+      {title:'Extract action items', body:'From the thread above, list every commitment as: owner — action — due signal. Omit discussion.', tags:['summarize','team']},
+      {title:'Adversarial red-team', body:'You are a hostile reviewer. Find the three ways this design fails under load, bad input, or a malicious tenant.', tags:['security','reasoning']},
+      {title:'Tighten prose', body:'Rewrite the passage above 30% shorter with no loss of meaning. Prefer plain verbs.', tags:['writing']},
+      {title:'Explain like a senior', body:'Explain the concept to a strong engineer new to the domain. One analogy, then the precise mechanism.', tags:['teaching']},
+    ];
+    for(const p of seed){ await api(`/workspaces/${CONFIG.WS}/prompts`, {method:'POST', body:JSON.stringify({author_id:CONFIG.ME, ...p})}).catch(()=>{}); }
+    lib = await api(`/workspaces/${CONFIG.WS}/prompts`).catch(()=>({prompts:[]}));
+  }
+  state.prompts = lib.prompts || [];
+
+  // 2) Start with one fresh conversation so the stage isn't empty.
+  if(state.conversations.length === 0){
+    await newConversation('Retrieval chunking strategy', false);
+  }
+  renderApp();
+}
+
+async function newConversation(title='Untitled', focus=true){
+  const r = await api('/conversations', {method:'POST', body:JSON.stringify({
+    workspace_id:CONFIG.WS, author_id:CONFIG.ME, title, visibility:'shared',
+  })});
+  const conv = {
+    id:r.conversation_id, branchId:r.branch_id, title, visibility:'shared',
+    branches:[{id:r.branch_id, name:'main', parentId:null, depth:0, deep:false}],
+    activeBranch:r.branch_id, messages:[], headNodeId:null, hasRun:false,
+  };
+  state.conversations.unshift(conv);
+  state.activeConvId = conv.id;
+  if(focus){ state.view='chat'; renderApp(); }
+  return conv;
+}
+
+/* =========================== APP SHELL =========================== */
+function renderApp(){
+  const root = $('#app');
+  root.innerHTML = '';
+  root.appendChild(el(`
+  <div style="height:100%;display:grid;grid-template-columns:68px 1fr;">
+    <!-- RAIL -->
+    <div style="background:var(--paper-3);border-right:1px solid var(--rule-soft);display:flex;flex-direction:column;align-items:center;padding:14px 0;gap:6px;">
+      <div id="rail-logo" title="Helix — sign out" style="margin-bottom:12px;">${logoSvg(34)}</div>
+      <button class="rail-nav" data-view="chat"    title="Conversations" style="${railStyle('chat')}"><span style="font-size:18px;">⌇</span><span class="mono" style="font-size:8px;">CHAT</span></button>
+      <button class="rail-nav" data-view="library" title="Prompt library" style="${railStyle('library')}"><span style="font-size:18px;">▦</span><span class="mono" style="font-size:8px;">LIBR</span></button>
+      <button class="rail-nav" data-view="members" title="Members & roles" style="${railStyle('members')}"><span style="font-size:18px;">♔</span><span class="mono" style="font-size:8px;">TEAM</span></button>
+      <div style="flex:1;"></div>
+      <div title="${esc(CONFIG.ME_NAME)}" style="width:36px;height:36px;border-radius:50%;background:var(--gilt);color:#1A1404;display:flex;align-items:center;justify-content:center;font-weight:700;border:1.5px solid var(--gilt-2);font-family:'Cinzel',serif;">${initialOf(CONFIG.ME_NAME)}</div>
+    </div>
+    <!-- MAIN -->
+    <div style="display:flex;flex-direction:column;min-width:0;${state.role==='observer'?'opacity:.92;':''}">
+      ${topBarHtml()}
+      <div id="view-body" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>
+    </div>
+  </div>`));
+
+  $('#rail-logo').onclick = () => { state.screen='auth'; renderAuth(); };
+  document.querySelectorAll('.rail-nav').forEach(b => b.onclick = () => { state.view = b.dataset.view; renderApp(); });
+  bindTopBar();
+
+  if(state.view === 'chat') renderChat();
+  else if(state.view === 'library') renderLibrary();
+  else if(state.view === 'members') renderMembers();
+}
+
+function railStyle(view){
+  const on = state.view === view;
+  return `display:flex;flex-direction:column;align-items:center;gap:3px;width:48px;padding:8px 0;border-radius:9px;border:1px solid ${on?'var(--rule)':'transparent'};
+    background:${on?'var(--paper)':'transparent'};color:${on?'var(--oxblood)':'var(--ink-3)'};`;
+}
+
+function topBarHtml(){
+  const roleMap = {owner:{s:'♔',l:'Owner'}, collaborator:{s:'⌇',l:'Collaborator'}, observer:{s:'◉',l:'Observer'}};
+  const r = roleMap[state.role];
+  const viewLabel = state.view==='chat'?'conversations':(state.view==='library'?'prompt library':'members & roles');
+  return `
+  <div style="height:58px;flex:0 0 58px;background:var(--paper-3);border-bottom:1px solid var(--rule);display:flex;align-items:center;padding:0 20px;gap:18px;">
+    <div style="display:flex;align-items:center;gap:11px;">
+      <div style="width:26px;height:26px;border-radius:7px;background:linear-gradient(135deg,var(--gilt-2),var(--gilt));display:flex;align-items:center;justify-content:center;font-family:'Cinzel',serif;font-weight:600;color:#1A1404;">C</div>
+      <div style="display:flex;flex-direction:column;line-height:1.15;">
+        <span style="font-size:14px;font-weight:600;font-family:'Cinzel',serif;">Cipher Labs</span>
+        <span class="mono" style="font-size:11px;color:var(--ink-3);">${viewLabel}</span>
+      </div>
+    </div>
+    <div style="flex:1;"></div>
+    <div style="display:flex;align-items:center;gap:-4px;">
+      ${['M','A','S','L'].map((i,k)=>`<div title="online" style="width:26px;height:26px;border-radius:50%;background:${['#9A7A2C','#46624C','#6E5AA8','#9A6B4B'][k]};color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;border:2px solid var(--paper-3);margin-left:-6px;">${i}</div>`).join('')}
+      <span class="mono" style="font-size:11px;color:var(--ink-3);margin-left:12px;">4 online</span>
+    </div>
+    <div style="height:24px;width:1px;background:var(--rule-soft);"></div>
+    <div style="display:flex;align-items:center;gap:9px;">
+      <div class="chip" style="border-color:var(--rule);color:var(--oxblood);"><span>${r.s}</span><span style="font-weight:600;">${r.l}</span></div>
+      <div style="display:flex;background:var(--paper);border:1px solid var(--rule-soft);border-radius:8px;overflow:hidden;" title="Preview as each role">
+        <button class="role-sw" data-role="owner" style="${roleSw('owner')}">♔</button>
+        <button class="role-sw" data-role="collaborator" style="${roleSw('collaborator')}">⌇</button>
+        <button class="role-sw" data-role="observer" style="${roleSw('observer')}">◉</button>
+      </div>
+    </div>
+  </div>`;
+}
+function roleSw(role){ const on=state.role===role; return `border:none;padding:6px 10px;font-size:13px;background:${on?'var(--paper-3)':'transparent'};color:${on?'var(--oxblood)':'var(--ink-3)'};`; }
+function bindTopBar(){ document.querySelectorAll('.role-sw').forEach(b => b.onclick = () => { state.role=b.dataset.role; renderApp(); }); }
+
+/* =========================== CHAT VIEW =========================== */
+function renderChat(){
+  const body = $('#view-body');
+  body.innerHTML = '';
+  body.appendChild(el(`
+  <div style="flex:1;min-height:0;display:grid;grid-template-columns:248px 1fr 360px;">
+    <div id="left-pane" class="pane" style="border-right:1px solid var(--rule-soft);"></div>
+    <div id="stage" style="background:var(--paper-2);display:flex;flex-direction:column;min-width:0;position:relative;"></div>
+    <div id="monitor" class="pane" style="border-left:1px solid var(--rule-soft);"></div>
+  </div>`));
+  renderLeftPane();
+  renderStage();
+  renderMonitor();
+}
+
+function renderLeftPane(){
+  const p = $('#left-pane');
+  if(!p) return;
+  const conv = activeConv();
+  p.innerHTML = '';
+  p.appendChild(el(`
+  <div style="padding:15px 16px 11px;display:flex;align-items:center;justify-content:space-between;">
+    <span class="eyebrow">Conversations</span>
+    ${canAct()?`<button id="new-conv" title="New conversation" style="background:none;border:none;color:var(--oxblood);font-size:20px;line-height:1;">+</button>`:''}
+  </div>
+  <div style="overflow-y:auto;flex:1;padding:0 9px 12px;">
+    <div id="conv-list"></div>
+    <div style="margin:16px 7px 8px;height:1px;background:var(--rule-soft);"></div>
+    <div style="padding:4px 7px 10px;display:flex;align-items:center;gap:7px;">
+      <span style="color:var(--oxblood);font-size:14px;">⌇</span><span class="eyebrow">Branch lineage</span>
+    </div>
+    <div id="branch-list"></div>
+  </div>
+  <div class="mono" style="padding:11px 16px;border-top:1px solid var(--rule-soft);font-size:10.5px;color:var(--ink-faint);display:flex;align-items:center;gap:7px;">
+    <span style="width:6px;height:6px;border-radius:50%;background:var(--verde);"></span> live · server-ordered log
+  </div>`));
+
+  const list = p.querySelector('#conv-list');
+  state.conversations.forEach(c => {
+    const on = c.id === state.activeConvId;
+    const row = el(`
+      <div class="row-hover" style="display:flex;gap:9px;padding:9px 8px;border-radius:8px;cursor:pointer;${on?'background:var(--paper-3);':''}">
+        <span style="font-size:13px;color:${c.visibility==='private'?'var(--ink-3)':'var(--oxblood)'};margin-top:1px;">${c.visibility==='private'?'◍':'⊙'}</span>
+        <div style="min-width:0;flex:1;">
+          <div style="font-size:13.5px;color:var(--ink);font-weight:${on?600:400};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${esc(c.title)}</div>
+          <div class="mono" style="font-size:11px;color:var(--ink-faint);margin-top:2px;">${c.messages.length} nodes · ${c.branches.length} branch${c.branches.length>1?'es':''}</div>
+        </div>
+        ${c.hasRun?`<span title="reasoning run" style="color:var(--oxblood);font-size:12px;animation:hx-breathe 2.2s ease-in-out infinite;">⟳</span>`:''}
+      </div>`);
+    row.onclick = () => { state.activeConvId=c.id; renderChat(); };
+    list.appendChild(row);
+  });
+
+  const bl = p.querySelector('#branch-list');
+  if(conv){
+    conv.branches.forEach(b => {
+      const on = b.id === conv.activeBranch;
+      const row = el(`
+        <div class="row-hover" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border-radius:7px;cursor:pointer;${on?'background:var(--paper-3);':''}">
+          <span class="mono" style="font-size:12px;color:var(--ink-faint);width:${b.depth*14}px;display:inline-block;text-align:right;">${b.depth?'└':''}</span>
+          <span style="width:8px;height:8px;border-radius:50%;background:${on?'var(--oxblood)':'var(--ink-faint)'};box-shadow:0 0 0 3px ${on?'rgba(140,43,30,0.14)':'transparent'};"></span>
+          <span class="mono" style="font-size:12.5px;color:${on?'var(--ink)':'var(--ink-3)'};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex:1;">${esc(b.name)}</span>
+          ${b.deep?`<span title="deep-reasoning branch" style="color:var(--oxblood);font-size:11px;">⟳</span>`:''}
+        </div>`);
+      row.onclick = () => { conv.activeBranch=b.id; loadBranch(b.id); };
+      bl.appendChild(row);
+    });
+  }
+
+  const nc = p.querySelector('#new-conv');
+  if(nc) nc.onclick = async () => { const t = prompt('Conversation title:', 'Untitled'); if(t!==null) await newConversation(t.trim()||'Untitled'); };
+}
+
+async function loadBranch(branchId){
+  const conv = activeConv();
+  try{
+    const r = await api(`/conversations/branches/${branchId}/history`);
+    conv.messages = r.nodes.map(nodeToMsg);
+    conv.headNodeId = r.nodes.length ? r.nodes[r.nodes.length-1].id : null;
+  }catch(e){ console.error(e); }
+  renderChat();
+}
+
+function nodeToMsg(n){
+  return {
+    id:n.id, role:n.role,
+    name: n.role==='assistant' ? 'Helix' : (n.author_id===CONFIG.ME ? CONFIG.ME_NAME : (n.author_id||'teammate')),
+    initial: n.role==='assistant' ? '⟳' : initialOf(n.author_id===CONFIG.ME?CONFIG.ME_NAME:(n.author_id||'T')),
+    body:n.content, time:'', tokens: n.token_count ? (n.token_count+' tokens') : '',
+  };
+}
+
+function renderStage(){
+  const stage = $('#stage');
+  if(!stage) return;
+  const conv = activeConv();
+  stage.innerHTML = '';
+  if(!conv){
+    stage.appendChild(el(`<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--ink-3);font-style:italic;">No conversation selected.</div>`));
+    return;
+  }
+  const br = activeBranch();
+  stage.appendChild(el(`
+    <svg viewBox="0 0 400 400" style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:560px;height:560px;opacity:.05;pointer-events:none;">
+      <circle cx="200" cy="200" r="180" fill="none" stroke="var(--ink)" stroke-width="1"/>
+      <circle cx="200" cy="200" r="130" fill="none" stroke="var(--ink)" stroke-width="1" stroke-dasharray="1 7"/>
+      <polygon points="200,40 339,280 61,280" fill="none" stroke="var(--ink)" stroke-width="1"/>
+      <polygon points="200,360 61,120 339,120" fill="none" stroke="var(--ink)" stroke-width="1"/>
+    </svg>
+    <div style="padding:16px 26px 13px;border-bottom:1px solid var(--rule-soft);display:flex;align-items:center;gap:14px;position:relative;">
+      <div style="flex:1;min-width:0;">
+        <div class="serif-d" style="font-size:24px;color:var(--ink);line-height:1.1;">${esc(conv.title)}</div>
+        <div style="display:flex;align-items:center;gap:11px;margin-top:5px;">
+          <span class="chip" style="color:${conv.visibility==='private'?'var(--ink-3)':'var(--oxblood)'};">${conv.visibility==='private'?'◍ private':'⊙ shared'}</span>
+          <span class="mono" style="font-size:12px;color:var(--ink-3);">on <span style="color:var(--oxblood);">${esc(br?br.name:'main')}</span></span>
+          <span class="mono" style="font-size:12px;color:var(--ink-faint);">${conv.messages.length} nodes</span>
+        </div>
+      </div>
+      ${canAct()?`<button id="fork-btn" class="btn"><span style="color:var(--oxblood);">⌇</span> Fork</button>`:''}
+    </div>
+    <div id="canvas" style="flex:1;overflow-y:auto;padding:24px 26px 14px;display:flex;flex-direction:column;gap:20px;position:relative;"></div>
+    <div style="padding:14px 26px 20px;border-top:1px solid var(--rule-soft);position:relative;" id="composer-wrap"></div>
+  `));
+
+  const canvas = stage.querySelector('#canvas');
+  if(conv.messages.length === 0){
+    canvas.appendChild(el(`<div style="margin:auto;text-align:center;color:var(--ink-3);max-width:380px;">
+      <div class="serif-d" style="font-size:22px;color:var(--ink-2);">A blank page</div>
+      <div style="font-style:italic;margin-top:8px;">Send the first message — the whole team shares this thread, and any reply can be forked into its own branch.</div></div>`));
+  } else {
+    conv.messages.forEach(m => canvas.appendChild(messageEl(m)));
+  }
+
+  const cw = stage.querySelector('#composer-wrap');
+  if(canAct()){
+    cw.appendChild(el(`
+      <div style="background:var(--paper);border:1px solid var(--rule);border-radius:13px;padding:12px 14px;display:flex;flex-direction:column;gap:10px;box-shadow:0 4px 22px rgba(36,27,18,0.10);">
+        <textarea id="composer" placeholder="Continue the thread, or escalate to Deep Reasoning…" rows="2" style="background:none;border:none;outline:none;resize:none;color:var(--ink);font-size:15px;font-family:'IM Fell English',serif;line-height:1.5;"></textarea>
+        <div style="display:flex;align-items:center;gap:10px;">
+          <button id="lib-btn" class="btn" style="padding:6px 11px;font-size:12.5px;"><span style="color:var(--oxblood);">▦</span> Library</button>
+          <button id="deep-btn" class="btn" style="padding:6px 11px;font-size:12.5px;border-color:var(--oxblood);color:var(--oxblood);"><span>⟳</span> Deep Reasoning</button>
+          <div style="flex:1;"></div>
+          <span class="mono" id="prov-label" style="font-size:11px;color:var(--ink-faint);">☉ groq</span>
+          <button id="send-btn" class="btn-gilt" style="border-radius:8px;width:36px;height:36px;justify-content:center;font-size:16px;">↑</button>
+        </div>
+      </div>`));
+    stage.querySelector('#send-btn').onclick = sendMessage;
+    stage.querySelector('#deep-btn').onclick = escalateDeep;
+    stage.querySelector('#lib-btn').onclick = () => { state.view='library'; renderApp(); };
+    const ta = stage.querySelector('#composer');
+    ta.addEventListener('keydown', e => { if(e.key==='Enter' && !e.shiftKey){ e.preventDefault(); sendMessage(); } });
+    ta.focus();
+  } else {
+    cw.appendChild(el(`<div style="background:var(--paper);border:1px solid var(--rule-soft);border-radius:13px;padding:14px 18px;display:flex;align-items:center;gap:12px;color:var(--ink-3);">
+      <span style="font-size:16px;">◉</span><span style="font-size:13.5px;">You are an <strong style="color:var(--ink-2);">Observer</strong> — read-only. You may watch live conversations and runs, but cannot send, fork, or steer.</span></div>`));
+  }
+
+  const fb = stage.querySelector('#fork-btn');
+  if(fb) fb.onclick = forkBranch;
+  canvas.scrollTop = canvas.scrollHeight;
+}
+
+function messageEl(m){
+  const isAssistant = m.role === 'assistant';
+  const node = el(`
+    <div style="display:flex;gap:14px;align-items:flex-start;" data-mid="${esc(m.id)}">
+      <div style="width:34px;height:34px;border-radius:${isAssistant?'9px':'50%'};flex:0 0 auto;display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
+        background:${isAssistant?'linear-gradient(135deg,var(--oxblood),#5e1d14)':'var(--gilt)'};color:#F2E8CE;font-family:'Cinzel',serif;">${esc(m.initial)}</div>
+      <div style="min-width:0;flex:1;">
+        <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:5px;">
+          <span style="font-size:13.5px;font-weight:600;color:${isAssistant?'var(--oxblood)':'var(--ink)'};">${esc(m.name)}</span>
+          ${m.time?`<span class="mono" style="font-size:11px;color:var(--ink-faint);">${esc(m.time)}</span>`:''}
+        </div>
+        <div class="msg-body" style="font-size:15.5px;line-height:1.62;color:var(--ink-2);white-space:pre-wrap;">${esc(m.body)}${m.typing?`<span style="display:inline-block;width:8px;height:17px;background:var(--oxblood);margin-left:3px;vertical-align:text-bottom;animation:hx-blink 1s step-end infinite;"></span>`:''}</div>
+        ${m.tokens?`<div class="mono" style="font-size:11px;color:var(--ink-faint);margin-top:7px;">${esc(m.tokens)}</div>`:''}
+      </div>
+    </div>`);
+  return node;
+}
+
+/* ---- send a chat turn (live SSE) ---- */
+async function sendMessage(){
+  if(state.busy) return;
+  const conv = activeConv();
+  const ta = $('#composer');
+  const text = (ta?.value || '').trim();
+  if(!text || !conv) return;
+  ta.value = '';
+  state.busy = true;
+
+  // optimistic user bubble
+  const um = {id:'tmp-u', role:'user', name:CONFIG.ME_NAME, initial:initialOf(CONFIG.ME_NAME), body:text, time:nowTime(), tokens:''};
+  conv.messages.push(um);
+  const canvas = $('#canvas');
+  // clear empty-state if present
+  if(conv.messages.length===1) canvas.innerHTML='';
+  canvas.appendChild(messageEl(um));
+
+  // streaming assistant bubble
+  const am = {id:'tmp-a', role:'assistant', name:'Helix', initial:'⟳', body:'', time:nowTime(), tokens:'', typing:true};
+  const amNode = messageEl(am);
+  canvas.appendChild(amNode);
+  const bodyEl = amNode.querySelector('.msg-body');
+  canvas.scrollTop = canvas.scrollHeight;
+
+  let acc = '';
+  try{
+    await streamSSE(`/conversations/${conv.activeBranch}/messages`, {prompt:text, author_id:CONFIG.ME}, ev => {
+      if(ev.kind==='user_node'){ um.id = ev.node.id; }
+      else if(ev.kind==='token'){ acc += ev.text; bodyEl.textContent = acc; canvas.scrollTop = canvas.scrollHeight; }
+      else if(ev.kind==='assistant_node'){ am.id = ev.node.id; conv.headNodeId = ev.node.id; if(ev.node.token_count){ am.tokens = ev.node.token_count+' tokens · ☉ groq'; } }
+      else if(ev.kind==='complete' && ev.status==='error'){ acc += '\n['+ev.stop_reason+']'; bodyEl.textContent = acc; }
+    });
+  }catch(e){ bodyEl.textContent = acc + '\n[stream error: '+e.message+']'; }
+
+  am.body = acc; am.typing = false;
+  // finalize bubble (remove cursor, add token meta)
+  amNode.replaceWith(messageEl(am));
+  state.busy = false;
+  renderLeftPane();
+}
+
+/* ---- fork the active branch at its head node ---- */
+async function forkBranch(){
+  const conv = activeConv();
+  if(!conv) return;
+  if(!conv.headNodeId){ alert('Send at least one message before forking — a fork needs a node to branch from.'); return; }
+  const name = (prompt('Name the new branch:', 'experiment') || '').trim() || 'experiment';
+  try{
+    const r = await api(`/conversations/${conv.id}/fork`, {method:'POST', body:JSON.stringify({from_node_id:conv.headNodeId, name})});
+    const parent = conv.branches.find(b=>b.id===conv.activeBranch);
+    conv.branches.push({id:r.branch_id, name:r.name, parentId:conv.activeBranch, depth:(parent?parent.depth+1:1), deep:false});
+    conv.activeBranch = r.branch_id;
+    await loadBranch(r.branch_id);  // inherits the ancestor spine
+  }catch(e){ alert('Fork failed: '+e.message); }
+}
+
+/* =========================== DEEP REASONING MONITOR =========================== */
+function renderMonitor(){
+  const m = $('#monitor');
+  if(!m) return;
+  const run = state.run;
+  m.innerHTML = '';
+  m.appendChild(el(`
+    <div style="padding:15px 18px 13px;border-bottom:1px solid var(--rule-soft);display:flex;align-items:center;gap:10px;">
+      <span style="color:var(--oxblood);font-size:15px;">⟳</span>
+      <span class="eyebrow" style="flex:1;letter-spacing:.14em;">Deep Reasoning</span>
+      <span id="run-status" class="mono" style="font-size:11px;color:var(--ink-3);">${run?statusLabel(run.status):'idle'}</span>
+    </div>
+    <div id="monitor-body" style="flex:1;min-height:0;display:flex;flex-direction:column;"></div>`));
+
+  const body = m.querySelector('#monitor-body');
+  if(!run){
+    body.appendChild(el(`
+      <div style="flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;padding:30px 26px;text-align:center;">
+        <svg viewBox="0 0 120 120" style="width:92px;height:92px;opacity:.5;">
+          <circle cx="60" cy="60" r="46" fill="none" stroke="var(--rule)" stroke-width="1"/>
+          <circle cx="60" cy="60" r="33" fill="none" stroke="var(--rule-soft)" stroke-width="1" stroke-dasharray="2 5"/>
+          <circle cx="60" cy="60" r="20" fill="none" stroke="var(--rule-soft)" stroke-width="1"/>
+          <circle cx="14" cy="60" r="3" fill="var(--gilt)"/>
+        </svg>
+        <div class="serif-d" style="font-size:20px;color:var(--ink-2);">The monitor is quiet</div>
+        <div style="font-size:13px;color:var(--ink-3);line-height:1.55;max-width:236px;">Escalate a hard question into a recursive reason → reflect → synthesize run. Every step appears here — with a kill switch and a live budget meter.</div>
+      </div>`));
+    return;
+  }
+
+  body.appendChild(el(`
+    <div style="padding:18px;display:flex;gap:16px;align-items:center;border-bottom:1px solid var(--rule-soft);">
+      <div style="position:relative;width:78px;height:78px;flex:0 0 auto;">
+        <svg viewBox="0 0 100 100" style="width:78px;height:78px;${run.status==='live'?'animation:hx-spin 9s linear infinite;':''}">
+          <circle cx="50" cy="50" r="40" fill="none" stroke="var(--oxblood)" stroke-width="2.5" stroke-dasharray="210 41" stroke-linecap="round"/>
+          <circle cx="10" cy="50" r="4" fill="var(--gilt-2)"/>
+        </svg>
+        <div style="position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;">
+          <span class="mono" style="font-size:17px;color:var(--ink);font-weight:600;">${run.depth}</span>
+          <span style="font-size:8px;letter-spacing:.12em;color:var(--ink-faint);text-transform:uppercase;">depth</span>
+        </div>
+      </div>
+      <div style="flex:1;display:flex;flex-direction:column;gap:11px;">
+        <div>
+          <div class="mono" style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink-3);margin-bottom:4px;"><span>ENERGY</span><span>${Math.round(run.energy)}</span></div>
+          <div style="height:5px;background:var(--paper-4);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${Math.min(100,run.energy)}%;background:var(--verde);transition:width .5s;"></div></div>
+        </div>
+        <div>
+          <div class="mono" style="display:flex;justify-content:space-between;font-size:10.5px;color:var(--ink-3);margin-bottom:4px;"><span>BUDGET</span><span style="color:${run.budgetPct>80?'var(--ember)':'var(--ink-3)'};">${run.budgetPct}%</span></div>
+          <div style="height:5px;background:var(--paper-4);border-radius:3px;overflow:hidden;"><div style="height:100%;width:${run.budgetPct}%;background:${run.budgetPct>80?'var(--ember)':'var(--oxblood)'};transition:width .5s;"></div></div>
+        </div>
+      </div>
+    </div>
+    <div id="trace" style="flex:1;min-height:0;overflow-y:auto;padding:14px 16px;display:flex;flex-direction:column;"></div>
+    <div id="run-controls" style="padding:13px 16px;border-top:1px solid var(--rule-soft);display:flex;gap:9px;"></div>`));
+
+  const trace = body.querySelector('#trace');
+  run.steps.forEach(s => trace.appendChild(stepEl(s)));
+  if(run.answer){
+    trace.appendChild(el(`<div style="margin-top:10px;padding:12px 14px;background:var(--paper-3);border:1px solid var(--rule);border-radius:9px;">
+      <div class="eyebrow" style="color:var(--oxblood);margin-bottom:6px;">Crystallized answer</div>
+      <div style="font-size:14px;line-height:1.6;color:var(--ink);">${esc(run.answer)}</div></div>`));
+  }
+  if(run.status!=='live' && run.stopReason){
+    const ok = run.status==='done';
+    trace.appendChild(el(`<div class="mono" style="margin-top:10px;font-size:11.5px;color:${ok?'var(--verde)':'var(--oxblood)'};">${ok?'✓':'◼'} ${esc(run.status)} · ${esc(run.stopReason)}</div>`));
+  }
+  trace.scrollTop = trace.scrollHeight;
+
+  const ctl = body.querySelector('#run-controls');
+  if(run.status==='live'){
+    ctl.appendChild(el(`<button id="kill-btn" style="flex:1;background:rgba(140,43,30,0.12);border:1px solid var(--oxblood);color:var(--oxblood);border-radius:8px;padding:9px;font-size:13px;font-weight:600;">◼ Kill switch</button>`));
+    ctl.querySelector('#kill-btn').onclick = killRun;
+  } else {
+    ctl.appendChild(el(`<button id="dismiss-btn" class="btn" style="flex:1;justify-content:center;">Dismiss</button>`));
+    ctl.querySelector('#dismiss-btn').onclick = () => { state.run=null; renderMonitor(); const c=activeConv(); if(c){c.hasRun=false;} renderLeftPane(); };
+  }
+}
+function statusLabel(s){ return ({live:'● running', done:'converged', killed:'killed', error:'error'})[s] || s; }
+
+function stepEl(s){
+  const colors = {reason:'var(--ink-2)', think:'var(--ink-2)', reflect:'var(--violet,#6E5AA8)', synthesize:'var(--oxblood)', synth:'var(--oxblood)', breathe:'var(--ink-3)', surface:'var(--gilt)'};
+  const c = colors[s.kind] || 'var(--ink-3)';
+  return el(`
+    <div style="display:flex;gap:11px;">
+      <div style="display:flex;flex-direction:column;align-items:center;flex:0 0 auto;">
+        <span style="width:10px;height:10px;border-radius:50%;background:${c};margin-top:4px;box-shadow:0 0 0 3px rgba(36,27,18,0.06);"></span>
+        <span style="width:1px;flex:1;background:var(--rule-soft);min-height:14px;"></span>
+      </div>
+      <div style="padding-bottom:14px;min-width:0;flex:1;">
+        <div style="display:flex;align-items:center;gap:8px;">
+          <span class="mono" style="font-size:11px;font-weight:600;letter-spacing:.06em;color:${c};text-transform:uppercase;">${esc(s.kind)}</span>
+          <span class="mono" style="font-size:10px;color:var(--ink-faint);">${esc(s.meta)}</span>
+        </div>
+        ${s.text?`<div style="font-size:13px;line-height:1.5;color:var(--ink-2);margin-top:4px;">${esc(s.text)}</div>`:''}
+      </div>
+    </div>`);
+}
+
+/* ---- escalate the composer question to Deep Reasoning (live SSE) ---- */
+async function escalateDeep(){
+  const conv = activeConv();
+  const ta = $('#composer');
+  const text = (ta?.value || '').trim() || 'What is the most defensible architecture choice here, and why?';
+  if(!conv) return;
+  ta && (ta.value='');
+
+  const ctrl = new AbortController();
+  state.run = { status:'live', depth:0, energy:0, budgetPct:0, steps:[], answer:'', stopReason:'', abort:ctrl, question:text };
+  conv.hasRun = true;
+  renderLeftPane();
+  renderMonitor();
+
+  const pickText = (p) => {
+    if(!p) return '';
+    for(const k of ['thought','synthesis','surfaced_insight','insight','reflection','seed']){
+      if(typeof p[k]==='string' && p[k].trim()) return p[k];
+    }
+    const v = Object.values(p).find(x => typeof x==='string' && x.length>4);
+    return v || '';
+  };
+
+  let answerAcc = '';
+  try{
+    await streamSSE(`/conversations/${conv.activeBranch}/deep`, {prompt:text, author_id:CONFIG.ME}, ev => {
+      const run = state.run; if(!run) return;
+      if(ev.kind==='step'){
+        run.depth = ev.depth ?? run.depth;
+        run.energy = ev.energy ?? run.energy;
+        run.steps.push({kind:ev.node, meta:'step '+ev.idx+' · depth '+ev.depth, text: pickText(ev.payload)});
+        renderMonitor();
+      } else if(ev.kind==='budget'){
+        run.budgetPct = Math.round((ev.pct<=1 ? ev.pct*100 : ev.pct));
+        renderMonitor();
+      } else if(ev.kind==='token'){
+        answerAcc += ev.text; run.answer = answerAcc.replace(/^\s*\[answer\]\s*/i,''); renderMonitor();
+      } else if(ev.kind==='waiting'){
+        run.steps.push({kind:'steer', meta:'awaiting human input', text:'(paused at a steer point)'});
+        renderMonitor();
+      } else if(ev.kind==='complete'){
+        run.status = ev.status==='killed' ? 'killed' : (ev.status==='error' ? 'error' : 'done');
+        run.stopReason = ev.stop_reason;
+      } else if(ev.kind==='assistant_node'){
+        if(ev.node && ev.node.content && !run.answer){ run.answer = ev.node.content; }
+        conv.headNodeId = ev.node.id;
+      }
+    }, ctrl.signal);
+  }catch(e){
+    const run = state.run;
+    if(run){
+      if(e.name==='AbortError'){ run.status='killed'; run.stopReason='killed by operator'; }
+      else { run.status='error'; run.stopReason=e.message; }
+    }
+  }
+  if(state.run && state.run.status==='live'){ state.run.status='done'; state.run.stopReason = state.run.stopReason||'ended'; }
+  renderMonitor();
+  // refresh the stage so the persisted run answer shows in the thread too
+  loadBranch(conv.activeBranch);
+}
+
+function killRun(){
+  if(state.run && state.run.abort){ state.run.abort.abort(); }
+}
+
+/* =========================== LIBRARY VIEW =========================== */
+function renderLibrary(){
+  const body = $('#view-body');
+  body.innerHTML = '';
+  const q = state.library.search.toLowerCase();
+  const filtered = state.prompts.filter(p =>
+    !q || p.title.toLowerCase().includes(q) || p.body.toLowerCase().includes(q) || (p.tags||[]).some(t=>t.toLowerCase().includes(q)));
+  const sigils = ['☿','♃','♂','☉','♄','☽'];
+
+  body.appendChild(el(`
+  <div style="flex:1;min-height:0;overflow-y:auto;padding:30px 40px 50px;">
+    <div style="max-width:1000px;margin:0 auto;">
+      <div style="display:flex;align-items:flex-end;gap:16px;">
+        <div style="flex:1;">
+          <div class="serif-d" style="font-size:32px;color:var(--ink);line-height:1;">Prompt Library</div>
+          <div style="font-size:13.5px;color:var(--ink-3);margin-top:8px;">The shared record of what works — tagged, searchable, reusable across every conversation.</div>
+        </div>
+        ${canAct()?`<button id="save-prompt" class="btn-gilt" style="border-radius:9px;padding:10px 16px;font-size:13.5px;">+ Save prompt</button>`:''}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;background:var(--paper);border:1px solid var(--rule);border-radius:10px;padding:10px 14px;margin:22px 0 14px;">
+        <span style="color:var(--oxblood);font-size:15px;">⌕</span>
+        <input id="lib-search" value="${esc(state.library.search)}" placeholder="Search title, body, or tags…" style="flex:1;background:none;border:none;outline:none;color:var(--ink);font-size:14px;font-family:'IM Fell English',serif;">
+        <span class="mono" style="font-size:11px;color:var(--ink-faint);">${filtered.length} prompts</span>
+      </div>
+      <div id="prompt-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;"></div>
+    </div>
+  </div>`));
+
+  const grid = body.querySelector('#prompt-grid');
+  filtered.forEach((p,i) => {
+    const card = el(`
+      <div style="background:var(--paper);border:1px solid var(--rule-soft);border-radius:12px;padding:17px 18px;display:flex;flex-direction:column;gap:11px;">
+        <div style="display:flex;align-items:flex-start;gap:10px;">
+          <span style="color:var(--gilt);font-size:16px;margin-top:1px;">${sigils[i%sigils.length]}</span>
+          <div style="font-size:16px;font-weight:600;color:var(--ink);flex:1;line-height:1.2;font-family:'Cinzel',serif;">${esc(p.title)}</div>
+        </div>
+        <div style="font-size:13.5px;line-height:1.55;color:var(--ink-2);font-style:italic;">"${esc(p.body)}"</div>
+        <div style="display:flex;align-items:center;gap:7px;flex-wrap:wrap;">
+          ${(p.tags||[]).map(t=>`<span class="mono" style="font-size:11px;color:var(--ink-3);border:1px solid var(--rule-soft);border-radius:5px;padding:2px 8px;">${esc(t)}</span>`).join('')}
+          <div style="flex:1;"></div>
+          ${canAct()?`<button class="insert-btn btn" data-id="${esc(p.id)}" style="padding:4px 10px;font-size:12px;color:var(--oxblood);">Insert →</button>`:''}
+        </div>
+      </div>`);
+    grid.appendChild(card);
+  });
+
+  const search = body.querySelector('#lib-search');
+  search.oninput = () => { state.library.search = search.value; const grid2=$('#prompt-grid'); const sc=search.selectionStart; renderLibrary(); const s2=$('#lib-search'); s2.focus(); s2.setSelectionRange(sc,sc); };
+  const sp = body.querySelector('#save-prompt');
+  if(sp) sp.onclick = savePrompt;
+  body.querySelectorAll('.insert-btn').forEach(b => b.onclick = () => insertPrompt(b.dataset.id));
+}
+
+async function savePrompt(){
+  const title = (prompt('Prompt title:') || '').trim(); if(!title) return;
+  const text = (prompt('Prompt body:') || '').trim(); if(!text) return;
+  const tags = (prompt('Tags (comma-separated):','') || '').split(',').map(s=>s.trim()).filter(Boolean);
+  try{
+    await api(`/workspaces/${CONFIG.WS}/prompts`, {method:'POST', body:JSON.stringify({author_id:CONFIG.ME, title, body:text, tags})});
+    const lib = await api(`/workspaces/${CONFIG.WS}/prompts`);
+    state.prompts = lib.prompts || [];
+    renderLibrary();
+  }catch(e){ alert('Save failed: '+e.message); }
+}
+
+/* insert a saved prompt as a live turn into the active conversation */
+async function insertPrompt(promptId){
+  let conv = activeConv();
+  if(!conv){ conv = await newConversation('From a saved prompt'); }
+  state.view = 'chat';
+  state.activeConvId = conv.id;
+  renderApp();
+  // run it via the from-prompt insert path (streams like a normal turn)
+  const canvas = $('#canvas'); if(conv.messages.length===0 && canvas) canvas.innerHTML='';
+  const am = {id:'tmp-a', role:'assistant', name:'Helix', initial:'⟳', body:'', time:nowTime(), typing:true};
+  const um = {id:'tmp-u', role:'user', name:CONFIG.ME_NAME, initial:initialOf(CONFIG.ME_NAME), body:'(inserted saved prompt)', time:nowTime()};
+  conv.messages.push(um, am);
+  $('#canvas')?.appendChild(messageEl(um));
+  const amNode = messageEl(am); $('#canvas')?.appendChild(amNode);
+  const bodyEl = amNode.querySelector('.msg-body');
+  let acc='';
+  try{
+    await streamSSE(`/conversations/${conv.activeBranch}/messages/from-prompt`, {prompt_id:promptId, author_id:CONFIG.ME}, ev => {
+      if(ev.kind==='user_node'){ um.body = ev.node.content; um.id=ev.node.id; const c=$('#canvas'); /* re-render user bubble with real prompt text */ }
+      else if(ev.kind==='token'){ acc+=ev.text; bodyEl.textContent=acc; const c=$('#canvas'); if(c) c.scrollTop=c.scrollHeight; }
+      else if(ev.kind==='assistant_node'){ am.id=ev.node.id; conv.headNodeId=ev.node.id; }
+    });
+  }catch(e){ bodyEl.textContent = acc+'\n[error: '+e.message+']'; }
+  am.body=acc; am.typing=false;
+  loadBranch(conv.activeBranch);
+}
+
+/* =========================== MEMBERS VIEW (static) =========================== */
+function renderMembers(){
+  const body = $('#view-body');
+  const members = [
+    {name:'Maren Vos', email:'maren@cipherlabs.io', role:'owner', status:'online', color:'#9A7A2C'},
+    {name:'Adiel Kun', email:'adiel@cipherlabs.io', role:'collaborator', status:'online', color:'#46624C'},
+    {name:'Soren Pax', email:'soren@cipherlabs.io', role:'collaborator', status:'away', color:'#6E5AA8'},
+    {name:'Lia Reyes', email:'lia@cipherlabs.io', role:'observer', status:'online', color:'#9A6B4B'},
+  ];
+  const sig = {owner:'♔', collaborator:'⌇', observer:'◉'};
+  const perms = [
+    {key:'conversation.read / replay', o:1,c:1,b:1},
+    {key:'message.send', o:1,c:1,b:0},
+    {key:'branch.fork', o:1,c:1,b:0},
+    {key:'prompt.write', o:1,c:1,b:0},
+    {key:'run.escalate', o:1,c:1,b:0},
+    {key:'run.steer / run.kill', o:1,c:1,b:0},
+    {key:'member.invite / role', o:1,c:0,b:0},
+    {key:'permission.edit', o:1,c:0,b:0},
+  ];
+  const mark = v => v ? `<span style="color:var(--verde);">✓</span>` : `<span style="color:var(--ink-faint);">·</span>`;
+
+  body.innerHTML='';
+  body.appendChild(el(`
+  <div style="flex:1;min-height:0;overflow-y:auto;padding:30px 40px 50px;">
+    <div style="max-width:980px;margin:0 auto;">
+      <div class="serif-d" style="font-size:32px;color:var(--ink);line-height:1;">Members &amp; Roles</div>
+      <div style="font-size:13.5px;color:var(--ink-3);margin-top:8px;">Owner ⊃ Collaborator ⊃ Observer. Role is legible at a glance — and re-skins the whole workspace.</div>
+      <div style="display:flex;flex-direction:column;gap:9px;margin:24px 0 38px;">
+        ${members.map(m=>`
+          <div style="background:var(--paper);border:1px solid var(--rule-soft);border-radius:11px;padding:13px 17px;display:flex;align-items:center;gap:14px;">
+            <div style="width:40px;height:40px;border-radius:50%;background:${m.color};color:#fff;display:flex;align-items:center;justify-content:center;font-weight:700;font-family:'Cinzel',serif;flex:0 0 auto;">${initialOf(m.name)}</div>
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:15px;font-weight:600;color:var(--ink);">${esc(m.name)}</div>
+              <div class="mono" style="font-size:12px;color:var(--ink-3);">${esc(m.email)}</div>
+            </div>
+            <div class="mono" style="display:flex;align-items:center;gap:6px;font-size:11px;color:${m.status==='online'?'var(--verde)':'var(--ink-faint)'};"><span style="width:6px;height:6px;border-radius:50%;background:currentColor;"></span>${m.status}</div>
+            <div class="chip" style="color:var(--oxblood);"><span>${sig[m.role]}</span><span style="font-weight:600;">${m.role}</span></div>
+          </div>`).join('')}
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px;">
+        <span class="serif-d" style="font-size:22px;color:var(--ink);">Permission Matrix</span>
+        <span class="chip" style="color:var(--oxblood);">policy as data</span>
+        <div style="flex:1;"></div>
+        <span style="font-size:12px;color:var(--ink-3);">Editable by Owner — no redeploy</span>
+      </div>
+      <div style="background:var(--paper);border:1px solid var(--rule-soft);border-radius:12px;overflow:hidden;">
+        <div style="display:grid;grid-template-columns:1fr 90px 110px 90px;padding:12px 18px;border-bottom:1px solid var(--rule);background:var(--paper-3);">
+          <span class="eyebrow">Action</span>
+          <span class="eyebrow" style="text-align:center;color:var(--oxblood);">♔ Owner</span>
+          <span class="eyebrow" style="text-align:center;">⌇ Collab</span>
+          <span class="eyebrow" style="text-align:center;">◉ Observer</span>
+        </div>
+        ${perms.map((r,i)=>`
+          <div style="display:grid;grid-template-columns:1fr 90px 110px 90px;padding:11px 18px;${i%2?'background:rgba(36,27,18,0.025);':''}">
+            <span class="mono" style="font-size:13.5px;color:var(--ink-2);">${esc(r.key)}</span>
+            <span style="text-align:center;font-size:15px;">${mark(r.o)}</span>
+            <span style="text-align:center;font-size:15px;">${mark(r.c)}</span>
+            <span style="text-align:center;font-size:15px;">${mark(r.b)}</span>
+          </div>`).join('')}
+      </div>
+    </div>
+  </div>`));
+}
+
+/* =========================== BOOT =========================== */
+renderAuth();
+</script>
+</body>
+</html>

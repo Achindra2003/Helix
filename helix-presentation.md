@@ -9,7 +9,7 @@
 ### A Multi-Tenant Collaborative AI Workspace
 ### with Branchable Conversations and a Monitored Deep-Reasoning Mode
 
-**Achindra Sharma · Nilesh Gupta · Abhishek Suresh Kumar**
+**Achindra Sharma · Rajnish Kumar · M M Mohamed Mansoor**
 
 *Software Project Development*
 

@@ -1,0 +1,9 @@
+# Deep Reasoning (Ouroboros) engine deps — heavy LangGraph/LangChain stack,
+# kept separate from the lean core runtime (requirements.txt) since the everyday
+# chat engine needs none of it. Pinned to the versions Ouroboros is proven on.
+langgraph==1.2.6
+langchain==1.3.11
+langchain-core==1.4.8
+langchain-groq==1.1.3
+langchain-community==0.4.2
+groq==0.37.1

@@ -1,0 +1,31 @@
+# DB choice (main branch)
+
+**alice** (user):
+
+We're choosing a database for a small internal tool. Options?
+
+**assistant** (assistant):
+
+Based on common use cases for internal tools, I'd recommend considering Relational Databases like PostgreSQL or MySQL for their data integrity, querying power, and scalability. Alternatively, NoSQL Databases like MongoDB or Cassandra might be suitable if the data structure is flexible or doesn't require complex transactions. Lastly, embedded databases like SQLite can be a good fit if the tool is a small standalone application. 
+
+It would be helpful to know more about the specific requirements of your tool before making a final decision, such as data volume, user base, and query complexity.
+
+**bob** (user):
+
+Given that, which is simplest to operate for us?
+
+**assistant** (assistant):
+
+Among the options, SQLite tends to be the simplest to operate since it requires minimal setup and configuration. It's often bundled within applications and doesn't need a separate server process, making it easy to integrate and maintain. Additionally, SQLite has a simple and portable database file format, which can be backed up and restored with ease.
+
+**alice** (user):
+
+Let's assume Postgres. What's the managed-hosting cost ballpark?
+
+**assistant** (assistant):
+
+The cost of managed hosting for Postgres can vary greatly depending on the provider, the region, and the instance specifications. However, here's a rough estimate of what you can expect to pay.
+
+A basic Postgres instance with 1-2 GB of RAM, suitable for a small to medium-sized internal tool, might cost around $15-40 per month. Mid-level instances with 4-8 GB of RAM could cost $30-70 per month. And larger instances or those with high I/O requirements might range from $60-150 per month or more.
+
+These prices are only rough estimates, and the actual cost will depend on the hosting provider you choose. Some popular options include Heroku, AWS RDS, Google Cloud SQL, and DigitalOcean, each with their own pricing plans.

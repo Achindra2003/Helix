@@ -19,7 +19,9 @@
 - **IDs:** server-generated UUID strings (`"id": "uuid"`).
 - **Timestamps:** ISO-8601 UTC (`2026-06-20T10:30:00Z`).
 - **Tenancy:** every resource below `/api/workspaces/{wid}` is scoped to that
-  workspace; the server rejects cross-tenant access with `403`.
+  workspace. A caller who is **not a member** of the workspace gets `404 not_found`
+  (the server does not reveal the existence of workspaces the caller can't see); a
+  member who lacks the **role** for an action gets `403 forbidden`.
 - **Pagination:** list endpoints accept `?limit=` (default 50, max 200) and
   `?cursor=` (opaque); responses return `{ "items": [...], "next_cursor": null }`.
 - **Errors:** uniform shape, never a bare string —
