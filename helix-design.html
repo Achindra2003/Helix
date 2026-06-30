@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0B0B0D" />
+<title>Helix — Design Document (UI · Database · Module · Algorithm)</title>
+<style>
+  /* ─── Alchemical Noir tokens (Design Phase §3.1) ─────────────────────── */
+  :root{
+    --bg:#0B0B0D; --surface:#131210; --surface2:#16140F; --surface3:#1E1B15; --line:#2a261c;
+    --fg:#ECE6D8; --text2:#B8B0A0; --muted:#988f78; --faint:#5C5648;
+    --gold:#C9A24B; --gold-bright:#E3C16A; --gold-deep:#8A6D2F;
+    --violet:#8B73D6; --violet-deep:#6E5AA8;
+    --success:#4E9277; --warn:#C98A2B; --danger:#B5483F; --brass:#B8924A;
+    --grad:linear-gradient(135deg,var(--gold-deep),var(--gold-bright));
+    --hair:rgba(201,162,75,.18);
+    --serif:"EB Garamond","Cormorant Garamond",Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html{scroll-behavior:smooth}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:15px;line-height:1.6;
+    -webkit-font-smoothing:antialiased;-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  h1,h2,h3,h4{font-family:var(--serif);letter-spacing:0;font-weight:600}
+  a{color:var(--violet);text-decoration:none}
+  code,.mono{font-family:var(--mono)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:9999px}
+
+  /* nav */
+  .nav{position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:6px;padding:12px 26px;
+    background:color-mix(in oklab,var(--bg) 86%,transparent);backdrop-filter:blur(10px);
+    border-bottom:1px solid var(--line)}
+  .nav .brand{display:flex;align-items:center;gap:10px;font-family:var(--serif);font-weight:700;font-size:20px;
+    background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .nav .sp{flex:1}
+  .nav a{color:var(--muted);font-size:13px;font-family:var(--sans);padding:7px 12px;border-radius:8px}
+  .nav a:hover{color:var(--fg);background:var(--surface2)}
+
+  .wrap{max-width:1120px;margin:0 auto;padding:0 26px}
+  header.cover{text-align:center;padding:64px 26px 30px;position:relative;overflow:hidden}
+  header.cover::before{content:"";position:absolute;inset:-40% 0 auto;height:520px;z-index:0;
+    background:radial-gradient(40rem 20rem at 50% 0%, color-mix(in oklab,var(--gold) 14%,transparent),transparent)}
+  header.cover>*{position:relative;z-index:1}
+  .cover h1{font-size:clamp(30px,5vw,52px);margin:0 0 10px}
+  .cover .sub{color:var(--text2);max-width:680px;margin:0 auto 6px;font-size:17px}
+  .cover .team{color:var(--muted);font-size:14px;margin-top:14px}
+  .legend{display:inline-flex;gap:16px;margin-top:22px;padding:9px 18px;border:1px solid var(--line);
+    border-radius:30px;background:var(--surface);font-size:12.5px;font-family:var(--sans)}
+
+  .badge{display:inline-flex;align-items:center;gap:5px;font-size:11px;font-family:var(--sans);font-weight:600;
+    padding:3px 9px;border-radius:20px;border:1px solid;letter-spacing:.3px;white-space:nowrap}
+  .b-built{color:var(--success);border-color:color-mix(in oklab,var(--success) 55%,var(--line));
+    background:color-mix(in oklab,var(--success) 10%,transparent)}
+  .b-plan{color:var(--muted);border-color:var(--line);background:var(--surface2)}
+
+  section.part{padding:46px 0 8px;border-top:1px solid var(--line);margin-top:30px}
+  .kicker{font-family:var(--sans);font-size:12px;letter-spacing:2px;text-transform:uppercase;color:var(--gold);font-weight:700}
+  .part h2{font-size:clamp(24px,3.4vw,34px);margin:6px 0 4px}
+  .part .intro{color:var(--text2);max-width:780px;margin:0 0 28px;font-size:15.5px}
+  h3.blk{font-size:20px;margin:34px 0 14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+  h4.sub{font-size:16px;color:var(--gold-bright);margin:22px 0 10px}
+
+  /* screen frames (UI) */
+  .screens{display:grid;grid-template-columns:1fr;gap:30px}
+  .screen{border:1px solid var(--line);border-radius:16px;overflow:hidden;background:var(--surface)}
+  .screen .cap{display:flex;align-items:center;gap:10px;padding:11px 16px;border-bottom:1px solid var(--line);
+    background:var(--surface2);font-family:var(--sans)}
+  .screen .cap b{font-family:var(--serif);font-size:16px}
+  .screen .cap .desc{color:var(--muted);font-size:12.5px;margin-left:auto;text-align:right;max-width:48%}
+  .canvas{padding:22px;background:
+    radial-gradient(50rem 20rem at 80% -10%, color-mix(in oklab,var(--violet) 7%,transparent),transparent),
+    var(--bg)}
+  @media(min-width:880px){.two{display:grid;grid-template-columns:1fr 1fr;gap:30px}}
+
+  /* generic UI atoms reused across mockups */
+  .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:#0B0B0D;border:2px solid var(--surface)}
+  .btn-gold{background:var(--grad);color:#0B0B0D;border:none;font-weight:700;padding:10px 16px;border-radius:9px;
+    font-size:13.5px;font-family:var(--sans)}
+  .btn-ghost{background:transparent;color:var(--gold);border:1px solid color-mix(in oklab,var(--gold) 45%,var(--line));
+    padding:10px 16px;border-radius:9px;font-size:13.5px;font-family:var(--sans)}
+  .btn-kill{background:transparent;color:var(--danger);border:1px solid color-mix(in oklab,var(--danger) 55%,var(--line));
+    padding:9px 14px;border-radius:9px;font-weight:600;font-size:13px;font-family:var(--sans)}
+  .field{background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:11px 13px;color:var(--text2);
+    font-family:var(--sans);font-size:13.5px}
+  .glyph{font-family:var(--sans)}
+  .chip{display:inline-block;font-size:11px;font-family:var(--sans);background:var(--surface2);border:1px solid var(--line);
+    border-radius:20px;padding:3px 10px;color:var(--gold)}
+
+  /* login mockup */
+  .login{max-width:420px;margin:10px auto;text-align:center}
+  .wordmark{font-family:var(--serif);font-size:40px;letter-spacing:3px;
+    background:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .verse{font-family:var(--serif);font-style:italic;color:var(--muted);margin:2px 0 24px}
+  .card{background:var(--surface);border:1px solid var(--hair);border-radius:14px;padding:22px;text-align:left}
+  .card .lab{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);font-family:var(--sans);margin:12px 0 5px}
+
+  /* radial launcher */
+  .radial{position:relative;height:330px;max-width:560px;margin:0 auto}
+  .radial .center{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);text-align:center}
+  .radial .ring-mark{width:74px;height:74px;border-radius:50%;border:1.5px solid color-mix(in oklab,var(--gold) 60%,var(--line));
+    display:flex;align-items:center;justify-content:center;font-size:30px;color:var(--gold)}
+  .ws-node{position:absolute;width:130px;transform:translate(-50%,-50%);background:var(--surface);
+    border:1px solid var(--line);border-radius:12px;padding:11px;text-align:center}
+  .ws-node .nm{font-family:var(--serif);font-size:15px}
+  .ws-node .mt{font-size:11px;color:var(--muted);font-family:var(--sans);margin-top:3px}
+  .ws-node.gold{border-color:color-mix(in oklab,var(--gold) 50%,var(--line))}
+
+  /* workspace shell */
+  .shell{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--bg)}
+  .shell .top{display:flex;align-items:center;gap:10px;padding:9px 13px;background:var(--surface);border-bottom:1px solid var(--line);font-family:var(--sans);font-size:13px}
+  .shell .top .crumb{color:var(--muted)} .shell .top .crumb b{color:var(--fg)}
+  .shell .top .sp{flex:1}
+  .pill{font-size:11px;font-family:var(--sans);color:var(--muted);border:1px solid var(--line);padding:4px 10px;border-radius:18px}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;margin-right:5px}
+  .shell .cols{display:grid;grid-template-columns:200px 1fr;min-height:340px}
+  .shell .rail{border-right:1px solid var(--line);background:var(--surface);font-family:var(--sans)}
+  .rail .rh{padding:9px 12px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--line);display:flex;justify-content:space-between}
+  .rail .ci{display:flex;align-items:center;gap:7px;padding:8px 12px;font-size:12.5px;cursor:default}
+  .rail .ci.on{background:color-mix(in oklab,var(--violet) 14%,transparent);box-shadow:inset 2px 0 0 var(--violet)}
+  .rail .ci .vis{margin-left:auto;font-size:13px}
+  .center-col{display:flex;flex-direction:column}
+  .ch{display:flex;align-items:center;gap:9px;padding:10px 15px;border-bottom:1px solid var(--line);font-family:var(--sans)}
+  .ch .ttl{font-weight:600;font-size:14px;font-family:var(--serif)}
+  .ch .vchip{font-size:10px;font-family:var(--sans);padding:2px 8px;border-radius:8px;border:1px solid color-mix(in oklab,var(--success) 50%,var(--line));color:var(--success)}
+  .thread{padding:15px;display:flex;flex-direction:column;gap:13px;flex:1}
+  .msg .who{font-size:11.5px;color:var(--muted);font-family:var(--sans);display:flex;align-items:center;gap:6px;margin-bottom:5px}
+  .bubble{border:1px solid var(--line);border-radius:11px;padding:10px 13px;font-size:13.5px;max-width:560px}
+  .bubble.ai{background:linear-gradient(180deg,color-mix(in oklab,var(--gold) 7%,var(--surface)),var(--surface));
+    border-color:color-mix(in oklab,var(--gold) 32%,var(--line))}
+  .caret{color:var(--gold-bright)}
+  .composer{border-top:1px solid var(--line);padding:11px 14px;display:flex;gap:9px;align-items:center;background:var(--surface)}
+  .composer .field{flex:1}
+
+  /* branch tree */
+  .tree{font-family:var(--mono);font-size:13px;line-height:2.2;color:var(--text2);padding:8px 6px}
+  .tree .b{color:var(--gold);font-weight:700}
+  .tree .dim{color:var(--muted)}
+  .tree .head{color:var(--gold-bright)}
+
+  /* prompt library */
+  .lib .lh{display:flex;align-items:center;gap:10px;margin-bottom:12px}
+  .prompt{border:1px solid var(--line);border-radius:11px;padding:13px;margin-bottom:11px;background:var(--surface)}
+  .prompt .pt{display:flex;align-items:center;gap:8px}
+  .prompt .pt b{font-family:var(--serif);font-size:15px}
+  .prompt .pt .by{margin-left:auto;font-size:11.5px;color:var(--muted);font-family:var(--sans)}
+  .prompt .pb{color:var(--text2);font-size:13px;margin:7px 0}
+  .prompt .ins{float:right;font-size:11px;font-family:var(--sans);color:var(--success);border:1px solid color-mix(in oklab,var(--success) 50%,var(--line));border-radius:8px;padding:5px 11px}
+
+  /* deep reasoning monitor */
+  .mon{display:grid;grid-template-columns:1fr 1fr;gap:20px;align-items:start}
+  @media(max-width:760px){.mon{grid-template-columns:1fr}}
+  .ouro{display:flex;flex-direction:column;align-items:center}
+  .meter{font-size:12px;font-family:var(--sans);margin-bottom:12px}
+  .meter .ml{display:flex;justify-content:space-between;color:var(--muted);margin-bottom:5px}
+  .meter .ml b{color:var(--fg);font-variant-numeric:tabular-nums}
+  .bar{height:8px;background:var(--surface2);border-radius:6px;overflow:hidden;border:1px solid var(--line)}
+  .bar i{display:block;height:100%;border-radius:6px}
+  .trace{border:1px solid var(--line);border-radius:10px;overflow:hidden;font-family:var(--mono);font-size:11.5px;margin-top:6px}
+  .trace .st{padding:7px 11px;border-bottom:1px solid var(--line);color:var(--text2)}
+  .trace .st:last-child{border-bottom:none}
+  .trace .st.on{background:color-mix(in oklab,var(--gold) 12%,transparent)}
+  .trace .sn{color:var(--gold);font-weight:700}
+  .ctlrow{display:flex;gap:9px;margin:14px 0}
+  .status-run{font-size:11px;font-family:var(--sans);color:var(--success);border:1px solid color-mix(in oklab,var(--success) 50%,var(--line));border-radius:14px;padding:3px 10px}
+
+  /* ─── Database: entity cards ─────────────────────────────────────────── */
+  .erd{display:grid;grid-template-columns:repeat(auto-fill,minmax(232px,1fr));gap:16px}
+  .ent{border:1px solid var(--line);border-radius:12px;overflow:hidden;background:var(--surface)}
+  .ent .eh{display:flex;align-items:center;gap:8px;padding:10px 13px;background:var(--surface2);border-bottom:1px solid var(--line)}
+  .ent .eh b{font-family:var(--mono);font-size:13.5px;color:var(--gold-bright)}
+  .ent.plan .eh b{color:var(--text2)}
+  .ent ul{list-style:none;margin:0;padding:8px 0}
+  .ent li{display:flex;align-items:center;gap:7px;padding:4px 13px;font-family:var(--mono);font-size:12px;color:var(--text2)}
+  .ent li .ky{font-size:9px;font-weight:700;width:24px;text-align:center;border-radius:4px;padding:1px 0;font-family:var(--sans)}
+  .ky.pk{background:color-mix(in oklab,var(--gold) 22%,transparent);color:var(--gold-bright)}
+  .ky.fk{background:color-mix(in oklab,var(--violet) 22%,transparent);color:var(--violet)}
+  .ky.uk{background:color-mix(in oklab,var(--success) 20%,transparent);color:var(--success)}
+  .ent li .ty{margin-left:auto;color:var(--muted);font-size:11px}
+
+  .reltab,.dict,.cmplx{width:100%;border-collapse:collapse;font-size:13px;font-family:var(--sans);margin-top:6px}
+  .reltab th,.reltab td,.dict th,.dict td,.cmplx th,.cmplx td{text-align:left;padding:9px 12px;border-bottom:1px solid var(--line);vertical-align:top}
+  th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px;font-weight:600}
+  td b{color:var(--fg)} td .mono{color:var(--gold-bright);font-size:12px}
+  .note{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--gold);
+    border-radius:10px;padding:14px 16px;margin:14px 0;font-size:13.5px;color:var(--text2)}
+  .note b{color:var(--fg)}
+  .cardgrid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+  .dcard{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:16px}
+  .dcard .dt{font-family:var(--serif);font-size:15px;color:var(--gold-bright);margin-bottom:6px}
+  .dcard p{margin:0;font-size:13px;color:var(--text2)}
+
+  /* ─── Module: layered diagram + cards ────────────────────────────────── */
+  .layers{display:flex;flex-direction:column;gap:10px;margin:8px 0 6px}
+  .layer{border:1px solid var(--line);border-radius:12px;padding:13px 15px;background:var(--surface)}
+  .layer .lt{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--gold);font-weight:700;margin-bottom:9px}
+  .layer .boxes{display:flex;flex-wrap:wrap;gap:9px}
+  .mbox{background:var(--surface2);border:1px solid var(--line);border-radius:9px;padding:8px 12px;font-size:12.5px;
+    display:flex;align-items:center;gap:7px}
+  .mbox.gate{border-color:color-mix(in oklab,var(--violet) 45%,var(--line))}
+  .mbox.eng{border-color:color-mix(in oklab,var(--gold) 45%,var(--line))}
+  .ldown{text-align:center;color:var(--muted);font-size:16px;line-height:1}
+  .modgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:14px;margin-top:8px}
+  .mod{border:1px solid var(--line);border-radius:12px;padding:14px;background:var(--surface)}
+  .mod .mh{display:flex;align-items:center;gap:8px;margin-bottom:7px}
+  .mod .mh b{font-family:var(--serif);font-size:15px}
+  .mod p{margin:0 0 8px;font-size:12.5px;color:var(--text2)}
+  .mod .loc{font-family:var(--mono);font-size:11px;color:var(--muted)}
+
+  /* ─── Algorithm: flowcharts ──────────────────────────────────────────── */
+  .flow{display:flex;flex-direction:column;align-items:center;gap:0;margin:6px 0}
+  .fnode{background:var(--surface);border:1px solid color-mix(in oklab,var(--gold) 40%,var(--line));border-radius:10px;
+    padding:10px 16px;font-size:13px;text-align:center;max-width:430px;font-family:var(--sans)}
+  .fnode .mono{display:block;color:var(--muted);font-size:11px;margin-top:3px}
+  .fterm{border-radius:30px;background:var(--surface2);border-color:var(--line)}
+  .fdec{background:color-mix(in oklab,var(--warn) 12%,var(--surface));border:1px solid color-mix(in oklab,var(--warn) 55%,var(--line));
+    clip-path:polygon(50% 0,100% 50%,50% 100%,0 50%);padding:20px 30px;max-width:360px}
+  .fguard{background:color-mix(in oklab,var(--danger) 10%,var(--surface));border-color:color-mix(in oklab,var(--danger) 45%,var(--line))}
+  .farr{color:var(--gold);font-size:18px;line-height:1.1;padding:3px 0;position:relative}
+  .farr .lbl{position:absolute;left:14px;top:2px;font-size:11px;color:var(--muted);font-family:var(--sans);white-space:nowrap}
+  .fside{display:flex;align-items:center;gap:10px}
+  .fside .out{font-size:12px;color:var(--danger);font-family:var(--mono);border:1px dashed color-mix(in oklab,var(--danger) 45%,var(--line));border-radius:8px;padding:6px 10px}
+  .loopback{font-size:12px;color:var(--violet);font-family:var(--sans);border:1px dashed color-mix(in oklab,var(--violet) 50%,var(--line));border-radius:8px;padding:6px 12px;margin:4px 0}
+
+  pre.code{font-family:var(--mono);font-size:12.5px;background:var(--surface);border:1px solid var(--line);border-radius:10px;
+    padding:15px;overflow-x:auto;line-height:1.65;color:var(--text2);white-space:pre}
+  pre.code .k{color:var(--violet)} pre.code .c{color:var(--muted)} pre.code .g{color:var(--gold-bright)}
+  .algo{border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin-bottom:22px;background:var(--surface)}
+  .algo .ah{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:6px}
+  .algo .ah b{font-family:var(--serif);font-size:18px}
+  .algo .meta{font-size:12px;color:var(--muted);font-family:var(--sans);margin:8px 0 0}
+  .algo .meta b{color:var(--gold-bright)}
+
+  footer{text-align:center;color:var(--muted);font-size:13px;padding:48px 26px;border-top:1px solid var(--line);margin-top:40px}
+
+  @media print{
+    .nav{position:static}
+    section.part{break-before:page}
+    .screen,.algo,.ent,.mod{break-inside:avoid}
+  }
+</style>
+</head>
+<body>
+
+<div class="nav">
+  <span class="brand">⟳ Helix</span>
+  <span class="sp"></span>
+  <a href="#ui">UI Design</a>
+  <a href="#db">Database</a>
+  <a href="#mod">Module</a>
+  <a href="#algo">Algorithm</a>
+</div>
+
+<header class="cover">
+  <div class="kicker">Design Document</div>
+  <h1>Helix — System Design</h1>
+  <p class="sub">A Multi-Tenant Collaborative AI Workspace with Branchable Conversations
+    and a Monitored Deep-Reasoning Mode.</p>
+  <p class="team">Achindra Sharma (2547105) · Rajnish Kumar (2547143) · M M Mohamed Mansoor (2547132)</p>
+  <div class="legend">
+    <span><span class="badge b-built">✅ Built</span> Week 0 + M1, verified</span>
+    <span><span class="badge b-plan">◻ Planned</span> M2–M9, designed</span>
+  </div>
+</header>
+
+<div class="wrap">
+
+<!-- ═══════════════════════ 1. UI DESIGN ═══════════════════════ -->
+<section class="part" id="ui">
+  <div class="kicker">Part 1</div>
+  <h2>UI / UX Design</h2>
+  <p class="intro">High-fidelity mockups in the <b>Alchemical Noir</b> language — near-black canvas,
+    antique-gold brand, arcane-violet accent, parchment text. The two motifs are functional: the
+    <b>double helix</b> is branching lineage; the <b>ouroboros</b> is the recursive Deep-Reasoning loop.
+    Ornament lives at the edges; the working surfaces stay calm and legible.</p>
+
+  <div class="screens">
+
+    <!-- Login -->
+    <div class="screen">
+      <div class="cap"><b>Login / Register</b><span class="badge b-built">✅ Built · M1</span>
+        <span class="desc">Ceremonial entry — single calm card over a golden-spiral drift.</span></div>
+      <div class="canvas">
+        <div class="login">
+          <div class="wordmark">⟳ HELIX</div>
+          <div class="verse">where a team's reasoning converges</div>
+          <div class="card">
+            <h3 style="margin:0 0 2px">Sign in</h3>
+            <div class="lab">Email</div><div class="field">aria@team.dev</div>
+            <div class="lab">Password</div><div class="field">•••••••••••</div>
+            <button class="btn-gold" style="width:100%;margin-top:16px">Enter the atelier</button>
+            <div style="text-align:center;margin-top:12px;font-family:var(--sans);font-size:13px;color:var(--muted)">
+              New here? <a>Create an account →</a></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <!-- Workspaces radial -->
+      <div class="screen">
+        <div class="cap"><b>Workspaces</b><span class="badge b-built">✅ Built · M1</span></div>
+        <div class="canvas">
+          <div class="radial">
+            <div class="center"><div class="ring-mark">⟳</div>
+              <div style="font-family:var(--sans);font-size:11px;color:var(--muted);margin-top:6px">you · Aria</div></div>
+            <div class="ws-node gold" style="left:50%;top:8%"><div class="nm">◉◉ rag-quality</div><div class="mt">Owner · 4 members</div></div>
+            <div class="ws-node" style="left:88%;top:38%"><div class="nm">◉◉ infra-notes</div><div class="mt">Collaborator · 6</div></div>
+            <div class="ws-node" style="left:78%;top:84%"><div class="nm">◉◉ research</div><div class="mt">Observer · 9</div></div>
+            <div class="ws-node" style="left:22%;top:84%"><div class="nm">＋ new</div><div class="mt">create workspace</div></div>
+            <div class="ws-node" style="left:12%;top:38%"><div class="nm">◉◉ design</div><div class="mt">Collaborator · 3</div></div>
+          </div>
+          <p style="text-align:center;color:var(--muted);font-size:12px;font-family:var(--sans);margin:6px 0 0">
+            Radial launcher · falls back to a card list past ~8 workspaces</p>
+        </div>
+      </div>
+
+      <!-- Invite -->
+      <div class="screen">
+        <div class="cap"><b>Invite Accept</b><span class="badge b-built">✅ Built · M1</span></div>
+        <div class="canvas" style="display:flex;align-items:center;justify-content:center;min-height:300px">
+          <div class="card" style="max-width:320px;text-align:center">
+            <div style="font-size:26px;color:var(--gold)">⟳</div>
+            <p style="font-family:var(--sans);font-size:13px;color:var(--muted);margin:6px 0">You've been invited to join</p>
+            <div style="font-family:var(--serif);font-size:22px">◉◉ rag-quality</div>
+            <p style="font-family:var(--sans);font-size:13px;color:var(--text2);margin:8px 0 16px">as a <b style="color:var(--gold)">⌇ Collaborator</b></p>
+            <button class="btn-gold" style="width:100%">Accept &amp; enter</button>
+            <div style="font-family:var(--sans);font-size:12px;color:var(--muted);margin-top:10px">Not now</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Workspace shell -->
+    <div class="screen">
+      <div class="cap"><b>Workspace Shell — collaboration view</b><span class="badge b-plan">◻ Planned · M2–M3</span>
+        <span class="desc">Golden-ratio split · streaming thread · presence with role glyphs.</span></div>
+      <div class="canvas">
+        <div class="shell">
+          <div class="top">
+            <span style="color:var(--gold);font-family:var(--serif);font-weight:700">⟳ Helix</span>
+            <span class="crumb">workspace / <b>rag-quality</b> ▾</span>
+            <span class="sp"></span>
+            <span class="av" style="background:var(--gold)">A</span>
+            <span class="av" style="background:var(--violet);margin-left:-8px">R</span>
+            <span class="av" style="background:var(--success);margin-left:-8px">M</span>
+            <span class="av" style="background:var(--warn);margin-left:-8px">D</span>
+            <span class="pill"><span class="dot"></span>4 online</span>
+          </div>
+          <div class="cols">
+            <div class="rail">
+              <div class="rh">Conversations <span style="color:var(--gold)">＋</span></div>
+              <div class="ci on">◉◉ retrieval <span class="vis" style="color:var(--success)">◉◉</span></div>
+              <div class="ci">◉◉ chunking <span class="vis" style="color:var(--success)">◉◉</span></div>
+              <div class="ci">⌖ my notes <span class="vis" style="color:var(--warn)">⌖</span></div>
+              <div class="rh" style="border-top:1px solid var(--line)">Branch tree</div>
+              <div class="tree" style="padding-left:14px;font-size:12px;line-height:1.9">
+                <span class="b">● main</span><br>
+                <span class="dim">└─</span><span class="head">◌ chunk-v2</span>
+              </div>
+            </div>
+            <div class="center-col">
+              <div class="ch"><span class="ttl">retrieval staleness</span>
+                <span class="vchip">◉◉ shared</span>
+                <span style="margin-left:auto"><button class="btn-ghost" style="padding:6px 12px;font-size:12px">⌇ Fork</button></span></div>
+              <div class="thread">
+                <div class="msg"><div class="who"><span class="av" style="width:18px;height:18px;font-size:9px;background:var(--gold)">A</span> Aria</div>
+                  <div class="bubble">Why is retrieval returning stale chunks?</div></div>
+                <div class="msg"><div class="who"><span style="color:var(--gold)">⟳ Helix AI</span></div>
+                  <div class="bubble ai">Because the cache TTL outlives the index refresh window<span class="caret">▌</span></div></div>
+              </div>
+              <div class="composer">
+                <span class="field">type a prompt…</span>
+                <button class="btn-gold" style="padding:10px 18px">Send</button>
+                <button class="btn-ghost">⟳ Deep</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="two">
+      <!-- Branch tree -->
+      <div class="screen">
+        <div class="cap"><b>Branch Tree</b><span class="badge b-plan">◻ Planned · M4</span></div>
+        <div class="canvas">
+          <div class="tree">
+            <span class="b">● main</span> <span class="dim">──●──●──</span><span class="head">● head</span><br>
+            <span class="dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│</span><br>
+            <span class="dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─</span><span class="b">◌ chunk-v2</span> <span class="dim">──◌──</span><span class="head">● head</span><br>
+            <span class="dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;│</span><br>
+            <span class="dim">&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;└─</span><span class="b">◌ rerank</span> <span class="dim">──</span><span class="head">● head</span>
+          </div>
+          <p style="color:var(--muted);font-size:12px;font-family:var(--sans);margin:8px 0 0">
+            Active branch bright gold · fork points ◌ · O(1) fork via parent pointers.</p>
+        </div>
+      </div>
+
+      <!-- Prompt library -->
+      <div class="screen">
+        <div class="cap"><b>Prompt Library</b><span class="badge b-plan">◻ Planned · M5</span></div>
+        <div class="canvas lib">
+          <div class="lh"><span style="font-family:var(--serif);font-size:16px">📜 Library</span>
+            <span class="field" style="flex:1">search… </span></div>
+          <div class="prompt">
+            <div class="pt"><b>failure-classification</b><span class="by">by Cara · used 7×</span></div>
+            <div class="pb">"Given these error logs, classify each failure as…"</div>
+            <span class="chip">#rag</span> <span class="chip">#triage</span>
+            <button class="ins">Insert →</button>
+          </div>
+          <div class="prompt">
+            <div class="pt"><b>chunk-size sweep</b><span class="by">by Ben · used 3×</span></div>
+            <div class="pb">"Compare retrieval quality across chunk sizes…"</div>
+            <span class="chip">#retrieval</span>
+            <button class="ins">Insert →</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Deep Reasoning monitor -->
+    <div class="screen">
+      <div class="cap"><b>Deep Reasoning Monitor — the Ouroboros</b><span class="badge b-plan">◻ Planned · M6–M7</span>
+        <span class="desc">The recursive engine drawn as it is: a serpent tracing reason→reflect→synthesize.</span></div>
+      <div class="canvas">
+        <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;font-family:var(--sans)">
+          <span style="font-family:var(--serif);font-size:16px;color:var(--gold)">⟳ run #a3f</span>
+          <span class="status-run">● running</span>
+          <span style="margin-left:auto"></span>
+          <button class="btn-ghost" style="padding:7px 13px;font-size:12px">⏸ Steer</button>
+          <button class="btn-kill">⛔ Kill</button>
+        </div>
+        <div class="mon">
+          <div class="ouro">
+            <svg width="240" height="240" viewBox="0 0 240 240">
+              <defs>
+                <linearGradient id="og" x1="0" y1="0" x2="1" y2="1">
+                  <stop offset="0" stop-color="#8A6D2F"/><stop offset="1" stop-color="#E3C16A"/>
+                </linearGradient>
+              </defs>
+              <circle cx="120" cy="120" r="90" fill="none" stroke="url(#og)" stroke-width="3"
+                stroke-dasharray="500 66" stroke-linecap="round" transform="rotate(-80 120 120)"/>
+              <!-- serpent head near the gap (top) -->
+              <path d="M120 22 l9 16 l-18 0 z" fill="#E3C16A"/>
+              <!-- depth rings -->
+              <circle cx="120" cy="120" r="64" fill="none" stroke="var(--gold)" stroke-width="1" opacity=".45"/>
+              <circle cx="120" cy="120" r="40" fill="none" stroke="var(--gold)" stroke-width="1" opacity=".25"/>
+              <!-- nodes -->
+              <circle cx="120" cy="30" r="7" fill="#E3C16A"/>
+              <circle cx="198" cy="165" r="7" fill="#C9A24B"/>
+              <circle cx="42" cy="165" r="7" fill="#C9A24B"/>
+              <text x="120" y="16" fill="#ECE6D8" font-size="12" text-anchor="middle" font-family="var(--sans)">reason</text>
+              <text x="206" y="185" fill="#ECE6D8" font-size="12" text-anchor="middle" font-family="var(--sans)">reflect</text>
+              <text x="36" y="185" fill="#ECE6D8" font-size="12" text-anchor="middle" font-family="var(--sans)">synthesize</text>
+              <text x="120" y="116" fill="#988f78" font-size="11" text-anchor="middle" font-family="var(--sans)">recursion</text>
+              <text x="120" y="132" fill="#E3C16A" font-size="15" text-anchor="middle" font-family="var(--sans)">depth 2 / 6</text>
+            </svg>
+            <div style="font-family:var(--sans);font-size:11.5px;color:var(--muted);margin-top:4px">the serpent traces the ring once per loop</div>
+          </div>
+          <div>
+            <div class="meter"><div class="ml"><span>⚡ Energy</span><b>0.62</b></div>
+              <div class="bar"><i style="width:62%;background:var(--gold)"></i></div></div>
+            <div class="meter"><div class="ml"><span>🌀 Depth (guard 6)</span><b>2 / 6</b></div>
+              <div class="bar"><i style="width:33%;background:var(--brass)"></i></div></div>
+            <div class="meter"><div class="ml"><span>🔢 Budget (5k tokens)</span><b>85% ⚠</b></div>
+              <div class="bar"><i style="width:85%;background:linear-gradient(90deg,var(--success),var(--warn),var(--danger))"></i></div></div>
+            <div class="trace">
+              <div class="st"><span class="sn">#1 reason</span> · d1 · 120ms · 410 tok</div>
+              <div class="st"><span class="sn">#2 reflect</span> · d1 · 95ms · 220 tok</div>
+              <div class="st on"><span class="sn">#3 reason</span> · d2 · 140ms · 500 tok ◀</div>
+              <div class="st"><span class="sn">#4 reflect</span> · d2 · 88ms · 210 tok</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="note"><b>RBAC made visible.</b> Roles read as a fact of the interface, not just an API result.
+    An Observer sees Send / Fork / Deep&nbsp;Reason / Steer / Kill removed or dimmed and the monitor labelled
+    <i>Watching</i> — the world is legibly quieter and un-gilded. All decorative motion (the DNA-helix loader,
+    the ouroboros run-ring) honours <span class="mono">prefers-reduced-motion</span>.</div>
+</section>
+
+<!-- ═══════════════════════ 2. DATABASE DESIGN ═══════════════════════ -->
+<section class="part" id="db">
+  <div class="kicker">Part 2</div>
+  <h2>Database Design</h2>
+  <p class="intro">A relational schema shaped by five forces: strict multi-tenancy (a <b>workspace</b> is the
+    tenant boundary), append-only server-ordered conversations, structural branching (O(1) forks), policy-as-data
+    RBAC, and polyglot persistence (SQLite dev · PostgreSQL prod). Eleven entities — four built, seven designed.</p>
+
+  <h3 class="blk">Entity–Relationship Model</h3>
+  <div class="erd">
+    <div class="ent"><div class="eh"><b>users</b><span class="badge b-built">✅</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky uk">UK</span>email<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>pw_hash<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>created_at<span class="ty">timestamp</span></li>
+      </ul></div>
+
+    <div class="ent"><div class="eh"><b>workspaces</b><span class="badge b-built">✅</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky" style="width:24px"></span>name<span class="ty">varchar</span></li>
+        <li><span class="ky fk">FK</span>owner_id<span class="ty">→users</span></li>
+        <li><span class="ky" style="width:24px"></span>created_at<span class="ty">timestamp</span></li>
+      </ul></div>
+
+    <div class="ent"><div class="eh"><b>memberships</b><span class="badge b-built">✅</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>user_id<span class="ty">→users</span></li>
+        <li><span class="ky fk">FK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky" style="width:24px"></span>role<span class="ty">enum</span></li>
+        <li><span class="ky" style="width:24px"></span>joined_at<span class="ty">timestamp</span></li>
+      </ul></div>
+
+    <div class="ent"><div class="eh"><b>invites</b><span class="badge b-built">✅</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>token<span class="ty">varchar</span></li>
+        <li><span class="ky fk">FK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky fk">FK</span>created_by<span class="ty">→users</span></li>
+        <li><span class="ky" style="width:24px"></span>role<span class="ty">enum</span></li>
+        <li><span class="ky" style="width:24px"></span>expires_at<span class="ty">timestamp</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>conversations</b><span class="badge b-plan">◻ M2</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky fk">FK</span>author_id<span class="ty">→users</span></li>
+        <li><span class="ky" style="width:24px"></span>title<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>visibility<span class="ty">enum</span></li>
+        <li><span class="ky fk">FK</span>default_branch_id<span class="ty">→branch</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>branches</b><span class="badge b-plan">◻ M4</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>conversation_id<span class="ty">→conv</span></li>
+        <li><span class="ky fk">FK</span>parent_branch_id<span class="ty">→branch</span></li>
+        <li><span class="ky fk">FK</span>fork_node_id<span class="ty">→node</span></li>
+        <li><span class="ky fk">FK</span>head_node_id<span class="ty">→node</span></li>
+        <li><span class="ky" style="width:24px"></span>engine_thread_id<span class="ty">varchar</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>nodes</b><span class="badge b-plan">◻ M2</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>branch_id<span class="ty">→branch</span></li>
+        <li><span class="ky fk">FK</span>parent_id<span class="ty">→node</span></li>
+        <li><span class="ky uk">UK</span>seq<span class="ty">int</span></li>
+        <li><span class="ky" style="width:24px"></span>role<span class="ty">enum</span></li>
+        <li><span class="ky" style="width:24px"></span>content<span class="ty">json</span></li>
+        <li><span class="ky" style="width:24px"></span>token_count<span class="ty">int</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>prompts</b><span class="badge b-plan">◻ M5</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky fk">FK</span>author_id<span class="ty">→users</span></li>
+        <li><span class="ky" style="width:24px"></span>title · body<span class="ty">text</span></li>
+        <li><span class="ky" style="width:24px"></span>tags<span class="ty">json</span></li>
+        <li><span class="ky" style="width:24px"></span>used_count<span class="ty">int</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>runs</b><span class="badge b-plan">◻ M6</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky fk">FK</span>branch_id<span class="ty">→branch</span></li>
+        <li><span class="ky" style="width:24px"></span>status<span class="ty">enum</span></li>
+        <li><span class="ky" style="width:24px"></span>provider · model<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>stop_reason<span class="ty">varchar</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>run_steps</b><span class="badge b-plan">◻ M7</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>id<span class="ty">uuid</span></li>
+        <li><span class="ky fk">FK</span>run_id<span class="ty">→runs</span></li>
+        <li><span class="ky uk">UK</span>idx<span class="ty">int</span></li>
+        <li><span class="ky" style="width:24px"></span>node<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>payload<span class="ty">json</span></li>
+        <li><span class="ky" style="width:24px"></span>token_count · latency<span class="ty">int</span></li>
+      </ul></div>
+
+    <div class="ent plan"><div class="eh"><b>permissions</b><span class="badge b-plan">◻ M9</span></div>
+      <ul>
+        <li><span class="ky pk">PK</span>workspace_id<span class="ty">→ws</span></li>
+        <li><span class="ky pk">PK</span>role<span class="ty">enum</span></li>
+        <li><span class="ky pk">PK</span>action<span class="ty">varchar</span></li>
+        <li><span class="ky" style="width:24px"></span>allowed<span class="ty">bool</span></li>
+      </ul></div>
+  </div>
+
+  <h3 class="blk">Relationships &amp; Cardinality</h3>
+  <table class="reltab">
+    <tr><th>Relationship</th><th>Cardinality</th><th>Meaning</th></tr>
+    <tr><td><b>users ↔ workspaces</b></td><td>M : N via <span class="mono">memberships</span></td><td>A user joins many workspaces; each holds many members + roles.</td></tr>
+    <tr><td><b>workspace → conversations / prompts / runs / permissions / invites</b></td><td>1 : N</td><td>Everything a team owns is tenant-scoped.</td></tr>
+    <tr><td><b>conversation → branches</b></td><td>1 : N</td><td>A root branch plus any number of forks.</td></tr>
+    <tr><td><b>branch → branch</b> (<span class="mono">parent_branch_id</span>)</td><td>self 1 : N</td><td>The fork-lineage tree.</td></tr>
+    <tr><td><b>node → node</b> (<span class="mono">parent_id</span>)</td><td>self 1 : N</td><td>The message spine — crosses branch boundaries (O(1) fork).</td></tr>
+    <tr><td><b>run → run_steps</b></td><td>1 : N</td><td>An escalation and its ordered, replayable trace.</td></tr>
+  </table>
+
+  <h3 class="blk">Key Design Decisions</h3>
+  <div class="cardgrid">
+    <div class="dcard"><div class="dt">O(1) fork</div><p>A branch is a <i>pointer</i> (<span class="mono">fork_node_id</span>), not a copy. Reading walks <span class="mono">parent_id</span> — Git-style structural sharing.</p></div>
+    <div class="dcard"><div class="dt">Append-only nodes</div><p>Immutable messages stamped with a monotonic <span class="mono">seq</span> → one authoritative order, trivial real-time fan-out.</p></div>
+    <div class="dcard"><div class="dt">Policy as data</div><p>The <span class="mono">permissions</span> table is editable per workspace — an Owner retunes RBAC without a redeploy.</p></div>
+    <div class="dcard"><div class="dt">Tenant isolation</div><p>Workspace-scoped queries in code <i>and</i> PostgreSQL Row-Level Security in prod — defence in depth.</p></div>
+    <div class="dcard"><div class="dt">Polyglot &amp; 3NF</div><p>One schema on SQLite (dev) and Postgres (prod). Third normal form, with four deliberate cached denormalisations.</p></div>
+  </div>
+
+  <div class="note"><b>Built vs planned.</b> <span class="mono">users · workspaces · memberships · invites</span> are implemented
+    (SQLAlchemy async, created on startup; enums validated in application code today, CHECK constraints land with the
+    Postgres/Alembic migration). The remaining seven tables are designed and arrive with their milestones (M2–M9).</div>
+</section>
+
+<!-- ═══════════════════════ 3. MODULE DESIGN ═══════════════════════ -->
+<section class="part" id="mod">
+  <div class="kicker">Part 3</div>
+  <h2>Module Design</h2>
+  <p class="intro">A single FastAPI backend behind a React client, layered so requests flow inward through a
+    transport tier, an auth/RBAC gate, a service tier, and the model/ORM tier. Each concern is one module with one job.</p>
+
+  <h3 class="blk">Layered Architecture</h3>
+  <div class="layers">
+    <div class="layer"><div class="lt">Client</div><div class="boxes">
+      <span class="mbox">React · TypeScript · Tailwind · Vite</span>
+      <span class="mbox">Alchemical Noir UI kit</span></div></div>
+    <div class="ldown">▼ &nbsp; REST (writes) · SSE (token stream) · WebSocket (presence + broadcast)</div>
+    <div class="layer"><div class="lt">Transport — Routers</div><div class="boxes">
+      <span class="mbox">auth</span><span class="mbox">workspaces</span>
+      <span class="mbox">conversations</span><span class="mbox">prompts</span>
+      <span class="mbox">runs</span><span class="mbox">ws / rooms</span></div></div>
+    <div class="ldown">▼</div>
+    <div class="layer"><div class="lt">Gate — Dependencies</div><div class="boxes">
+      <span class="mbox gate">get_current_user (JWT)</span>
+      <span class="mbox gate">get_membership (tenant)</span>
+      <span class="mbox gate">require_role (RBAC)</span></div></div>
+    <div class="ldown">▼</div>
+    <div class="layer"><div class="lt">Services / Engine</div><div class="boxes">
+      <span class="mbox">Conversation</span><span class="mbox">Fork</span>
+      <span class="mbox">Sync rooms</span><span class="mbox">Prompt library</span>
+      <span class="mbox eng">Deep Reasoning engine</span><span class="mbox">Monitor</span>
+      <span class="mbox">History</span><span class="mbox">Provider interface</span></div></div>
+    <div class="ldown">▼</div>
+    <div class="layer"><div class="lt">Data</div><div class="boxes">
+      <span class="mbox">Models / ORM (SQLAlchemy)</span>
+      <span class="mbox">SQLite (dev) · PostgreSQL (prod)</span></div></div>
+  </div>
+
+  <h3 class="blk">Modules</h3>
+  <div class="modgrid">
+    <div class="mod"><div class="mh"><b>Config</b><span class="badge b-built">✅</span></div><p>Typed settings from env — DB URL, JWT, provider, URLs.</p><div class="loc">api/config.py</div></div>
+    <div class="mod"><div class="mh"><b>DB / Session</b><span class="badge b-built">✅</span></div><p>Async engine, session-per-request, schema bootstrap, health ping.</p><div class="loc">api/db.py</div></div>
+    <div class="mod"><div class="mh"><b>Models</b><span class="badge b-built">✅</span></div><p>ORM entities + helpers (role rank, expiry, UTC normalise).</p><div class="loc">api/models.py</div></div>
+    <div class="mod"><div class="mh"><b>Security</b><span class="badge b-built">✅</span></div><p>bcrypt hashing; JWT encode/decode (HS256, TTL).</p><div class="loc">api/security.py</div></div>
+    <div class="mod"><div class="mh"><b>Deps — Auth + RBAC</b><span class="badge b-built">✅</span></div><p>The single gate: identity → tenant → role. 404 non-member / 403 role.</p><div class="loc">api/deps.py</div></div>
+    <div class="mod"><div class="mh"><b>Auth router</b><span class="badge b-built">✅</span></div><p>register · login · /me.</p><div class="loc">routers/auth.py</div></div>
+    <div class="mod"><div class="mh"><b>Workspaces router</b><span class="badge b-built">✅</span></div><p>workspaces · invites · members · role patch.</p><div class="loc">routers/workspaces.py</div></div>
+    <div class="mod"><div class="mh"><b>Provider layer</b><span class="badge b-built">✅</span></div><p>One <span class="mono">LLMProvider</span> interface; stub / Groq / Ollama.</p><div class="loc">api/providers/*</div></div>
+    <div class="mod"><div class="mh"><b>Conversation</b><span class="badge b-plan">◻ M2</span></div><p>Persist nodes; drive the SSE streaming send + broadcast.</p><div class="loc">routers/conversations.py</div></div>
+    <div class="mod"><div class="mh"><b>Fork</b><span class="badge b-plan">◻ M4</span></div><p>O(1) fork; resolve history across branches; the tree.</p><div class="loc">services/fork.py</div></div>
+    <div class="mod"><div class="mh"><b>Sync rooms</b><span class="badge b-plan">◻ M3</span></div><p>Per-workspace room; presence; per-client-queue fan-out.</p><div class="loc">ws/room.py</div></div>
+    <div class="mod"><div class="mh"><b>Prompt library</b><span class="badge b-plan">◻ M5</span></div><p>Save / search / tag; usage counter.</p><div class="loc">routers/prompts.py</div></div>
+    <div class="mod"><div class="mh"><b>Deep Reasoning engine</b><span class="badge b-plan">◻ M6</span></div><p>Recursive reason→reflect→synthesize; checkpoints; step events.</p><div class="loc">engine/*</div></div>
+    <div class="mod"><div class="mh"><b>Monitor</b><span class="badge b-plan">◻ M7</span></div><p>Normalise engine events; meter tokens/rate vs thresholds.</p><div class="loc">services/monitor.py</div></div>
+    <div class="mod"><div class="mh"><b>Run controller</b><span class="badge b-plan">◻ M7</span></div><p>start · steer · kill; depth/loop guards; RBAC-gated.</p><div class="loc">routers/runs.py</div></div>
+    <div class="mod"><div class="mh"><b>History</b><span class="badge b-plan">◻ M8</span></div><p>Replay a branch; export JSON / Markdown.</p><div class="loc">routers/history.py</div></div>
+    <div class="mod"><div class="mh"><b>Permission policy</b><span class="badge b-plan">◻ M9</span></div><p>Owner-editable RBAC matrix; tool allowlist + approval.</p><div class="loc">routers/permissions.py</div></div>
+  </div>
+
+  <div class="note"><b>The pluggability seam.</b> Everything that needs inference depends on the <span class="mono">LLMProvider</span>
+    interface, never a concrete backend — a new model is a new class, not an application change. The same seam lets the
+    Sync rooms be backed by Redis pub/sub for horizontal scaling with no router changes.</div>
+</section>
+
+<!-- ═══════════════════════ 4. ALGORITHM DESIGN ═══════════════════════ -->
+<section class="part" id="algo">
+  <div class="kicker">Part 4</div>
+  <h2>Algorithm Design</h2>
+  <p class="intro">The load-bearing algorithms, each as a flowchart and/or structured pseudocode with a complexity
+    and correctness note. Two are built today (RBAC, invites); the rest are designed for their milestones.</p>
+
+  <!-- A1 fork -->
+  <div class="algo">
+    <div class="ah"><b>A1 · O(1) Fork &amp; cross-branch history</b><span class="badge b-plan">◻ M4</span></div>
+    <p class="meta">The signature algorithm. Forking copies <b>no</b> history; the cost moves to a read-time walk up the spine.</p>
+    <div class="two" style="margin-top:12px">
+      <div>
+        <h4 class="sub">Fork — write path</h4>
+        <div class="flow">
+          <div class="fnode fterm">fork(conversation, from_node N, name)</div>
+          <div class="farr">↓</div>
+          <div class="fnode">Create one Branch row<span class="mono">parent_branch_id = N.branch · fork_node_id = N.id · head = N.id</span></div>
+          <div class="farr">↓</div>
+          <div class="fdec">deep-reasoning branch?</div>
+          <div class="fside"><div class="farr">↓ <span class="lbl">yes</span></div><div class="out">copy LangGraph checkpoint → new engine_thread_id</div></div>
+          <div class="farr">↓</div>
+          <div class="fnode fterm">persist(branch) — exactly ONE row</div>
+        </div>
+      </div>
+      <div>
+        <h4 class="sub">History — read path</h4>
+        <div class="flow">
+          <div class="fnode fterm">resolve_history(branch)</div>
+          <div class="farr">↓</div>
+          <div class="fnode">node ← branch.head_node</div>
+          <div class="farr">↓</div>
+          <div class="fdec">node ≠ NULL ?</div>
+          <div class="fside"><div class="farr">↺ <span class="lbl">yes</span></div><div class="loopback">prepend(node) · node ← node.parent <span style="color:var(--muted)">(crosses branch boundary)</span></div></div>
+          <div class="farr">↓ <span class="lbl" style="position:static;color:var(--muted)">no</span></div>
+          <div class="fnode fterm">return nodes, root → head</div>
+        </div>
+      </div>
+    </div>
+    <p class="meta"><b>Complexity:</b> write O(1) · read O(n) on the path. <b>Correct because</b> nodes are immutable and
+      <span class="mono">parent_id</span> forms a tree — a branch only names a tip + a fork point.</p>
+  </div>
+
+  <!-- A2 RBAC -->
+  <div class="algo">
+    <div class="ah"><b>A2 · Two-stage RBAC authorization</b><span class="badge b-built">✅ Built · M1</span></div>
+    <p class="meta">A fast role-rank gate (the membership lookup <i>is</i> the tenant-isolation check), then a data-driven policy lookup.</p>
+    <div class="flow" style="margin-top:12px">
+      <div class="fnode fterm">require_role(user, wid, min_role)</div>
+      <div class="farr">↓</div>
+      <div class="fnode">m ← membership(user, wid)<span class="mono">one indexed lookup</span></div>
+      <div class="farr">↓</div>
+      <div class="fdec">m = NULL ?</div>
+      <div class="fside"><div class="farr">↓ <span class="lbl">no</span></div><div class="out">yes → raise 404 not_found<br><span style="color:var(--muted)">(don't reveal the tenant exists)</span></div></div>
+      <div class="fdec">rank[m.role] &lt; rank[min_role] ?</div>
+      <div class="fside"><div class="farr">↓ <span class="lbl">no</span></div><div class="out">yes → raise 403 forbidden</div></div>
+      <div class="fnode fterm">✓ authorized — return membership</div>
+      <div class="loopback" style="border-color:var(--line);color:var(--muted);margin-top:14px">Stage 2 (M9): <span class="mono">can(wid, role, action)</span> → reads the editable <span class="mono">permissions</span> table · default-deny</div>
+    </div>
+    <p class="meta"><b>Complexity:</b> O(1), two point lookups. <b>ROLE_RANK</b> = {observer 0, collaborator 1, owner 2}.</p>
+  </div>
+
+  <!-- A3 deep reasoning -->
+  <div class="algo">
+    <div class="ah"><b>A3 · Recursive Deep-Reasoning loop</b><span class="badge b-plan">◻ M6–M7</span></div>
+    <p class="meta">reason → reflect → synthesize, feeding each synthesis back as the next thought (the ouroboros),
+      until it converges or any of four guards halts it.</p>
+    <div class="flow" style="margin-top:12px">
+      <div class="fnode fterm">start(run, prompt, config)</div>
+      <div class="farr">↓</div>
+      <div class="fnode fguard">GUARDS — checked each loop, halt at the step boundary<span class="mono">kill · tokens≥budget · depth≥max · loops≥guard</span></div>
+      <div class="farr">↓ <span class="lbl">pass</span></div>
+      <div class="fnode">reason(thought) → reflect(reasoning) → synthesize()<span class="mono">emit a step event per transition → monitor + run_steps</span></div>
+      <div class="farr">↓</div>
+      <div class="fnode">tokens += used · energy = decay(energy)<span class="mono">energy strictly decreasing</span></div>
+      <div class="farr">↓</div>
+      <div class="fdec">converged? or energy &lt; floor?</div>
+      <div class="fside">
+        <div class="farr">↓ <span class="lbl">no</span></div>
+        <div class="loopback">↺ thought ← synthesis · depth+1 · loops+1 → back to GUARDS</div>
+      </div>
+      <div class="farr">↓ <span class="lbl" style="position:static;color:var(--muted)">yes</span></div>
+      <div class="fnode fterm">complete(run, stop_reason)</div>
+    </div>
+    <p class="meta"><b>Termination guaranteed</b> by four independent halts <i>and</i> monotonic energy decay — no input loops forever.
+      <b>Steer</b> is checked only at a boundary, so injected guidance never corrupts mid-transition state.</p>
+  </div>
+
+  <!-- A5 fan-out + others as pseudocode -->
+  <div class="algo">
+    <div class="ah"><b>A5 · Real-time fan-out with authoritative ordering</b><span class="badge b-plan">◻ M3</span></div>
+    <p class="meta">Sends go through REST/SSE so the server owns order; the room fans out. A slow client never stalls the rest.</p>
+<pre class="code"><span class="c"># server-owned order: seq assigned inside the write txn</span>
+<span class="k">def</span> <span class="g">append_node</span>(branch, role, content):
+    <span class="k">with</span> transaction:
+        seq  = branch.next_seq          <span class="c"># monotonic, per-branch lock</span>
+        node = persist(Node(branch, parent=branch.head, seq, role, content))
+        branch.head = node              <span class="c"># advance cached tip</span>
+    <span class="k">return</span> node
+
+<span class="k">def</span> <span class="g">broadcast</span>(wid, event):
+    <span class="k">for</span> client <span class="k">in</span> rooms[wid].clients:
+        <span class="k">try</span>: client.queue.put_nowait(event)   <span class="c"># never awaits a slow socket</span>
+        <span class="k">except</span> QueueFull: drop(client)         <span class="c"># laggard only → no head-of-line block</span>
+
+<span class="c"># client renders by node.seq, not arrival time → one total order</span></pre>
+    <p class="meta"><b>Complexity:</b> O(C) non-blocking enqueues per event. <b>Backpressure:</b> isolated per client (NFR-7).</p>
+  </div>
+
+  <div class="two">
+    <div class="algo">
+      <div class="ah"><b>A4 · Budget metering</b><span class="badge b-plan">◻ M7</span></div>
+<pre class="code"><span class="k">def</span> <span class="g">on_step_tokens</span>(run, used):
+    run.tokens += used
+    pct = run.tokens / budget
+    emit_meter(run, pct)        <span class="c"># green→amber→oxblood</span>
+    <span class="k">if</span> pct &gt;= 0.85 <span class="k">and</span> <span class="k">not</span> run.alerted:
+        run.alerted = <span class="k">True</span>; alert()   <span class="c"># one-shot</span>
+    <span class="k">if</span> run.tokens &gt;= budget:
+        request_halt(run)       <span class="c"># cooperative</span></pre>
+      <p class="meta">O(1)/step · one-shot alert · halt honoured at next guard.</p>
+    </div>
+    <div class="algo">
+      <div class="ah"><b>A7 · Invite lifecycle</b><span class="badge b-built">✅ Built · M1</span></div>
+<pre class="code"><span class="k">def</span> <span class="g">accept_invite</span>(token, user):
+    inv = invites[token]              <span class="c"># PK lookup</span>
+    <span class="k">if</span> inv <span class="k">is</span> <span class="k">None</span> <span class="k">or</span> inv.is_expired:
+        raise 404                     <span class="c"># expired ≡ invalid</span>
+    <span class="k">if</span> member(user, inv.ws):
+        <span class="k">return</span> existing            <span class="c"># idempotent</span>
+    add Membership(user, inv.ws, inv.role)
+    <span class="k">return</span> workspace(inv.ws)</pre>
+      <p class="meta">O(1) · unguessable token · expiring · idempotent.</p>
+    </div>
+  </div>
+
+  <h3 class="blk">Complexity Summary</h3>
+  <table class="cmplx">
+    <tr><th>#</th><th>Algorithm</th><th>Time</th><th>Key guarantee</th><th>Status</th></tr>
+    <tr><td>A1</td><td>Fork (write) / history (read)</td><td>O(1) / O(n)</td><td>No history copied; correct cross-branch walk</td><td><span class="badge b-plan">◻ M4</span></td></tr>
+    <tr><td>A2</td><td>RBAC authorization</td><td>O(1)</td><td>Default-deny; tenant-isolating</td><td><span class="badge b-built">✅</span></td></tr>
+    <tr><td>A3</td><td>Deep-Reasoning loop</td><td>O(S)</td><td>Guaranteed termination (4 guards + energy)</td><td><span class="badge b-plan">◻ M6</span></td></tr>
+    <tr><td>A4</td><td>Budget metering</td><td>O(1)/step</td><td>One-shot alert; cooperative halt</td><td><span class="badge b-plan">◻ M7</span></td></tr>
+    <tr><td>A5</td><td>Fan-out + ordering</td><td>O(C)/event</td><td>Total order by seq; no head-of-line block</td><td><span class="badge b-plan">◻ M3</span></td></tr>
+    <tr><td>A6</td><td>Library search &amp; ranking</td><td>sub-linear</td><td>Relevance, then proven usefulness</td><td><span class="badge b-plan">◻ M5</span></td></tr>
+    <tr><td>A7</td><td>Invite lifecycle</td><td>O(1)</td><td>Unguessable, expiring, idempotent</td><td><span class="badge b-built">✅</span></td></tr>
+  </table>
+</section>
+
+</div>
+
+<footer>
+  Helix — System Design · UI · Database · Module · Algorithm ·
+  Alchemical Noir · <span style="color:var(--gold)">⟳</span> open in a browser, print to PDF for the report.
+</footer>
+
+</body>
+</html>

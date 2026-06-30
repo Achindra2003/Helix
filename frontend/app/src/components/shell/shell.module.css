@@ -1,0 +1,54 @@
+.shell { height: 100%; display: grid; grid-template-columns: 68px 1fr; }
+
+/* rail */
+.rail {
+  background: var(--paper-3); border-right: 1px solid var(--rule-soft);
+  display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 6px;
+}
+.railLogo { margin-bottom: 12px; background: none; border: none; }
+.navBtn, .navOn {
+  display: flex; flex-direction: column; align-items: center; gap: 3px; width: 48px; padding: 8px 0;
+  border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--ink-3);
+}
+.navOn { border-color: var(--rule); background: var(--paper); color: var(--oxblood); }
+.navGlyph { font-size: 18px; line-height: 1; }
+.navLabel { font-family: var(--font-mono); font-size: 8px; letter-spacing: 0.06em; }
+.avatar {
+  width: 36px; height: 36px; border-radius: 50%; background: var(--gilt); color: #1a1404;
+  display: flex; align-items: center; justify-content: center; font-weight: 700;
+  border: 1.5px solid var(--gilt-2); font-family: var(--font-display); cursor: pointer;
+}
+
+/* main column — min-height:0 + overflow:hidden are required so this grid item
+   can shrink below its content and hand scrolling to the inner panes (the
+   conversation canvas, lists, etc). Without them the column grows unbounded and
+   #root's overflow:hidden simply clips it, so nothing scrolls. */
+.main { display: flex; flex-direction: column; min-width: 0; min-height: 0; overflow: hidden; }
+.dim { opacity: 0.92; }
+
+/* top bar */
+.topbar {
+  height: 58px; flex: 0 0 58px; background: var(--paper-3); border-bottom: 1px solid var(--rule);
+  display: flex; align-items: center; padding: 0 20px; gap: 18px;
+}
+.wsMark {
+  width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--gilt-2), var(--gilt));
+  display: flex; align-items: center; justify-content: center; font-family: var(--font-display);
+  font-weight: 600; color: #1a1404;
+}
+.wsName { font-size: 14px; font-weight: 600; font-family: var(--font-display); }
+.wsSub { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+.spacer { flex: 1; }
+.presence { display: flex; align-items: center; }
+.pAvatar {
+  width: 26px; height: 26px; border-radius: 50%; color: #fff; display: flex; align-items: center;
+  justify-content: center; font-size: 11px; border: 2px solid var(--paper-3); margin-left: -6px;
+}
+.sep { height: 24px; width: 1px; background: var(--rule-soft); }
+.badge {
+  display: inline-flex; align-items: center; gap: 5px; font-family: var(--font-mono); font-size: 12px;
+  border: 1px solid var(--rule); border-radius: 5px; padding: 3px 8px; color: var(--oxblood);
+}
+.roleSw { display: flex; background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 8px; overflow: hidden; }
+.swBtn, .swOn { border: none; padding: 6px 10px; font-size: 13px; background: transparent; color: var(--ink-3); }
+.swOn { background: var(--paper-3); color: var(--oxblood); }

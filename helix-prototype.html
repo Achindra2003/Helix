@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="theme-color" content="#0B0B0D" />
+<title>Helix — Interactive Product Prototype</title>
+<style>
+  /* ─── Alchemical Noir theme (per Design Phase §3.1 — supersedes the violet→cyan build) ─── */
+  :root{
+    --bg:#0B0B0D; --surface:#131210; --surface2:#16140F; --surface3:#1E1B15; --line:#2a261c;
+    --fg:#ECE6D8; --muted:#988f78;
+    --gold:#C9A24B; --gold-bright:#E3C16A; --gold-deep:#8A6D2F;
+    --violet:#8B73D6;            /* arcane-violet accent (links, paused, secondary highlights) */
+    --cyan:#C9A24B;              /* legacy alias → gold is now the single brand hue */
+    --danger:#B5483F; --success:#4E9277; --warn:#C98A2B;
+    --grad:linear-gradient(135deg,var(--gold-deep),var(--gold-bright));
+    --serif:"EB Garamond","Cormorant Garamond",Georgia,"Times New Roman",serif;
+    --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,Helvetica,Arial,sans-serif;
+    --mono:ui-monospace,"JetBrains Mono","SFMono-Regular",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0;background:var(--bg);color:var(--fg);font-family:var(--sans);
+    -webkit-font-smoothing:antialiased;overflow-x:hidden}
+  button{font-family:inherit;cursor:pointer}
+  a{color:inherit}
+  .hidden{display:none!important}
+  .text-helix{background-image:var(--grad);-webkit-background-clip:text;background-clip:text;color:transparent}
+  .gradient-helix{background-image:var(--grad)}
+  .app-glow{background:
+    radial-gradient(55rem 28rem at 15% -10%, color-mix(in oklab,var(--violet) 20%,transparent), transparent),
+    radial-gradient(45rem 26rem at 100% 0%, color-mix(in oklab,var(--cyan) 14%,transparent), transparent)}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--line);border-radius:9999px}
+  *{scrollbar-width:thin;scrollbar-color:var(--line) transparent}
+
+  /* ─── Landing / pitch (business view) ─────────────────────────────────── */
+  #landing{position:fixed;inset:0;overflow-y:auto;z-index:30}
+  .land-nav{position:sticky;top:0;display:flex;align-items:center;gap:14px;
+    padding:14px 32px;background:color-mix(in oklab,var(--bg) 82%,transparent);
+    backdrop-filter:blur(10px);border-bottom:1px solid var(--line);z-index:5}
+  .brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:19px;letter-spacing:-.5px}
+  .land-nav .spacer{flex:1}
+  .navlink{color:var(--muted);font-size:13px;text-decoration:none;padding:6px 10px;border-radius:8px}
+  .navlink:hover{color:var(--fg);background:var(--surface2)}
+  .cta{background:var(--grad);border:none;color:#0B0B0D;font-weight:700;
+    padding:10px 18px;border-radius:10px;font-size:14px}
+  .cta:hover{filter:brightness(1.08)}
+  .cta.lg{padding:14px 26px;font-size:16px}
+  .ghost-btn{background:var(--surface2);border:1px solid var(--line);color:var(--fg);
+    padding:10px 18px;border-radius:10px;font-size:14px}
+  .ghost-btn:hover{border-color:var(--violet)}
+
+  .hero{position:relative;max-width:980px;margin:0 auto;padding:90px 28px 60px;text-align:center}
+  .hero::before{content:"";position:absolute;inset:0;z-index:-1;
+    background:radial-gradient(50rem 26rem at 50% -20%, color-mix(in oklab,var(--violet) 22%,transparent), transparent)}
+  .eyebrow{display:inline-block;font-size:12px;letter-spacing:1.5px;text-transform:uppercase;
+    color:var(--muted);border:1px solid var(--line);border-radius:30px;padding:6px 14px;margin-bottom:24px}
+  .hero h1{font-size:clamp(34px,6vw,62px);line-height:1.05;margin:0 0 18px;letter-spacing:-1.5px;font-weight:800}
+  .hero .lede{font-size:clamp(16px,2.4vw,21px);color:var(--muted);max-width:680px;margin:0 auto 14px;line-height:1.55}
+  .hero .one-liner{font-size:14px;color:var(--cyan);font-family:var(--mono);margin-bottom:34px}
+  .hero-actions{display:flex;gap:14px;justify-content:center;flex-wrap:wrap}
+  .hero-note{margin-top:18px;color:var(--muted);font-size:12px}
+
+  section.band{max-width:1080px;margin:0 auto;padding:56px 28px;border-top:1px solid var(--line)}
+  .band h2{font-size:13px;letter-spacing:2px;text-transform:uppercase;color:var(--muted);margin:0 0 6px;text-align:center}
+  .band .h2sub{text-align:center;font-size:clamp(22px,3vw,30px);font-weight:800;margin:0 0 38px;letter-spacing:-.5px}
+  .grid3{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+  .grid2{display:grid;grid-template-columns:repeat(2,1fr);gap:18px}
+  @media(max-width:820px){.grid3,.grid2{grid-template-columns:1fr}}
+  .tile{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px}
+  .tile .ico{font-size:22px;margin-bottom:10px}
+  .tile h3{margin:0 0 8px;font-size:16px}
+  .tile p{margin:0;color:var(--muted);font-size:13.5px;line-height:1.6}
+  .tile .kpi{font-size:13px;color:var(--violet);font-weight:700;margin-top:10px}
+
+  .feat{display:flex;gap:14px;align-items:flex-start;background:var(--surface);
+    border:1px solid var(--line);border-radius:14px;padding:18px}
+  .feat .fico{width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;
+    background:color-mix(in oklab,var(--violet) 18%,transparent);font-size:18px;flex:none}
+  .feat h3{margin:0 0 4px;font-size:15px}
+  .feat p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}
+
+  table.compare{width:100%;border-collapse:collapse;font-size:13.5px}
+  table.compare th,table.compare td{text-align:left;padding:12px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+  table.compare th{color:var(--muted);font-weight:600;font-size:12px;letter-spacing:.5px;text-transform:uppercase}
+  table.compare td b{color:var(--fg)}
+  table.compare .gapcol{color:var(--cyan)}
+
+  .stack-row{display:flex;flex-wrap:wrap;gap:10px;justify-content:center}
+  .chip{font-size:12.5px;background:var(--surface2);border:1px solid var(--line);
+    border-radius:30px;padding:7px 14px;color:var(--fg)}
+  .chip b{color:var(--cyan)}
+
+  .concept{background:var(--surface);border:1px solid var(--line);border-radius:14px;padding:20px}
+  .concept .tag{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--violet);font-weight:700}
+  .concept h3{margin:8px 0 6px;font-size:16px}
+  .concept p{margin:0;color:var(--muted);font-size:13px;line-height:1.6}
+
+  .land-foot{text-align:center;padding:50px 28px 70px;color:var(--muted);border-top:1px solid var(--line)}
+  .scope-note{max-width:760px;margin:24px auto 0;font-size:13px;color:var(--muted);line-height:1.6;
+    background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--violet);
+    border-radius:10px;padding:16px 18px;text-align:left}
+
+  /* ─── Helix mark (SVG, gradient strands) ──────────────────────────────── */
+  .mark{flex:none}
+
+  /* ─── App shell (product view) ────────────────────────────────────────── */
+  #app{display:grid;grid-template-rows:56px 1fr;height:100vh}
+  .topbar{display:flex;align-items:center;gap:12px;padding:0 16px;border-bottom:1px solid var(--line);
+    background:var(--surface);position:relative;z-index:10}
+  .topbar .brand{font-size:17px}
+  .wscrumb{display:flex;align-items:center;gap:7px;color:var(--muted);font-size:13px}
+  .wscrumb b{color:var(--fg)}
+  .spacer{flex:1}
+  .av{width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;
+    font-size:12px;font-weight:700;color:#0B0B0D;border:2px solid var(--surface);margin-left:-8px}
+  .av:first-child{margin-left:0}
+  .pill{font-size:11.5px;color:var(--muted);border:1px solid var(--line);padding:5px 11px;border-radius:20px}
+  .pill .dot{width:7px;height:7px;border-radius:50%;background:var(--success);display:inline-block;
+    margin-right:6px;box-shadow:0 0 8px var(--success)}
+  .roleselect{background:var(--surface2);color:var(--fg);border:1px solid var(--line);
+    border-radius:8px;padding:6px 8px;font-size:12px}
+  .iconbtn{background:var(--surface2);border:1px solid var(--line);color:var(--muted);
+    border-radius:8px;padding:6px 11px;font-size:12px}
+  .iconbtn:hover{color:var(--fg);border-color:var(--violet)}
+  .iconbtn.active{color:#0B0B0D;background:var(--grad);border-color:transparent;font-weight:700}
+
+  .cols{display:grid;grid-template-columns:260px 1fr 372px;height:100%;overflow:hidden}
+  .panel{overflow:auto;background:var(--bg);border-right:1px solid var(--line)}
+  .panel.right{border-right:none;border-left:1px solid var(--line);background:var(--surface)}
+  .ph{padding:12px 14px;font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);
+    border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;
+    position:sticky;top:0;background:var(--bg);z-index:2}
+  .panel.right .ph{background:var(--surface)}
+  .addbtn{background:var(--surface2);border:1px solid var(--line);color:var(--cyan);border-radius:6px;
+    font-size:11px;padding:4px 9px}
+  .addbtn:hover{border-color:var(--cyan)}
+
+  /* Left: conversations + branch tree */
+  .list{padding:8px}
+  .conv{display:flex;align-items:center;gap:8px;padding:9px 10px;border-radius:8px;margin:2px 0;
+    cursor:pointer;font-size:13px}
+  .conv:hover{background:var(--surface2)}
+  .conv.active{background:color-mix(in oklab,var(--violet) 16%,transparent);outline:1px solid var(--violet)}
+  .conv .vis{font-size:9px;padding:2px 7px;border-radius:8px;border:1px solid var(--line);color:var(--muted);margin-left:auto}
+  .conv .vis.shared{color:var(--success);border-color:color-mix(in oklab,var(--success) 60%,var(--line))}
+  .conv .vis.private{color:var(--warn);border-color:color-mix(in oklab,var(--warn) 60%,var(--line))}
+  .sub{padding:12px 14px 4px;font-size:10px;letter-spacing:1px;text-transform:uppercase;color:var(--muted);
+    border-top:1px solid var(--line);margin-top:6px}
+  .node{display:flex;align-items:center;gap:8px;padding:7px 10px;border-radius:8px;margin:2px 8px;
+    cursor:pointer;font-size:12px;position:relative}
+  .node:hover{background:var(--surface2)}
+  .node.active{background:color-mix(in oklab,var(--violet) 14%,transparent)}
+  .node .glyph{width:10px;height:10px;border-radius:50%;border:2px solid var(--violet);flex:none}
+  .node.deep .glyph{border-color:var(--cyan);background:color-mix(in oklab,var(--cyan) 30%,transparent)}
+  .node.child{margin-left:26px}
+  .node.child::before{content:"";position:absolute;left:-12px;top:-7px;bottom:50%;width:14px;
+    border-left:2px solid var(--line);border-bottom:2px solid var(--line);border-bottom-left-radius:7px}
+  .node .meta{margin-left:auto;font-size:10px;color:var(--muted)}
+
+  /* Center: chat */
+  .center{display:flex;flex-direction:column;height:100%}
+  .convhead{padding:12px 18px;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:10px;
+    position:sticky;top:0;background:var(--bg);z-index:2}
+  .convhead .title{font-weight:700;font-size:15px}
+  .convhead .vis{font-size:9px;padding:2px 8px;border-radius:8px;border:1px solid}
+  .thread{flex:1;overflow:auto;padding:18px 22px}
+  .msg{margin-bottom:16px;max-width:780px}
+  .who{font-size:12px;color:var(--muted);margin-bottom:5px;display:flex;align-items:center;gap:7px}
+  .who .badge{font-size:10px;padding:1px 7px;border-radius:10px;background:var(--surface2);border:1px solid var(--line)}
+  .who .badge.deep{color:var(--cyan);border-color:color-mix(in oklab,var(--cyan) 50%,var(--line))}
+  .bubble{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:12px 15px;
+    font-size:14px;line-height:1.6}
+  .bubble.ai{background:linear-gradient(180deg,color-mix(in oklab,var(--violet) 8%,var(--surface)),var(--surface));
+    border-color:color-mix(in oklab,var(--violet) 35%,var(--line))}
+  .bubble.deep{background:linear-gradient(180deg,color-mix(in oklab,var(--cyan) 9%,var(--surface)),var(--surface));
+    border-color:color-mix(in oklab,var(--cyan) 40%,var(--line))}
+  .seq{margin-left:auto;font-size:10px;color:var(--muted)}
+  .composer{border-top:1px solid var(--line);padding:11px 16px;background:var(--surface)}
+  .ctools{display:flex;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+  .ctools button{font-size:12px;background:var(--surface2);border:1px solid var(--line);color:var(--muted);
+    padding:6px 11px;border-radius:8px}
+  .ctools button:hover{color:var(--fg);border-color:var(--violet)}
+  .ctools button:disabled{opacity:.4;cursor:not-allowed}
+  .crow{display:flex;gap:10px}
+  .crow input{flex:1;padding:12px 14px;background:var(--surface2);border:1px solid var(--line);
+    border-radius:10px;color:var(--fg);font-size:14px}
+  .crow input:focus{outline:none;border-color:var(--violet)}
+  .send{background:var(--grad);border:none;color:#0B0B0D;font-weight:700;padding:0 18px;border-radius:10px}
+  .deep{background:var(--surface2);border:1px solid var(--cyan);color:var(--cyan);font-weight:700;
+    padding:0 14px;border-radius:10px}
+  .deep:hover,.send:hover{filter:brightness(1.1)}
+  .deep:disabled,.send:disabled{opacity:.4;cursor:not-allowed;filter:none}
+
+  /* Library overlay */
+  .overlay{position:absolute;inset:56px 0 0 0;background:color-mix(in oklab,var(--bg) 88%,transparent);
+    backdrop-filter:blur(4px);z-index:25;display:flex;align-items:flex-start;justify-content:center;padding-top:46px}
+  .libcard{background:var(--surface);border:1px solid var(--line);border-radius:16px;width:600px;
+    max-height:78vh;overflow:auto;padding:22px}
+  .libcard h3{margin:0 0 4px;font-size:18px}
+  .libcard .x{float:right;color:var(--muted);background:none;border:none;font-size:22px}
+  .libsearch{width:100%;padding:10px 13px;margin:12px 0;background:var(--surface2);border:1px solid var(--line);
+    border-radius:9px;color:var(--fg);font-size:14px}
+  .prompt{border:1px solid var(--line);border-radius:11px;padding:13px 14px;margin:9px 0}
+  .prompt b{font-size:14px}
+  .prompt p{margin:6px 0;font-size:12.5px;color:var(--muted);line-height:1.5}
+  .tags{display:flex;gap:6px;flex-wrap:wrap;margin-top:7px}
+  .tag-chip{font-size:10.5px;background:var(--surface2);border:1px solid var(--line);color:var(--cyan);
+    padding:3px 9px;border-radius:10px;cursor:pointer}
+  .use{float:right;font-size:11px;background:var(--surface2);border:1px solid var(--line);color:var(--success);
+    padding:5px 11px;border-radius:8px}
+  .use:hover{border-color:var(--success)}
+  .libstat{font-size:11px;color:var(--muted);margin-top:4px}
+
+  /* Right: Deep Reasoning monitor */
+  .mon{padding:14px}
+  .monidle{color:var(--muted);font-size:13px;text-align:center;padding:30px 16px;line-height:1.65}
+  .monidle b{color:var(--cyan)}
+  .topo{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;padding:14px;background:var(--bg);
+    border:1px solid var(--line);border-radius:12px}
+  .gnode{font-size:11px;padding:7px 11px;border-radius:18px;border:1px solid var(--line);color:var(--muted);
+    background:var(--surface2);transition:.25s}
+  .gnode.on{color:#0B0B0D;background:var(--grad);border-color:transparent;
+    box-shadow:0 0 16px color-mix(in oklab,var(--violet) 60%,transparent);transform:scale(1.06)}
+  .meters{margin:14px 0;display:grid;gap:11px}
+  .meter{font-size:12px}
+  .meter .ml{display:flex;justify-content:space-between;color:var(--muted);margin-bottom:5px}
+  .bar{height:8px;background:var(--surface2);border-radius:6px;overflow:hidden}
+  .bar i{display:block;height:100%;width:0;border-radius:6px;transition:width .3s}
+  .bar.energy i{background:linear-gradient(90deg,var(--success),var(--cyan))}
+  .bar.tok i{background:var(--grad)}
+  .bar.rate i{background:linear-gradient(90deg,var(--warn),var(--danger))}
+  .bar.depth i{background:linear-gradient(90deg,var(--cyan),var(--violet))}
+  .controls{display:flex;gap:8px;margin:12px 0}
+  .ctl{flex:1;padding:11px;border-radius:9px;border:1px solid var(--line);background:var(--surface2);
+    color:var(--fg);font-size:13px;font-weight:600}
+  .ctl.kill{border-color:color-mix(in oklab,var(--danger) 55%,var(--line));color:var(--danger)}
+  .ctl.kill:hover:not(:disabled){background:var(--danger);color:#0B0B0D}
+  .ctl.steer:hover:not(:disabled){border-color:var(--cyan);color:var(--cyan)}
+  .ctl:disabled{opacity:.4;cursor:not-allowed}
+  .trace{margin-top:6px;border:1px solid var(--line);border-radius:10px;overflow:hidden}
+  .step{padding:9px 12px;border-bottom:1px solid var(--line);font-size:12px;animation:fade .3s}
+  .step:last-child{border-bottom:none}
+  .step .sn{color:var(--cyan);font-weight:700}
+  .step small{color:var(--muted)}
+  @keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1}}
+  .status{font-size:11px;padding:3px 10px;border-radius:12px;border:1px solid var(--line)}
+  .status.run{color:var(--success);border-color:color-mix(in oklab,var(--success) 55%,var(--line))}
+  .status.idle{color:var(--muted)}
+  .status.killed{color:var(--danger);border-color:color-mix(in oklab,var(--danger) 55%,var(--line))}
+  .status.conv{color:var(--cyan);border-color:color-mix(in oklab,var(--cyan) 55%,var(--line))}
+  .exp{display:flex;gap:8px;padding:12px 14px;border-top:1px solid var(--line)}
+  .exp button{flex:1;font-size:12px;padding:9px;border-radius:8px;border:1px solid var(--line);
+    background:var(--surface2);color:var(--muted)}
+  .exp button:hover{color:var(--fg);border-color:var(--cyan)}
+
+  /* Architecture overlay (technical view) */
+  #arch{position:fixed;inset:0;z-index:40;overflow-y:auto;background:color-mix(in oklab,var(--bg) 96%,transparent);
+    backdrop-filter:blur(6px)}
+  .arch-inner{max-width:1080px;margin:0 auto;padding:30px 28px 70px}
+  .arch-head{display:flex;align-items:center;gap:12px;margin-bottom:8px}
+  .arch-head h2{margin:0;font-size:24px;letter-spacing:-.5px}
+  .arch-head .x{margin-left:auto;background:var(--surface2);border:1px solid var(--line);color:var(--fg);
+    border-radius:10px;padding:9px 16px;font-size:13px}
+  .arch-sub{color:var(--muted);font-size:14px;margin-bottom:26px;max-width:720px;line-height:1.6}
+  .arch-card{background:var(--surface);border:1px solid var(--line);border-radius:16px;padding:22px;margin-bottom:18px}
+  .arch-card h3{margin:0 0 14px;font-size:15px;display:flex;align-items:center;gap:8px}
+  .arch-card h3 .num{width:24px;height:24px;border-radius:7px;background:var(--grad);color:#0B0B0D;
+    display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:800}
+  .flow{display:flex;align-items:stretch;gap:0;flex-wrap:wrap;font-size:12.5px}
+  .flownode{background:var(--surface2);border:1px solid var(--line);border-radius:10px;padding:11px 14px;
+    min-width:120px;text-align:center}
+  .flownode b{display:block;font-size:13px;margin-bottom:3px}
+  .flownode span{color:var(--muted);font-size:11px}
+  .flowarr{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:0 10px;color:var(--muted)}
+  .flowarr small{font-size:10px;color:var(--cyan)}
+  .transports{display:grid;grid-template-columns:repeat(3,1fr);gap:14px}
+  @media(max-width:820px){.transports{grid-template-columns:1fr}}
+  .tport{border:1px solid var(--line);border-radius:12px;padding:16px}
+  .tport .tt{font-family:var(--mono);font-size:12px;color:var(--cyan);font-weight:700}
+  .tport h4{margin:8px 0 6px;font-size:14px}
+  .tport p{margin:0;color:var(--muted);font-size:12.5px;line-height:1.55}
+  .codeblock{font-family:var(--mono);font-size:12px;background:var(--bg);border:1px solid var(--line);
+    border-radius:10px;padding:14px;overflow-x:auto;color:var(--fg);line-height:1.65;white-space:pre}
+  .codeblock .c{color:var(--muted)}
+  .codeblock .k{color:var(--violet)}
+  .codeblock .s{color:var(--cyan)}
+  table.rbac{width:100%;border-collapse:collapse;font-size:13px;margin-top:4px}
+  table.rbac th,table.rbac td{padding:10px 12px;border:1px solid var(--line);text-align:center}
+  table.rbac th:first-child,table.rbac td:first-child{text-align:left}
+  table.rbac th{color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.5px}
+  .yes{color:var(--success);font-weight:700}.no{color:var(--danger)}
+  .arch-tag{display:inline-block;font-size:11px;color:var(--violet);font-family:var(--mono);
+    background:color-mix(in oklab,var(--violet) 14%,transparent);padding:2px 8px;border-radius:6px;margin-right:6px}
+
+  /* Toast + coachmark */
+  .toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--surface);
+    border:1px solid var(--violet);padding:12px 20px;border-radius:11px;font-size:13px;
+    box-shadow:0 12px 40px rgba(0,0,0,.5);z-index:60;max-width:520px}
+  .coach{position:fixed;z-index:55;background:var(--surface);border:1px solid var(--cyan);border-radius:12px;
+    padding:14px 16px;width:300px;box-shadow:0 16px 50px rgba(0,0,0,.6)}
+  .coach .ct{font-size:11px;letter-spacing:1px;text-transform:uppercase;color:var(--cyan);margin-bottom:6px}
+  .coach p{margin:0 0 12px;font-size:13px;line-height:1.55;color:var(--fg)}
+  .coach .cnav{display:flex;align-items:center;gap:10px}
+  .coach .cnav .step-n{font-size:11px;color:var(--muted);flex:1}
+  .coach button{font-size:12px;border-radius:8px;padding:7px 13px;border:1px solid var(--line);
+    background:var(--surface2);color:var(--fg)}
+  .coach button.next{background:var(--grad);color:#0B0B0D;border:none;font-weight:700}
+
+  /* ─── Alchemical Noir: manuscript serif in brand moments only (Design §3.2) ─── */
+  .brand,.hero h1,.band .h2sub,.arch-head h2,.monidle b{font-family:var(--serif)}
+  .brand{letter-spacing:.3px}
+  .hero h1,.band .h2sub,.arch-head h2{letter-spacing:0}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════ LANDING / BUSINESS PITCH ════════════════════ -->
+<div id="landing">
+  <div class="land-nav">
+    <span class="brand"><svg class="mark" width="26" height="26" viewBox="0 0 32 32"></svg><span class="text-helix">Helix</span></span>
+    <span class="spacer"></span>
+    <a class="navlink" href="#problem">Problem</a>
+    <a class="navlink" href="#solution">Solution</a>
+    <a class="navlink" href="#positioning">Positioning</a>
+    <a class="navlink" href="#tech">Tech</a>
+    <button class="cta" onclick="launchApp()">Launch prototype →</button>
+  </div>
+
+  <div class="hero">
+    <span class="eyebrow">Collaborative AI Workspace · Specialisation Project</span>
+    <h1>AI work, made a <span class="text-helix">team sport</span>.</h1>
+    <p class="lede">Today's AI tools trap every conversation in one person's private tab.
+      Helix is a shared workspace where teams branch conversations, reuse what worked, and
+      escalate hard problems into a deep-reasoning run they can watch, steer, and stop.</p>
+    <p class="one-liner">// Git for your team's AI work — shared, branchable, with a record of what's been tried.</p>
+    <div class="hero-actions">
+      <button class="cta lg" onclick="launchApp()">Launch interactive prototype →</button>
+      <button class="ghost-btn" onclick="launchApp(true)">▶ Watch the guided demo</button>
+    </div>
+    <p class="hero-note">Simulated front-end prototype · no backend required · themed in Alchemical Noir — gold-on-black, the helix &amp; the ouroboros</p>
+  </div>
+
+  <!-- Problem -->
+  <section class="band" id="problem">
+    <h2>The Problem</h2>
+    <div class="h2sub">Teams use AI together — the tools assume they don't.</div>
+    <div class="grid3">
+      <div class="tile">
+        <div class="ico">🔒</div>
+        <h3>Siloed context</h3>
+        <p>Everyone prompts in their own tab. Teammates can't see or continue each other's threads,
+          so the same questions get re-asked.</p>
+        <div class="kpi">→ redundant queries · wasted budget · lost progress</div>
+      </div>
+      <div class="tile">
+        <div class="ico">➡️</div>
+        <h3>No branching</h3>
+        <p>Linear chats can't fork. A promising thread can't be cloned to try an alternative
+          without derailing the original.</p>
+        <div class="kpi">→ can't explore two approaches in parallel</div>
+      </div>
+      <div class="tile">
+        <div class="ico">👁️</div>
+        <h3>Unmonitored autonomy</h3>
+        <p>Long, autonomous AI runs are opaque — no mid-run visibility, no stop control,
+          no cost guardrail.</p>
+        <div class="kpi">→ runaway compute before anyone can intervene</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Solution -->
+  <section class="band" id="solution">
+    <h2>The Solution</h2>
+    <div class="h2sub">One shared workspace + one power tool.</div>
+    <div class="grid2">
+      <div class="feat"><div class="fico">💬</div><div><h3>Shared &amp; private conversations</h3>
+        <p>Every thread belongs to a workspace and is shared (team knowledge) or private. Nobody re-asks what a colleague already solved.</p></div></div>
+      <div class="feat"><div class="fico">⑂</div><div><h3>Fork &amp; branch tree</h3>
+        <p>Fork any conversation at any point into an independent branch that inherits full context — a Git-style lineage tree. O(1), no history copy.</p></div></div>
+      <div class="feat"><div class="fico">📚</div><div><h3>Shared prompt library</h3>
+        <p>Prompts that worked are saved, tagged, and searchable — the team's accumulated record of what's been tried.</p></div></div>
+      <div class="feat"><div class="fico">🟢</div><div><h3>Real-time &amp; presence</h3>
+        <p>Live updates over WebSockets show who's in the workspace and stream responses as they generate. The workspace feels alive.</p></div></div>
+      <div class="feat" style="grid-column:1/-1;border-color:color-mix(in oklab,var(--cyan) 40%,var(--line))">
+        <div class="fico" style="background:color-mix(in oklab,var(--cyan) 18%,transparent)">🧠</div>
+        <div><h3>Deep Reasoning mode <span style="color:var(--cyan);font-size:12px">— the headline</span></h3>
+        <p>Escalate a hard question into a recursive engine (reason → reflect → synthesize, looping to convergence).
+          The whole team watches the live trace — with a <b style="color:var(--fg)">kill switch</b>,
+          <b style="color:var(--fg)">steer/pause</b>, and a <b style="color:var(--fg)">token/cost budget meter</b> so a long run never becomes a runaway black box.</p></div></div>
+    </div>
+    <div class="scope-note">
+      <b style="color:var(--fg)">Scope discipline.</b> The collaborative core (M1–M5, M8, M9) is the product and
+      ships first on plain streaming chat. Deep Reasoning + monitor (M6–M7) is the headline depth feature and the
+      <b style="color:var(--fg)">cuttable</b> layer — if engine integration runs long, Helix still ships and demos as a complete collaborative workspace.
+    </div>
+  </section>
+
+  <!-- Who it's for -->
+  <section class="band">
+    <h2>Who It's For</h2>
+    <div class="h2sub">Small teams (3–15) where AI is part of the workflow.</div>
+    <div class="grid3">
+      <div class="tile"><div class="ico">👩‍💻</div><h3>Dev teams</h3><p>Debugging, design decisions, "what have we already tried?"</p></div>
+      <div class="tile"><div class="ico">🎓</div><h3>Student project groups</h3><p>Shared research with no duplicated effort.</p></div>
+      <div class="tile"><div class="ico">🔬</div><h3>Research teams</h3><p>Exploring open questions with competing approaches in parallel.</p></div>
+    </div>
+    <p style="text-align:center;color:var(--muted);font-size:14px;margin-top:26px">
+      <b style="color:var(--fg)">The trigger:</b> <i>"We're all prompting the same things separately and losing track of what worked."</i>
+    </p>
+  </section>
+
+  <!-- Positioning -->
+  <section class="band" id="positioning">
+    <h2>Positioning</h2>
+    <div class="h2sub">Each piece has prior art. The combination is the contribution.</div>
+    <table class="compare">
+      <tr><th>System</th><th>Strength</th><th>Gap Helix fills</th></tr>
+      <tr><td><b>ChatGPT / Claude (web)</b></td><td>Strong single-user chat</td><td class="gapcol">One person, one tab — no sharing, branching, or library</td></tr>
+      <tr><td><b>ChatGPT Team / Claude Projects</b></td><td>Shared files &amp; history</td><td class="gapcol">Async sharing only — no live branchable conversations or reusable library</td></tr>
+      <tr><td><b>Prompt managers</b></td><td>Prompt storage</td><td class="gapcol">Standalone — not tied to live conversations or reasoning</td></tr>
+      <tr><td><b>Agent frameworks (LangGraph…)</b></td><td>Agent orchestration</td><td class="gapcol">Single-developer; no collaboration, no monitor/kill switch out of the box</td></tr>
+      <tr><td><b>Agent observability (LangSmith…)</b></td><td>Run tracing</td><td class="gapcol">Post-hoc &amp; in a separate tool — no in-the-moment kill / steer / budget fused with the workspace</td></tr>
+    </table>
+    <p style="text-align:center;color:var(--muted);font-size:13.5px;margin-top:22px;max-width:760px;margin-left:auto;margin-right:auto;line-height:1.6">
+      Helix's contribution is the <b style="color:var(--fg)">combination in one workspace</b>: shared + branchable conversations,
+      a reusable prompt library, and a monitored deep-reasoning mode — uncommon among existing team-AI tools.</p>
+  </section>
+
+  <!-- Tech + specialisation -->
+  <section class="band" id="tech">
+    <h2>The Build</h2>
+    <div class="h2sub">Three specialisation concepts, one product.</div>
+    <div class="grid3" style="margin-bottom:30px">
+      <div class="concept"><div class="tag">Agentic AI</div><h3>Monitored deep reasoning</h3>
+        <p>An interruptible recursive loop (LangGraph) with a kill switch, steer/pause, and a token budget — autonomy you can watch and stop.</p></div>
+      <div class="concept"><div class="tag">Distributed Systems</div><h3>Real-time multi-user sync</h3>
+        <p>An ordered message log + WebSocket rooms for presence and live fan-out (Redis pub/sub for optional scaling).</p></div>
+      <div class="concept"><div class="tag">Access Control</div><h3>Role-based permissions</h3>
+        <p>Owner / Collaborator / Observer via a policy table, with strict per-workspace tenant isolation.</p></div>
+    </div>
+    <div class="stack-row">
+      <span class="chip"><b>Frontend</b> · React · TypeScript · Tailwind · Vite</span>
+      <span class="chip"><b>Backend</b> · Python · FastAPI · WebSockets</span>
+      <span class="chip"><b>Engine</b> · LangGraph (recursive, checkpointed)</span>
+      <span class="chip"><b>AI</b> · Groq / Ollama (pluggable provider)</span>
+      <span class="chip"><b>Data</b> · PostgreSQL (Redis optional)</span>
+      <span class="chip"><b>Infra</b> · Docker Compose</span>
+    </div>
+    <p style="text-align:center;margin-top:34px">
+      <button class="ghost-btn" onclick="launchApp();setTimeout(openArch,400)">🛠 Explore the technical architecture →</button>
+    </p>
+  </section>
+
+  <div class="land-foot">
+    <span class="brand" style="justify-content:center"><svg class="mark" width="22" height="22" viewBox="0 0 32 32"></svg><span class="text-helix">Helix</span></span>
+    <p style="margin-top:12px">Shared, branchable, monitored AI for teams. · SDG 9 &amp; 12 aligned.</p>
+    <button class="cta lg" style="margin-top:8px" onclick="launchApp()">Launch interactive prototype →</button>
+  </div>
+</div>
+
+<!-- ════════════════════ THE APP (PRODUCT VIEW) ════════════════════ -->
+<div id="app" class="hidden">
+  <div class="topbar">
+    <span class="brand"><svg class="mark" width="22" height="22" viewBox="0 0 32 32"></svg><span class="text-helix">Helix</span></span>
+    <span class="wscrumb">workspace / <b>rag-quality</b></span>
+    <span class="spacer"></span>
+    <span id="presence"></span>
+    <span class="pill"><span class="dot"></span><span id="onlineCount">4</span> online</span>
+    <label class="wscrumb" style="font-size:11px;gap:5px">view as
+      <select class="roleselect" id="roleSel" onchange="setRole(this.value)">
+        <option value="owner">Owner (Achindra)</option>
+        <option value="collaborator">Collaborator (Rajnish)</option>
+        <option value="observer">Observer (PM)</option>
+      </select>
+    </label>
+    <button class="iconbtn" onclick="openArch()">🛠 Architecture</button>
+    <button class="iconbtn" id="demoBtn" onclick="startDemo()">▶ Guided demo</button>
+  </div>
+
+  <div class="cols">
+    <!-- LEFT -->
+    <div class="panel" id="leftPanel">
+      <div class="ph">Conversations <button class="addbtn" onclick="newConv()">+ New</button></div>
+      <div class="list" id="convList"></div>
+      <div class="sub">Branch tree · <span id="curConvName"></span></div>
+      <div id="tree" style="padding-bottom:12px"></div>
+    </div>
+
+    <!-- CENTER -->
+    <div class="panel" style="border-right:none;background:var(--bg);position:relative">
+      <div class="center">
+        <div class="convhead">
+          <span class="title" id="convTitle">Conversation</span>
+          <span class="vis" id="convVis">shared</span>
+          <span class="seq" id="convSeq"></span>
+        </div>
+        <div class="thread" id="thread"></div>
+        <div class="composer">
+          <div class="ctools">
+            <button id="libBtn" onclick="openLib()">📚 Prompt Library</button>
+            <button id="saveBtn" onclick="saveToLib()">💾 Save prompt</button>
+            <button id="forkBtn" onclick="forkHere()">⑂ Fork here</button>
+          </div>
+          <div class="crow">
+            <input id="prompt" placeholder="Message the team's AI…" onkeydown="if(event.key==='Enter')sendChat()"/>
+            <button class="send" id="sendBtn" onclick="sendChat()" title="Quick streaming reply">Send</button>
+            <button class="deep" id="deepBtn" onclick="goDeep()" title="Escalate to recursive reasoning">🧠 Deep Reasoning</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="overlay hidden" id="libOverlay">
+        <div class="libcard">
+          <button class="x" onclick="closeLib()">×</button>
+          <h3>Shared Prompt Library</h3>
+          <div style="color:var(--muted);font-size:12.5px">The team's record of what's been tried — tagged &amp; searchable.</div>
+          <input class="libsearch" id="libSearch" placeholder="Search prompts or #tags…" oninput="renderLib()"/>
+          <div id="libList"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: monitor -->
+    <div class="panel right">
+      <div class="ph">⟳ Deep Reasoning · the Ouroboros <span class="status idle" id="runStatus">idle</span></div>
+      <div id="monBody">
+        <div class="monidle" id="monIdle">No active run.<br><br>
+          Escalate a hard question with <b>🧠 Deep Reasoning</b> — the recursive run appears here with
+          a live trace, kill switch, steering, and a cost budget meter the whole team can watch.</div>
+        <div class="mon hidden" id="monLive">
+          <div class="topo" id="topo"></div>
+          <div class="meters">
+            <div class="meter"><div class="ml"><span>⚡ Energy</span><span id="energyV">80</span></div><div class="bar energy"><i id="energyB" style="width:80%"></i></div></div>
+            <div class="meter"><div class="ml"><span>🔢 Tokens (budget 8000)</span><span id="tokV">0</span></div><div class="bar tok"><i id="tokB"></i></div></div>
+            <div class="meter"><div class="ml"><span>📡 Rate (req/min · limit 30)</span><span id="rateV">0</span></div><div class="bar rate"><i id="rateB"></i></div></div>
+            <div class="meter"><div class="ml"><span>🌀 Recursion depth (guard 6)</span><span id="depthV">0</span></div><div class="bar depth"><i id="depthB"></i></div></div>
+          </div>
+          <div class="controls">
+            <button class="ctl steer" id="steerBtn" onclick="steer()" disabled>⏸ Steer</button>
+            <button class="ctl kill" id="killBtn" onclick="kill()" disabled>⛔ Kill</button>
+          </div>
+          <div class="ph" style="border:none;padding:6px 0;background:none">Live Step Trace</div>
+          <div class="trace" id="trace"></div>
+        </div>
+      </div>
+      <div class="exp">
+        <button onclick="exp('JSON')">⬇ JSON</button>
+        <button onclick="exp('Markdown')">⬇ Markdown</button>
+        <button onclick="replay()">⏪ Replay</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════ ARCHITECTURE (TECHNICAL VIEW) ════════════════════ -->
+<div id="arch" class="hidden">
+  <div class="arch-inner">
+    <div class="arch-head">
+      <span class="brand"><svg class="mark" width="24" height="24" viewBox="0 0 32 32"></svg></span>
+      <h2>How Helix is built</h2>
+      <button class="x" onclick="closeArch()">✕ Close</button>
+    </div>
+    <p class="arch-sub">The same pieces the prototype simulates, mapped to the real system. Three transport channels,
+      an append-only node tree that makes forking O(1), a role policy table, and a checkpointed reasoning engine.</p>
+
+    <div class="arch-card">
+      <h3><span class="num">1</span> System architecture &amp; data flow</h3>
+      <div class="flow">
+        <div class="flownode"><b>React + TS</b><span>Vite · Tailwind</span></div>
+        <div class="flowarr">→<small>REST / WS / SSE</small></div>
+        <div class="flownode"><b>FastAPI</b><span>async · WebSockets</span></div>
+        <div class="flowarr">→<small>SQLAlchemy</small></div>
+        <div class="flownode"><b>PostgreSQL</b><span>SQLite in dev</span></div>
+        <div class="flowarr">↘<small>provider</small></div>
+        <div class="flownode"><b>LLM provider</b><span>Groq / Ollama / stub</span></div>
+        <div class="flowarr">↘<small>escalate</small></div>
+        <div class="flownode" style="border-color:color-mix(in oklab,var(--cyan) 45%,var(--line))"><b>LangGraph engine</b><span>recursive · checkpointed</span></div>
+      </div>
+      <p style="color:var(--muted);font-size:12.5px;margin:14px 0 0;line-height:1.6">
+        Everything talks to an LLM only through one pluggable <span class="arch-tag">LLMProvider</span> interface —
+        swap models by changing an env var, never code. The engine is an in-process package the collaborative core does not depend on (so it stays cuttable).</p>
+    </div>
+
+    <div class="arch-card">
+      <h3><span class="num">2</span> Three transport channels — and why each</h3>
+      <div class="transports">
+        <div class="tport"><div class="tt">REST</div><h4>Authoritative writes</h4>
+          <p>Sends, forks, CRUD. One server assigns the canonical <span class="arch-tag">seq</span> order — no concurrent-write merging.</p></div>
+        <div class="tport"><div class="tt">WebSocket</div><h4>Presence &amp; fan-out</h4>
+          <p>A per-workspace room broadcasts who's online and what already happened. Read-only — it never authors state.</p></div>
+        <div class="tport"><div class="tt">SSE</div><h4>Token streaming</h4>
+          <p>LLM replies and the deep-reasoning trace stream token-by-token, rendering live as they generate.</p></div>
+      </div>
+    </div>
+
+    <div class="arch-card">
+      <h3><span class="num">3</span> The node tree — fork is O(1)</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 14px;line-height:1.6">
+        A fork does <b style="color:var(--fg)">not</b> copy history. It creates one branch row whose <span class="arch-tag">fork_node_id</span>
+        points at the node you forked from; reading a branch walks <span class="arch-tag">parent_id</span> pointers back through the parent — shared structurally, like Git. Forking is O(1) regardless of length.</p>
+      <div class="codeblock"><span class="c"># a fork = one new row, no history copy</span>
+<span class="k">class</span> Branch:
+    id            <span class="c"># this branch</span>
+    conversation  <span class="c"># tenant scope</span>
+    parent_branch <span class="c"># where it split from</span>
+    fork_node_id  <span class="c"># the exact node it inherits up to</span>
+
+<span class="c"># history(branch) = walk parent_id from head → root, crossing branch boundaries</span>
+<span class="k">def</span> <span class="s">history</span>(branch):
+    node = branch.head
+    <span class="k">while</span> node:
+        <span class="k">yield</span> node
+        node = node.parent        <span class="c"># O(depth), not O(copies)</span></div>
+    </div>
+
+    <div class="arch-card">
+      <h3><span class="num">4</span> Role-based access control (M9)</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 6px;line-height:1.6">
+        A single <span class="arch-tag">require_role</span> rank ladder gates every action. Try the
+        <b style="color:var(--fg)">"view as"</b> switch in the prototype — as an Observer, Send / Fork / Deep Reasoning / Steer / Kill all disable.</p>
+      <table class="rbac">
+        <tr><th>Capability</th><th>Owner</th><th>Collaborator</th><th>Observer</th></tr>
+        <tr><td>Read shared conversations &amp; replay</td><td class="yes">✓</td><td class="yes">✓</td><td class="yes">✓</td></tr>
+        <tr><td>Send messages · fork · reuse prompts</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">read-only</td></tr>
+        <tr><td>Escalate to Deep Reasoning · steer · kill</td><td class="yes">✓</td><td class="yes">✓</td><td class="no">✗</td></tr>
+        <tr><td>Invite / remove members · manage roles</td><td class="yes">✓</td><td class="no">✗</td><td class="no">✗</td></tr>
+      </table>
+    </div>
+
+    <div class="arch-card">
+      <h3><span class="num">5</span> Deep Reasoning engine &amp; the monitor (M6–M7)</h3>
+      <p style="color:var(--muted);font-size:12.5px;margin:0 0 14px;line-height:1.6">
+        Escalation runs a recursive LangGraph loop. Every node emits a step event over SSE; the monitor renders the
+        topology, meters, and trace live. Guardrails make the autonomy safe: a token/cost budget, a request-rate limit,
+        a recursion-depth guard, and an energy heuristic — any breach halts the run. State is checkpointed, so a killed run is resumable and forkable.</p>
+      <div class="flow">
+        <div class="flownode"><b>ingest</b><span>parse + context</span></div>
+        <div class="flowarr">→</div>
+        <div class="flownode"><b>reason</b><span>frame options</span></div>
+        <div class="flowarr">→</div>
+        <div class="flownode"><b>reflect</b><span>check assumptions</span></div>
+        <div class="flowarr">↺<small>loop</small></div>
+        <div class="flownode"><b>synthesize</b><span>converge</span></div>
+      </div>
+      <p style="color:var(--muted);font-size:12px;margin:14px 0 0">
+        <span class="arch-tag">stop_reason</span> ∈ {converged, killed, budget_exceeded, depth_guard, rate_limited}</p>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ─── Helix mark: two intertwined gradient strands ────────────────────── */
+(function drawMarks(){
+  const svgNS="http://www.w3.org/2000/svg";
+  document.querySelectorAll("svg.mark").forEach(svg=>{
+    svg.innerHTML=`
+      <defs><linearGradient id="hg" x1="0" y1="0" x2="1" y2="1">
+        <stop offset="0" stop-color="#8A6D2F"/><stop offset="1" stop-color="#E3C16A"/>
+      </linearGradient></defs>
+      <path d="M9 3 C 23 9, 9 17, 23 23 C 9 29, 23 9, 9 3 Z" fill="none" stroke="url(#hg)" stroke-width="2.4" stroke-linecap="round"/>
+      <path d="M23 3 C 9 9, 23 17, 9 23 C 23 29, 9 9, 23 3 Z" fill="none" stroke="url(#hg)" stroke-width="2.4" stroke-linecap="round" opacity="0.55"/>
+      <line x1="11" y1="8"  x2="21" y2="8"  stroke="url(#hg)" stroke-width="1.6"/>
+      <line x1="11" y1="16" x2="21" y2="16" stroke="url(#hg)" stroke-width="1.6"/>
+      <line x1="11" y1="24" x2="21" y2="24" stroke="url(#hg)" stroke-width="1.6"/>`;
+  });
+})();
+
+/* ─── State ───────────────────────────────────────────────────────────── */
+const members=[
+  {n:'Achindra',c:'#C9A24B',role:'owner'},
+  {n:'Rajnish',c:'#8B73D6',role:'collaborator'},
+  {n:'Mansoor',c:'#4E9277',role:'collaborator'},
+  {n:'Dev (PM)',c:'#C98A2B',role:'observer'}
+];
+let me=members[0];                 // current persona (role switcher)
+const AI={n:'Helix AI',c:'#E3C16A'};
+const GRAPH=['ingest','reason','reflect','affective','logical','memory','synthesize'];
+const THOUGHTS={
+  ingest:'Parsing the question and shared workspace context…',
+  reason:'Framing: retrieval bottleneck vs chunking bottleneck.',
+  reflect:'Checking my own assumption before committing.',
+  affective:'Team is time-pressured → bias toward a cheap diagnostic.',
+  logical:'A recall@k probe isolates retrieval; a boundary check isolates chunking.',
+  memory:'Recall: last week we leaned on chunk-size heuristics.',
+  synthesize:'Converging: run both probes on the 50 failing queries; bigger gap wins.'
+};
+
+let convs=[
+  {id:'c1',title:'Error samples triage',vis:'shared',msgs:[
+    {who:members[1],text:'Dropped 40 failing queries in the sheet — mostly multi-hop questions.'},
+    {who:AI,ai:true,text:'Common pattern: the right passage exists but ranks below top-k. Worth probing retrieval recall first.'}
+  ],branches:[{id:'main',label:'main',child:false}]},
+  {id:'c2',title:'Retrieval vs chunking',vis:'shared',msgs:[
+    {who:members[2],text:'I still think it\'s chunk boundaries splitting the answer span.'},
+    {who:members[1],text:'And I think it\'s retrieval recall. Two days of Slack, no resolution.'}
+  ],branches:[{id:'main',label:'main',child:false}]},
+  {id:'c3',title:'My scratch notes',vis:'private',msgs:[
+    {who:members[0],text:'todo: compare pgvector hnsw params (m, ef_search)'}
+  ],branches:[{id:'main',label:'main',child:false}]}
+];
+let cur='c1';
+let lib=[
+  {title:'Failure classification',body:'Classify each failing query as retrieval-miss, chunking-miss, or generation-error, with a one-line reason.',tags:['rag','triage'],uses:7},
+  {title:'Socratic debug',body:"Don't give the answer. Ask me 3 questions that would localise the bug.",tags:['debug'],uses:3},
+  {title:'ADR draft',body:'Summarise this decision as an Architecture Decision Record: context, options, decision, consequences.',tags:['docs','decision'],uses:5}
+];
+let running=false,paused=false,timer=null,tokens=0,rate=0,depth=0,energy=80,stepIdx=0;
+
+/* ─── Role / RBAC ─────────────────────────────────────────────────────── */
+function setRole(r){
+  me=members.find(m=>m.role===r)||members[0];
+  applyRBAC();
+  toast(me.role==='observer'
+    ? '👁️ Viewing as Observer — read & replay only. Write & control actions are disabled.'
+    : `Now acting as ${me.n} · ${me.role}`);
+}
+function applyRBAC(){
+  const writer = me.role!=='observer';
+  ['sendBtn','deepBtn','forkBtn','saveBtn','libBtn'].forEach(id=>{
+    document.getElementById(id).disabled=!writer;
+  });
+  document.getElementById('prompt').disabled=!writer;
+  document.getElementById('prompt').placeholder = writer
+    ? "Message the team's AI…" : "Observers can read & replay, but not send.";
+  // steer/kill only meaningful mid-run, but enforce role too
+  const ctlOK = writer && running;
+  document.getElementById('steerBtn').disabled=!ctlOK;
+  document.getElementById('killBtn').disabled=!ctlOK;
+}
+
+/* ─── Boot ────────────────────────────────────────────────────────────── */
+function launchApp(demo){
+  document.getElementById('landing').classList.add('hidden');
+  document.getElementById('app').classList.remove('hidden');
+  const p=document.getElementById('presence');p.innerHTML='';
+  members.forEach(m=>{const a=document.createElement('span');a.className='av';
+    a.style.background=m.c;a.textContent=m.n[0];a.title=`${m.n} · ${m.role}`;p.appendChild(a);});
+  document.getElementById('onlineCount').textContent=members.length;
+  renderTopo();renderConvs();openConv('c1');applyRBAC();
+  if(demo) setTimeout(startDemo,500);
+}
+
+/* ─── Conversations ───────────────────────────────────────────────────── */
+function C(){return convs.find(c=>c.id===cur);}
+function renderConvs(){
+  const l=document.getElementById('convList');l.innerHTML='';
+  convs.forEach(c=>{
+    const d=document.createElement('div');d.className='conv'+(c.id===cur?' active':'');
+    d.onclick=()=>openConv(c.id);
+    d.innerHTML=`<span>${c.vis==='private'?'🔒':'💬'} ${c.title}</span><span class="vis ${c.vis}">${c.vis}</span>`;
+    l.appendChild(d);
+  });
+}
+function openConv(id){cur=id;const c=C();
+  document.getElementById('convTitle').textContent=c.title;
+  const v=document.getElementById('convVis');v.textContent=c.vis;
+  const col=c.vis==='shared'?'var(--success)':'var(--warn)';v.style.color=col;v.style.borderColor=col;
+  document.getElementById('curConvName').textContent=c.title;
+  document.getElementById('convSeq').textContent=c.msgs.length+' msgs · '+c.branches.length+' branch'+(c.branches.length>1?'es':'');
+  renderConvs();renderThread();renderTree();
+}
+function newConv(){
+  if(me.role==='observer')return;
+  const t=prompt('Conversation title?','New conversation');if(!t)return;
+  const vis=confirm('Shared with the team? (OK = shared, Cancel = private)')?'shared':'private';
+  const id='c'+Math.random().toString(36).slice(2,5);
+  convs.push({id,title:t,vis,msgs:[],branches:[{id:'main',label:'main',child:false}]});
+  openConv(id);toast('Created a '+vis+' conversation');
+}
+function renderThread(){
+  const t=document.getElementById('thread');t.innerHTML='';
+  C().msgs.forEach((m,i)=>{
+    const d=document.createElement('div');d.className='msg';
+    const cls=m.deep?'deep':(m.ai?'ai':'');
+    const badge=m.ai?`<span class="badge ${m.deep?'deep':''}">${m.deep?'deep reasoning':'AI'}</span>`:'';
+    d.innerHTML=`<div class="who"><span class="av" style="width:20px;height:20px;font-size:10px;margin:0;background:${m.who.c}">${m.who.n[0]}</span>${m.who.n}${badge}<span class="seq">#${i+1}</span></div><div class="bubble ${cls}">${m.text}</div>`;
+    t.appendChild(d);
+  });
+  t.scrollTop=t.scrollHeight;
+  document.getElementById('convSeq').textContent=C().msgs.length+' msgs · '+C().branches.length+' branch'+(C().branches.length>1?'es':'');
+}
+
+/* ─── Branch tree ─────────────────────────────────────────────────────── */
+function renderTree(){
+  const t=document.getElementById('tree');t.innerHTML='';
+  C().branches.forEach(b=>{
+    const d=document.createElement('div');
+    d.className='node'+(b.child?' child':'')+(b.id==='main'?' active':'')+(b.deep?' deep':'');
+    d.innerHTML=`<span class="glyph"></span><span>${b.label}</span>${b.meta?`<span class="meta">${b.meta}</span>`:''}`;
+    t.appendChild(d);
+  });
+}
+function forkHere(){
+  if(me.role==='observer')return;
+  const c=C();const id='b'+Math.random().toString(36).slice(2,4);
+  c.branches.push({id,label:'fork @ msg '+c.msgs.length,child:true,meta:'O(1)'});
+  renderTree();
+  toast('⑂ Forked — new branch row, context inherited via parent pointers. No history copied (O(1)).');
+}
+
+/* ─── Chat (simulated streaming) ──────────────────────────────────────── */
+function sendChat(){
+  if(me.role==='observer')return;
+  const i=document.getElementById('prompt');const v=i.value.trim();if(!v)return;i.value='';
+  C().msgs.push({who:me,text:v});renderThread();
+  streamReply(quickReply(v),false);
+}
+function quickReply(q){
+  return 'Quick take: '+q.replace(/\?+$/,'')+' — start by isolating the variable with the cheapest test. For a hard, contested one, hit 🧠 Deep Reasoning and the whole team can watch it reason.';
+}
+function streamReply(full,deep){
+  const msg={who:AI,ai:true,deep:!!deep,text:''};C().msgs.push(msg);renderThread();
+  const words=full.split(' ');let k=0;
+  const iv=setInterval(()=>{
+    msg.text=(words.slice(0,k+1).join(' '))+(k<words.length-1?'<span style="color:var(--cyan)">▌</span>':'');
+    renderThread();k++;
+    if(k>=words.length){msg.text=full;clearInterval(iv);renderThread();}
+  },45);
+}
+
+/* ─── Prompt library ──────────────────────────────────────────────────── */
+function openLib(){if(me.role==='observer')return;document.getElementById('libOverlay').classList.remove('hidden');renderLib();}
+function closeLib(){document.getElementById('libOverlay').classList.add('hidden');}
+function renderLib(){
+  const q=(document.getElementById('libSearch').value||'').toLowerCase().replace('#','');
+  const l=document.getElementById('libList');l.innerHTML='';
+  lib.filter(p=>!q||p.title.toLowerCase().includes(q)||p.body.toLowerCase().includes(q)||p.tags.some(t=>t.includes(q)))
+    .forEach(p=>{
+      const d=document.createElement('div');d.className='prompt';
+      d.innerHTML=`<button class="use">Use →</button><b>${p.title}</b><p>${p.body}</p>
+        <div class="tags">${p.tags.map(t=>'<span class="tag-chip">#'+t+'</span>').join('')}</div>
+        <div class="libstat">reused ${p.uses}× by the team</div>`;
+      d.querySelector('.use').onclick=()=>{document.getElementById('prompt').value=p.body;p.uses++;closeLib();
+        toast('Inserted "'+p.title+'" into the composer — reused, not reinvented.');};
+      d.querySelectorAll('.tag-chip').forEach(c=>c.onclick=()=>{document.getElementById('libSearch').value=c.textContent;renderLib();});
+      l.appendChild(d);
+    });
+}
+function saveToLib(){
+  if(me.role==='observer')return;
+  const v=document.getElementById('prompt').value.trim();
+  if(!v){toast('Type a prompt first, then Save');return;}
+  const t=prompt('Save prompt as (title):','Saved prompt');if(!t)return;
+  const tags=(prompt('Tags (comma-separated):','rag')||'').split(',').map(s=>s.trim()).filter(Boolean);
+  lib.unshift({title:t,body:v,tags,uses:0});
+  toast('💾 Saved to the shared library — the whole team can reuse it.');
+}
+
+/* ─── Deep Reasoning + monitor ────────────────────────────────────────── */
+function renderTopo(){const c=document.getElementById('topo');c.innerHTML='';
+  GRAPH.forEach(g=>{const s=document.createElement('span');s.className='gnode';s.id='g-'+g;s.textContent=g;c.appendChild(s);});}
+function lite(n){GRAPH.forEach(g=>document.getElementById('g-'+g).classList.toggle('on',g===n));}
+function setMeters(){
+  energyV.textContent=Math.round(energy);energyB.style.width=energy+'%';
+  tokV.textContent=tokens;tokB.style.width=Math.min(100,tokens/8000*100)+'%';
+  rateV.textContent=rate;rateB.style.width=Math.min(100,rate/30*100)+'%';
+  depthV.textContent=depth;depthB.style.width=(depth/6*100)+'%';
+}
+function setStatus(c,t){const e=document.getElementById('runStatus');e.className='status '+c;e.textContent=t;}
+function addStep(n,th,tok,lat){const t=document.getElementById('trace');const d=document.createElement('div');d.className='step';
+  d.innerHTML=`<span class="sn">${n}</span> · <small>${lat}ms · ${tok} tok · depth ${depth} · energy ${Math.round(energy)}</small><br>${th}`;
+  t.appendChild(d);t.scrollTop=t.scrollHeight;}
+function goDeep(){
+  if(me.role==='observer'){toast('👁️ Observers can watch a run but not start one. Switch to Owner/Collaborator.');return;}
+  const i=document.getElementById('prompt');
+  const v=i.value.trim()||'Is our 30% error rate a retrieval or a chunking problem, and what is the cheapest experiment to find out?';
+  i.value='';
+  C().msgs.push({who:me,text:v});
+  // record a deep branch in the tree (engine checkpoint forked)
+  C().branches.push({id:'d'+Math.random().toString(36).slice(2,4),label:'deep-run',child:true,deep:true,meta:'checkpoint'});
+  renderThread();renderTree();
+  document.getElementById('monIdle').classList.add('hidden');
+  document.getElementById('monLive').classList.remove('hidden');
+  running=true;paused=false;stepIdx=0;tokens=0;rate=0;depth=0;energy=80;
+  document.getElementById('trace').innerHTML='';
+  document.getElementById('killBtn').disabled=false;document.getElementById('steerBtn').disabled=false;
+  setStatus('run','running');setMeters();
+  toast('🧠 Escalated to Deep Reasoning — the whole team can watch, steer, and stop it.');
+  timer=setInterval(()=>{
+    if(paused)return;
+    if(stepIdx>=GRAPH.length){finishRun();return;}
+    const n=GRAPH[stepIdx];lite(n);
+    const tok=20+Math.floor(Math.random()*60);tokens+=tok;rate=Math.min(30,rate+3);
+    if(n==='reflect'||n==='synthesize')depth++;
+    energy=Math.max(8,energy-7-Math.random()*4);
+    addStep(n,THOUGHTS[n],tok,80+Math.floor(Math.random()*200));setMeters();
+    if(tokens>6800)toast('⚠ Token budget at 85% — the controller will halt soon.');
+    stepIdx++;
+  },680);
+}
+function finishRun(){
+  clearInterval(timer);running=false;lite(null);
+  document.getElementById('killBtn').disabled=true;document.getElementById('steerBtn').disabled=true;
+  setStatus('conv','converged ✓');
+  streamReply('<b>Synthesis:</b> Run the same 50 failing queries through a retrieval recall@k probe and a chunk-boundary check; whichever shows the larger gap is the culprit. Halted on convergence · '+tokens+' tokens · stop_reason: converged.',true);
+  toast('Run complete · stop_reason: converged · '+tokens+' tokens. Export it or save the winning prompt.');
+}
+function kill(){
+  if(!running||me.role==='observer')return;
+  clearInterval(timer);running=false;lite(null);
+  document.getElementById('killBtn').disabled=true;document.getElementById('steerBtn').disabled=true;
+  setStatus('killed','killed ⛔');
+  addStep('KILLED','Terminated mid-loop by '+me.n+'. State checkpointed — resumable & forkable.',0,0);
+  toast('⛔ Killed at "'+GRAPH[Math.max(0,stepIdx-1)]+'" · state preserved · no wasted compute.');
+}
+function steer(){
+  if(!running||me.role==='observer')return;
+  paused=!paused;
+  document.getElementById('steerBtn').textContent=paused?'▶ Resume':'⏸ Steer';
+  setStatus(paused?'idle':'run',paused?'paused — awaiting input':'running');
+  addStep('STEER',paused?'Paused — awaiting human guidance.':'Resumed with injected constraint: "can\'t change the embedding model this quarter".',0,0);
+  if(paused)toast('⏸ Paused. Inject a constraint, then Resume — the run refocuses.');
+}
+function exp(f){toast('⬇ Exported "'+C().title+'" as '+f+' — the reasoning becomes a kept artefact.');}
+function replay(){
+  const s=[...document.querySelectorAll('#trace .step')];
+  if(!s.length){toast('Run Deep Reasoning first, then replay the trace.');return;}
+  s.forEach((e,i)=>{e.style.opacity=.15;setTimeout(()=>{e.style.opacity=1;e.scrollIntoView({block:'nearest'});},i*330);});
+  toast('⏪ Replaying '+s.length+' steps — a teammate catches up without re-explaining.');
+}
+
+/* ─── Architecture overlay ────────────────────────────────────────────── */
+function openArch(){document.getElementById('arch').classList.remove('hidden');document.getElementById('arch').scrollTop=0;}
+function closeArch(){document.getElementById('arch').classList.add('hidden');}
+
+/* ─── Toast ───────────────────────────────────────────────────────────── */
+let tt;function toast(m){clearTimeout(tt);let e=document.getElementById('_t');
+  if(!e){e=document.createElement('div');e.id='_t';e.className='toast';document.body.appendChild(e);}
+  e.innerHTML=m;e.style.display='block';tt=setTimeout(()=>e.style.display='none',3200);}
+
+/* ─── Guided demo (scripted RAG-quality scenario) ─────────────────────── */
+const DEMO=[
+  {title:'The everyday spine',body:'This is the shared workspace "rag-quality". Four teammates are online — three roles. 80% of the value is here: shared conversations, a record of what worked.',target:'#leftPanel',run:()=>openConv('c1')},
+  {title:'Reuse, don\'t reinvent',body:'Ben opens the prompt library and finds a "failure-classification" prompt Cara saved last week — reused, not re-written.',target:'#libBtn',run:()=>{openLib();}},
+  {title:'A promising thread → fork',body:'A retrieval idea looks promising. Fork it to try a chunking angle in parallel — O(1), context inherited, original untouched.',target:'#forkBtn',run:()=>{closeLib();openConv('c2');forkHere();}},
+  {title:'A hard, contested question',body:'Ben says retrieval; Cara says chunking; two days of Slack, unresolved. Time to escalate — click Deep Reasoning.',target:'#deepBtn',run:()=>{}},
+  {title:'Watch it reason',body:'The recursive engine runs reason → reflect → synthesize. The whole team watches the live trace, topology, and meters — not a black box.',target:'.panel.right',run:()=>{if(!running)goDeep();}},
+  {title:'Steer & stop — safely',body:'Drifting or over-spending? Steer injects a constraint; the budget meter warns at 85%; Kill halts and checkpoints state. This is the governed autonomy.',target:'#killBtn',run:()=>{}},
+  {title:'Governance: try Observer',body:'Switch "view as" to Observer (the PM). Send, Fork, Deep Reasoning, Steer & Kill all disable — read & replay only. That\'s the RBAC layer, live.',target:'#roleSel',run:()=>{}},
+  {title:'See how it\'s built',body:'Open Architecture for the technical story: three transports (REST/WS/SSE), the O(1) node tree, the RBAC table, and the reasoning engine.',target:'#demoBtn',run:()=>{}}
+];
+let demoIdx=0;
+function startDemo(){demoIdx=0;showCoach();}
+function showCoach(){
+  removeCoach();
+  if(demoIdx>=DEMO.length){toast('Demo complete — explore freely, or open Architecture for the build.');return;}
+  const d=DEMO[demoIdx];if(d.run)d.run();
+  const tgt=document.querySelector(d.target);
+  const box=document.createElement('div');box.className='coach';box.id='_coach';
+  box.innerHTML=`<div class="ct">Guided demo · ${demoIdx+1}/${DEMO.length}</div><p><b>${d.title}.</b> ${d.body}</p>
+    <div class="cnav"><span class="step-n">step ${demoIdx+1} of ${DEMO.length}</span>
+    <button onclick="endDemo()">Exit</button>
+    <button class="next" onclick="nextCoach()">${demoIdx===DEMO.length-1?'Finish':'Next →'}</button></div>`;
+  document.body.appendChild(box);
+  position(box,tgt);
+}
+function position(box,tgt){
+  if(!tgt){box.style.left='50%';box.style.top='80px';box.style.transform='translateX(-50%)';return;}
+  const r=tgt.getBoundingClientRect();
+  let top=r.bottom+10, left=r.left;
+  if(left+320>window.innerWidth)left=window.innerWidth-330;
+  if(top+180>window.innerHeight)top=r.top-180;
+  box.style.left=Math.max(10,left)+'px';box.style.top=Math.max(10,top)+'px';
+  tgt.style.outline='2px solid var(--cyan)';tgt.style.outlineOffset='2px';
+  box._tgt=tgt;
+}
+function removeCoach(){const e=document.getElementById('_coach');if(e){if(e._tgt)e._tgt.style.outline='';e.remove();}}
+function nextCoach(){demoIdx++;showCoach();}
+function endDemo(){removeCoach();toast('Exited the guided demo — explore freely.');}
+</script>
+</body>
+</html>

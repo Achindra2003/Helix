@@ -1,0 +1,26 @@
+.wrap {
+  height: 100%; display: flex; align-items: stretch;
+  background: radial-gradient(130% 110% at 50% 0%, #ece2c8 0%, #ded2b4 50%, #cdbc95 100%);
+}
+.frontispiece {
+  flex: 1; position: relative; display: flex; align-items: center; justify-content: center;
+  border-right: 1px solid var(--rule); overflow: hidden;
+}
+.epigraph {
+  position: absolute; bottom: 34px; left: 0; right: 0; text-align: center;
+  color: var(--ink-3); font-style: italic; font-size: 14px; padding: 0 40px;
+}
+.panel { width: 480px; display: flex; align-items: center; justify-content: center; padding: 0 56px; }
+.form { width: 100%; display: flex; flex-direction: column; gap: 20px; animation: hx-rise 0.8s ease both; }
+.brandRow { display: flex; align-items: center; gap: 14px; }
+.brandName { font-weight: 700; font-size: 40px; letter-spacing: 0.04em; color: var(--oxblood); line-height: 1; }
+.tagline { font-style: italic; font-size: 14px; color: var(--ink-3); margin-top: 4px; }
+.tabs { display: flex; gap: 4px; background: var(--paper-3); border: 1px solid var(--rule-soft); border-radius: 10px; padding: 4px; }
+.tab, .tabOn { flex: 1; border: none; border-radius: 7px; padding: 9px; font-size: 14px; background: transparent; color: var(--ink-3); }
+.tabOn { background: var(--paper); color: var(--ink); box-shadow: 0 1px 3px rgba(0,0,0,0.12); }
+.health { font-size: 11.5px; color: var(--ink-faint); display: flex; gap: 10px; align-items: center; justify-content: center; }
+
+@media (max-width: 880px) {
+  .frontispiece { display: none; }
+  .panel { width: 100%; }
+}

@@ -1,2 +1,4 @@
-# Placeholder for the Deep Reasoning engine (Weeks 6-7).
-# The collaborative core (M1-M5) ships first and does not import this package.
+# The Deep Reasoning engine bucket.
+# Holds the vendored Ouroboros package (`engine/ouroboros/`) and its loader
+# (`ouroboros_bootstrap.py`). Imported only when a run is escalated to Deep
+# Reasoning; the everyday collaborative core never touches it.
