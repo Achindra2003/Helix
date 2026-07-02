@@ -28,7 +28,6 @@ export function LibraryView() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const { push } = useToast();
-  const author = useSession((st) => st.user?.id ?? "u1");
   const role = useEffectiveRole();
   const canWrite = can(role, "prompt.write");
   const request = usePendingInsert((st) => st.request);
@@ -52,7 +51,7 @@ export function LibraryView() {
     if (!wid || isLoading || seeding || prompts.length > 0 || !canWrite) return;
     setSeeding(true);
     (async () => {
-      for (const p of STARTERS) await savePrompt(wid, p.title, p.body, p.tags, author).catch(() => {});
+      for (const p of STARTERS) await savePrompt(wid, p.title, p.body, p.tags).catch(() => {});
       await qc.invalidateQueries({ queryKey: ["prompts", wid] });
       setSeeding(false);
     })();
@@ -69,7 +68,7 @@ export function LibraryView() {
   async function doSave() {
     if (!wid || !title.trim() || !body.trim()) return;
     try {
-      await savePrompt(wid, title.trim(), body.trim(), tags.split(",").map((t) => t.trim()).filter(Boolean), author);
+      await savePrompt(wid, title.trim(), body.trim(), tags.split(",").map((t) => t.trim()).filter(Boolean));
       await qc.invalidateQueries({ queryKey: ["prompts", wid] });
       setDlg(false); setTitle(""); setBody(""); setTags("");
       push("Prompt saved");

@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, exportUrl,
+  listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
@@ -48,7 +48,6 @@ export function ChatView() {
   const monitor = useMonitor();
   const { promptId: pendingPrompt, clear: clearPending } = usePendingInsert();
 
-  const authorId = user?.id ?? "u1";
   const canSend = can(role, "message.send");
   const canFork = can(role, "branch.fork");
 
@@ -67,8 +66,8 @@ export function ChatView() {
   const canvasRef = useRef<HTMLDivElement>(null);
 
   const { data: convData } = useQuery({
-    queryKey: ["conversations", wid, authorId],
-    queryFn: () => listConversations(wid!, authorId),
+    queryKey: ["conversations", wid, user?.id],
+    queryFn: () => listConversations(wid!),
     enabled: !!wid,
   });
   const conversations: Conversation[] = convData?.items ?? [];
@@ -140,7 +139,7 @@ export function ChatView() {
   async function doNewConversation(title: string, visibility: "shared" | "private" = "shared") {
     if (!wid) return;
     try {
-      const r = await createConversation(wid, title || "Untitled", visibility, authorId);
+      const r = await createConversation(wid, title || "Untitled", visibility);
       await qc.invalidateQueries({ queryKey: ["conversations", wid] });
       setActiveConvId(r.conversation_id);
       setActiveBranchId(r.branch_id);
@@ -152,7 +151,7 @@ export function ChatView() {
   async function ensureConversation(): Promise<string | null> {
     if (activeBranchId) return activeBranchId;
     if (!wid) return null;
-    const r = await createConversation(wid, "Untitled", "shared", authorId);
+    const r = await createConversation(wid, "Untitled", "shared");
     await qc.invalidateQueries({ queryKey: ["conversations", wid] });
     setActiveConvId(r.conversation_id);
     setActiveBranchId(r.branch_id);
@@ -195,13 +194,13 @@ export function ChatView() {
     const branchId = await ensureConversation();
     if (!branchId) return;
     if (messages.length === 0) setMessages([]);
-    await streamTurn(branchId, `/conversations/${branchId}/messages`, { prompt: text, author_id: authorId });
+    await streamTurn(branchId, `/conversations/${branchId}/messages`, { prompt: text });
   }
 
   async function onInsertPrompt(promptId: string) {
     const branchId = await ensureConversation();
     if (!branchId) return;
-    await streamTurn(branchId, `/conversations/${branchId}/messages/from-prompt`, { prompt_id: promptId, author_id: authorId });
+    await streamTurn(branchId, `/conversations/${branchId}/messages/from-prompt`, { prompt_id: promptId });
   }
 
   // consume a pending "insert from library" once we're in chat
@@ -227,7 +226,7 @@ export function ChatView() {
   async function onDeep(text: string) {
     const branchId = await ensureConversation();
     if (!branchId || !activeConvId) return;
-    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, author_id: authorId }, (ev) => {
+    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text }, (ev) => {
       const run = useMonitor.getState().run;
       if (!run) return;
       if (ev.kind === "step") {
@@ -345,8 +344,8 @@ export function ChatView() {
               {messages.length > 0 && (
                 <>
                   <ReplayBar total={messages.length} value={replay} onChange={setReplay} />
-                  <a className={s.chip} href={exportUrl(activeConv.id, activeBranchId!, "md")} title="Export Markdown" style={{ textDecoration: "none", color: "var(--ink-2)" }}>↓ md</a>
-                  <a className={s.chip} href={exportUrl(activeConv.id, activeBranchId!, "json")} title="Export JSON" style={{ textDecoration: "none", color: "var(--ink-2)" }}>↓ json</a>
+                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "md").catch(() => push("Export failed", "error"))} title="Export Markdown" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ md</button>
+                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "json").catch(() => push("Export failed", "error"))} title="Export JSON" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ json</button>
                 </>
               )}
               {canFork && (
