@@ -234,9 +234,15 @@ def build_ouroboros_graph(
     }
     # Convergence thresholds are tunable so the controller can halt on a real
     # `converged` / `no_marginal_gain` signal (the answer has stopped moving)
-    # rather than always exhausting the budget. Calibrated to the active embedder.
-    if stability_threshold is not None:
-        overrides["stability_threshold"] = stability_threshold
+    # rather than always exhausting the budget. `None` auto-calibrates to the
+    # active embedder: neural MiniLM cosines between successive drafts of the
+    # same answer sit far higher than the lexical fallback's token-overlap
+    # scores, so a lexical-calibrated threshold would halt neural runs on the
+    # first refinement.
+    if stability_threshold is None:
+        embedder_name = getattr(ouroboros.memory.get_embedder(), "name", "lexical-fallback")
+        stability_threshold = 0.78 if embedder_name.startswith("lexical") else 0.90
+    overrides["stability_threshold"] = stability_threshold
     if confidence_threshold is not None:
         overrides["confidence_threshold"] = confidence_threshold
     if steer_interval is not None:

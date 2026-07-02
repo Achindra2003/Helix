@@ -230,7 +230,7 @@ async def demo_deep_reasoning(groq_key):
 
     sub("Escalate the question — adaptive controller ON (principled convergence)")
     graph, cfg, make_inputs, usage = build_ouroboros_graph(
-        thread_id="demo-converge", groq_api_key=groq_key, groq_model=settings.groq_model,
+        thread_id="demo-converge", groq_api_key=groq_key, groq_model=settings.deep_reasoning_model,
         mode="analyze", adaptive=True, compute_budget=6,
         stability_threshold=0.78, confidence_threshold=0.7,
     )
@@ -243,7 +243,7 @@ async def demo_deep_reasoning(groq_key):
     await asyncio.sleep(3)  # be gentle on free-tier rate limits between runs
     sub("Cooperative KILL — stop the run mid-flight (RBAC-gated in the API)")
     graph2, cfg2, mk2, us2 = build_ouroboros_graph(
-        thread_id="demo-kill", groq_api_key=groq_key, groq_model=settings.groq_model,
+        thread_id="demo-kill", groq_api_key=groq_key, groq_model=settings.deep_reasoning_model,
         mode="analyze", adaptive=True, compute_budget=6,
     )
     state = {"n": 0}
@@ -260,7 +260,7 @@ async def demo_deep_reasoning(groq_key):
     await asyncio.sleep(3)
     sub("STEER — pause for human input, then resume on the same thread")
     graph3, cfg3, mk3, us3 = build_ouroboros_graph(
-        thread_id="demo-steer", groq_api_key=groq_key, groq_model=settings.groq_model,
+        thread_id="demo-steer", groq_api_key=groq_key, groq_model=settings.deep_reasoning_model,
         mode="analyze", adaptive=False, compute_budget=4,  # non-adaptive => steer fires
         steer_interval=1,  # pause at the first breathe so the demo doesn't run long
     )
