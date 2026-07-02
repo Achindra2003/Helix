@@ -44,3 +44,24 @@
 .kill { flex: 1; background: rgba(140,43,30,0.12); border: 1px solid var(--oxblood); color: var(--oxblood); border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; }
 .steer { flex: 1; background: var(--paper-3); border: 1px solid var(--rule-soft); color: var(--ink-faint); border-radius: 8px; padding: 9px; font-size: 13px; cursor: not-allowed; }
 .dismiss { flex: 1; }
+
+/* Guided-run steer checkpoint (FR-11): the pause-and-redirect box. */
+.steerBox {
+  margin: 0 16px 4px;
+  padding: 11px 12px;
+  border: 1px solid var(--violet, #6b4fa0);
+  border-radius: 10px;
+  background: rgba(107, 79, 160, 0.06);
+}
+.steerInput {
+  width: 100%;
+  resize: vertical;
+  border: 1px solid var(--rule-soft);
+  border-radius: 8px;
+  background: var(--paper, #faf6ee);
+  color: var(--ink);
+  font: inherit;
+  font-size: 13px;
+  padding: 7px 9px;
+}
+.steerInput:focus { outline: none; border-color: var(--violet, #6b4fa0); }

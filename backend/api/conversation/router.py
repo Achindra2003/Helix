@@ -12,6 +12,7 @@ reported as 404 so tenants can't probe for each other's resources.
 """
 from __future__ import annotations
 
+import time
 from dataclasses import asdict
 
 from fastapi import APIRouter, Depends
@@ -32,7 +33,7 @@ from ..providers import get_provider
 from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
-from .events import to_dict, to_sse
+from .events import DeepRunRegistered, to_dict, to_sse
 from .producer import ChatProducer
 from .store import DbStore
 
@@ -52,6 +53,18 @@ class CreateConversation(BaseModel):
 
 class SendMessage(BaseModel):
     prompt: str
+
+
+class DeepRequest(BaseModel):
+    prompt: str
+    # Guided mode: the run pauses at a steer checkpoint between refinement
+    # cycles; the client resumes it (with optional guidance) via
+    # POST /conversations/deep/runs/{run_id}/steer.
+    steerable: bool = False
+
+
+class SteerRequest(BaseModel):
+    guidance: str = ""  # empty = "continue as you were"
 
 
 class ForkBranch(BaseModel):
@@ -451,10 +464,22 @@ async def send_from_prompt(
     return _streamed_run(conv, branch_id, user, gen)
 
 
+# Paused steerable runs awaiting guidance: run_id -> handle. In-process, like
+# the realtime rooms; entries expire so an abandoned pause can't leak forever.
+_DEEP_RUN_TTL_S = 30 * 60
+_deep_runs: dict[str, dict] = {}
+
+
+def _prune_deep_runs() -> None:
+    cutoff = time.time() - _DEEP_RUN_TTL_S
+    for rid in [r for r, e in _deep_runs.items() if e["ts"] < cutoff]:
+        _deep_runs.pop(rid, None)
+
+
 @router.post("/{branch_id}/deep")
 async def escalate_deep_reasoning(
     branch_id: str,
-    body: SendMessage,
+    body: DeepRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -464,6 +489,12 @@ async def escalate_deep_reasoning(
     producer differs ("one mount, two producers"). Emits the richer trace:
     user_node -> (step | budget)* -> token (final answer) -> complete ->
     assistant_node -> [DONE].
+
+    With `steerable: true` the run is *guided*: it pauses at a steer
+    checkpoint between refinement cycles (`waiting` ends the stream, no
+    assistant node yet) and resumes via POST /conversations/deep/runs/
+    {run_id}/steer — as many times as it pauses. The first frame carries the
+    `run_id` handle.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
     if not settings.groq_api_key:
@@ -478,6 +509,7 @@ async def escalate_deep_reasoning(
         compute_budget=settings.deep_reasoning_compute_budget,
         stability_threshold=settings.deep_reasoning_stability_threshold,
         confidence_threshold=settings.deep_reasoning_confidence_threshold,
+        adaptive_steer=body.steerable,
     )
     producer = DeepReasoningProducer(
         graph=graph,
@@ -487,13 +519,67 @@ async def escalate_deep_reasoning(
         token_budget=settings.deep_reasoning_token_budget,
     )
 
-    gen = engine.send(
-        store=_store,
-        producer=producer,
-        branch_id=branch_id,
-        prompt=body.prompt,
-        author_id=user.id,
+    if not body.steerable:
+        gen = engine.send(
+            store=_store,
+            producer=producer,
+            branch_id=branch_id,
+            prompt=body.prompt,
+            author_id=user.id,
+        )
+        # Relaying deep runs means a teammate watching the same shared branch
+        # sees the live reasoning trace (steps/budget), not just the answer.
+        return _streamed_run(conv, branch_id, user, gen)
+
+    _prune_deep_runs()
+    run = engine.ResumableRun(store=_store, producer=producer, branch_id=branch_id)
+    run_id = uuid4().hex
+    _deep_runs[run_id] = {
+        "run": run,
+        "conversation_id": conv.id,
+        "branch_id": branch_id,
+        "ts": time.time(),
+    }
+
+    async def gen():
+        yield DeepRunRegistered(run_id=run_id)
+        async for event in run.start(prompt=body.prompt, author_id=user.id):
+            yield event
+        if not run.paused:  # finished (or errored) in one segment
+            _deep_runs.pop(run_id, None)
+
+    return _streamed_run(conv, branch_id, user, gen())
+
+
+@router.post("/deep/runs/{run_id}/steer")
+async def steer_deep_run(
+    run_id: str,
+    body: SteerRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Resume a paused guided run, injecting optional human guidance (FR-11).
+
+    Any Collaborator in the workspace may steer — a paused run on a shared
+    thread is a team decision point, not a private lock. Streams the
+    continuation with the same event contract; pauses again at the next
+    checkpoint unless the run converges or exhausts its budget.
+    """
+    _prune_deep_runs()
+    entry = _deep_runs.get(run_id)
+    if entry is None:
+        raise api_error(404, "not_found", "deep run not found (finished or expired)")
+    conv = await _require_conversation(
+        entry["conversation_id"], user, session, ROLE_COLLABORATOR
     )
-    # Relaying deep runs means a teammate watching the same shared branch sees
-    # the live reasoning trace (steps/budget), not just the final answer.
-    return _streamed_run(conv, branch_id, user, gen)
+    run = entry["run"]
+    if not run.paused:
+        raise api_error(409, "conflict", "run is not paused for steer")
+
+    async def gen():
+        async for event in run.steer(body.guidance):
+            yield event
+        if not run.paused:
+            _deep_runs.pop(run_id, None)
+
+    return _streamed_run(conv, entry["branch_id"], user, gen())

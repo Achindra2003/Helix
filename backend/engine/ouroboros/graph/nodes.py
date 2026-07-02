@@ -554,6 +554,11 @@ def make_route_after_synthesis(config: OuroborosConfig):
                 and state.get("depth", 0) >= 1
             ):
                 return "research"
+            # Guided mode: pause for human steer between refinement cycles.
+            # The graph interrupts before `steer`; on resume any injected
+            # guidance becomes the next thought (steer -> think).
+            if getattr(config, "adaptive_steer", False):
+                return "steer"
             return "think"
 
         energy = state.get("energy", config.starting_energy)

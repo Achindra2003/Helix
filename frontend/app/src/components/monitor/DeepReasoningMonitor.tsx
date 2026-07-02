@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useMonitor, type TraceStep } from "@/store/monitor";
 import { Button } from "@/components/common/Button";
 import s from "./monitor.module.css";
@@ -142,12 +142,20 @@ export function DeepReasoningMonitor() {
             )}
           </div>
 
+          {run.status === "waiting" && run.onSteer && <SteerBox onSteer={run.onSteer} />}
+
           <div className={s.controls}>
             {run.status === "live" ? (
               <>
-                <button className={s.steer} title="Steer needs server-side run control (not yet wired over HTTP)" disabled>⟂ Steer</button>
+                {run.onSteer && (
+                  <button className={s.steer} title="Guided run — it will pause for you at the next reasoning checkpoint" disabled>
+                    ⟂ pausing at next checkpoint…
+                  </button>
+                )}
                 <button className={s.kill} onClick={() => run.abort?.()}>◼ Kill switch</button>
               </>
+            ) : run.status === "waiting" ? (
+              <button className={s.kill} onClick={() => run.abort?.()}>◼ Kill switch</button>
             ) : (
               <Button className={s.dismiss} onClick={clear}>Dismiss</Button>
             )}
@@ -158,6 +166,38 @@ export function DeepReasoningMonitor() {
   );
 }
 
+/** Shown while a guided run is paused at a steer checkpoint (FR-11): inject
+ *  guidance to redirect the next reasoning cycle, or let it continue as-is. */
+function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
+  const [guidance, setGuidance] = useState("");
+  function go(g: string) {
+    onSteer(g);
+    setGuidance("");
+  }
+  return (
+    <div className={s.steerBox}>
+      <div className="eyebrow" style={{ color: "var(--violet)", marginBottom: 6 }}>⟂ Steer the reasoning</div>
+      <textarea
+        className={s.steerInput}
+        rows={2}
+        placeholder="Redirect the next cycle… e.g. “weigh cost above all else”"
+        value={guidance}
+        onChange={(e) => setGuidance(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); go(guidance.trim()); } }}
+        autoFocus
+      />
+      <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
+        <Button onClick={() => go(guidance.trim())} style={{ fontSize: 12, padding: "5px 11px", borderColor: "var(--violet)", color: "var(--violet)" }}>
+          ⟂ Steer
+        </Button>
+        <Button onClick={() => go("")} style={{ fontSize: 12, padding: "5px 11px" }} title="Resume without guidance">
+          Continue as-is
+        </Button>
+      </div>
+    </div>
+  );
+}
+
 function statusLabel(s: string) {
-  return ({ live: "● running", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
+  return ({ live: "● running", waiting: "⟂ awaiting steer", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
 }

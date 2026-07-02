@@ -224,51 +224,76 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
   }
 
-  async function onDeep(text: string) {
-    const branchId = await ensureConversation();
-    if (!branchId || !activeConvId) return;
-    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text }, (ev) => {
-      const run = useMonitor.getState().run;
-      if (!run) return;
-      if (ev.kind === "step") {
-        const p = ev.payload ?? {};
-        const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
-        monitor.patch({
-          depth: ev.depth ?? run.depth,
-          energy: ev.energy ?? run.energy,
-          loopGuard: num("loop_guard", run.loopGuard),
-          stability: num("stability", run.stability),
-          confidence: num("confidence", run.confidence),
-        });
-        const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
-        monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
-      } else if (ev.kind === "budget") {
-        monitor.patch({ budgetPct: Math.round(ev.pct <= 1 ? ev.pct * 100 : ev.pct), tokensUsed: ev.tokens_used ?? run.tokensUsed });
-      } else if (ev.kind === "token") {
-        monitor.patch({ answer: ((useMonitor.getState().run?.answer ?? "") + ev.text).replace(/^\s*\[answer\]\s*/i, "") });
-      } else if (ev.kind === "waiting") {
-        monitor.addStep({ kind: "steer", meta: "awaiting human input", text: "(paused at a steer point)" });
-      } else if (ev.kind === "complete") {
-        monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
-      } else if (ev.kind === "assistant_node") {
-        const cur = useMonitor.getState().run;
-        if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
-      }
-    });
-    monitor.start({
-      status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
-      budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
-      abort: h.abort, conversationId: activeConvId, branchId,
-    });
+  function handleDeepEvent(ev: import("@/lib/types").RunEvent) {
+    const run = useMonitor.getState().run;
+    if (!run) return;
+    if (ev.kind === "deep_run") {
+      monitor.patch({ runId: ev.run_id });
+    } else if (ev.kind === "step") {
+      const p = ev.payload ?? {};
+      const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
+      monitor.patch({
+        depth: ev.depth ?? run.depth,
+        energy: ev.energy ?? run.energy,
+        loopGuard: num("loop_guard", run.loopGuard),
+        stability: num("stability", run.stability),
+        confidence: num("confidence", run.confidence),
+      });
+      const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
+      monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
+    } else if (ev.kind === "budget") {
+      monitor.patch({ budgetPct: Math.round(ev.pct <= 1 ? ev.pct * 100 : ev.pct), tokensUsed: ev.tokens_used ?? run.tokensUsed });
+    } else if (ev.kind === "token") {
+      monitor.patch({ answer: ((useMonitor.getState().run?.answer ?? "") + ev.text).replace(/^\s*\[answer\]\s*/i, "") });
+    } else if (ev.kind === "waiting") {
+      monitor.addStep({ kind: "steer", meta: "paused for guidance", text: "The loop is holding — steer it, or let it continue." });
+      monitor.patch({ status: "waiting" });
+    } else if (ev.kind === "complete") {
+      monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
+    } else if (ev.kind === "assistant_node") {
+      const cur = useMonitor.getState().run;
+      if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
+    }
+  }
+
+  /** Await one SSE segment of a deep run; a guided run has several (each pause
+   *  ends the stream, each steer opens the next). History refreshes only when
+   *  the run truly finishes — a paused run has no assistant reply yet. */
+  async function finishDeepSegment(done: Promise<void>, branchId: string) {
     try {
-      await h.done;
+      await done;
       const cur = useMonitor.getState().run;
       if (cur && cur.status === "live") monitor.patch({ status: "done", stopReason: cur.stopReason || "ended" });
     } catch (e: any) {
       const cur = useMonitor.getState().run;
       if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
     }
-    getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null)))).catch(() => {});
+    if (useMonitor.getState().run?.status !== "waiting") {
+      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null)))).catch(() => {});
+    }
+  }
+
+  async function steerRun(guidance: string) {
+    const cur = useMonitor.getState().run;
+    if (!cur?.runId || !cur.branchId || cur.status !== "waiting") return;
+    monitor.patch({ status: "live" });
+    monitor.addStep({ kind: "steer", meta: "human guidance", text: guidance || "(continue unchanged)" });
+    const h = streamSSE(`/conversations/deep/runs/${cur.runId}/steer`, { guidance }, handleDeepEvent);
+    monitor.patch({ abort: h.abort });
+    await finishDeepSegment(h.done, cur.branchId);
+  }
+
+  async function onDeep(text: string, guided: boolean) {
+    const branchId = await ensureConversation();
+    if (!branchId || !activeConvId) return;
+    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
+    monitor.start({
+      status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
+      budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
+      abort: h.abort, conversationId: activeConvId, branchId,
+      onSteer: guided ? (g) => { steerRun(g); } : undefined,
+    });
+    await finishDeepSegment(h.done, branchId);
   }
 
   // --- Live fan-out (FR-5): teammates' activity arrives over the workspace

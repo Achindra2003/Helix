@@ -8,10 +8,13 @@ export function Composer({
   provider: string;
   busy: boolean;
   onSend: (text: string) => void;
-  onDeep: (text: string) => void;
+  onDeep: (text: string, guided: boolean) => void;
   onLibrary: () => void;
 }) {
   const [text, setText] = useState("");
+  // Guided mode (FR-11): the deep run pauses between refinement cycles so you
+  // can steer it mid-flight from the monitor. Off = classic self-halting run.
+  const [guided, setGuided] = useState(false);
 
   function send() {
     const t = text.trim();
@@ -21,7 +24,7 @@ export function Composer({
   }
   function deep() {
     const t = text.trim() || "What is the most defensible choice here, and why?";
-    onDeep(t);
+    onDeep(t, guided);
     setText("");
   }
 
@@ -42,6 +45,13 @@ export function Composer({
         <Button onClick={deep} disabled={busy} style={{ padding: "6px 11px", fontSize: 12.5, borderColor: "var(--oxblood)", color: "var(--oxblood)" }} title="Escalate to Deep Reasoning">
           <span>⟳</span> Deep Reasoning
         </Button>
+        <label
+          title="Guided: the run pauses between reasoning cycles so you can steer it from the monitor"
+          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: guided ? "var(--violet)" : "var(--ink-3)", cursor: "pointer", userSelect: "none" }}
+        >
+          <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: "var(--violet)" }} />
+          ⟂ guided
+        </label>
         <div style={{ flex: 1 }} />
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-faint)" }}>☁ {provider}</span>
         <button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)">↑</button>

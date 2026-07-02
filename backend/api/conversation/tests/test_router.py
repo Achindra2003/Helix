@@ -430,3 +430,112 @@ def test_export_markdown_and_json(make_workspace):
         body = js.json()
         assert body["conversation"]["title"] == "Export Me"
         assert any(n["content"] == "ping" for n in body["nodes"])
+
+
+class _PausingGraph:
+    """Fake graph for the guided (steerable) flow: pauses at steer once, then
+    completes after a resume that carries the injected guidance."""
+
+    def __init__(self):
+        self.updates = []
+        self.resumed = False
+
+    async def astream(self, inputs, config, stream_mode):
+        if inputs is not None:  # first segment -> will pause
+            yield ("updates", {"think": {"depth": 1, "energy": 70.0, "thought": "draft"}})
+            yield ("updates", {"synthesize": {"synthesis": "draft answer", "confidence": 0.5}})
+        else:  # resumed from checkpoint
+            yield ("messages", (_Chunk("Steered answer."), {"langgraph_node": "surface"}))
+            yield ("updates", {"surface": {"surfaced_insight": "Steered answer.", "stop_reason": "converged"}})
+
+    async def aget_state(self, config):
+        return SimpleNamespace(next=() if self.resumed else ("steer",))
+
+    async def aupdate_state(self, config, values):
+        self.resumed = True
+        self.updates.append(values)
+
+
+def test_steerable_deep_run_pauses_then_resumes_with_guidance(monkeypatch, make_workspace):
+    monkeypatch.setattr(router_mod.settings, "groq_api_key", "test-key")
+    fake = _PausingGraph()
+    monkeypatch.setattr(
+        router_mod,
+        "build_ouroboros_graph",
+        lambda **kw: (fake, {}, lambda seed: {"seed": seed}, lambda: 42),
+    )
+
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, headers, wid, title="guided")["branch_id"]
+
+        # Segment 1: the run streams, then pauses at the steer checkpoint.
+        resp = client.post(
+            f"/conversations/{branch_id}/deep",
+            json={"prompt": "hard question", "steerable": True},
+            headers=headers,
+        )
+        assert resp.status_code == 200
+        events = [json.loads(p) for p in _parse_sse(resp.text)]
+        kinds = [e["kind"] for e in events]
+        assert kinds[0] == "deep_run"          # the run-control handle
+        run_id = events[0]["run_id"]
+        assert "waiting" in kinds              # paused for human input
+        assert "assistant_node" not in kinds   # no empty reply persisted
+        hist = client.get(
+            f"/conversations/branches/{branch_id}/history", headers=headers
+        ).json()["nodes"]
+        assert [n["role"] for n in hist] == ["user"]
+
+        # Segment 2: steer with guidance -> run completes, reply persisted.
+        resumed = client.post(
+            f"/conversations/deep/runs/{run_id}/steer",
+            json={"guidance": "optimize for shipping speed"},
+            headers=headers,
+        )
+        assert resumed.status_code == 200
+        r_events = [json.loads(p) for p in _parse_sse(resumed.text) if p != "[DONE]"]
+        r_kinds = [e["kind"] for e in r_events]
+        assert "token" in r_kinds and "assistant_node" in r_kinds
+        assert fake.updates == [{"human_input": "optimize for shipping speed"}]
+
+        hist = client.get(
+            f"/conversations/branches/{branch_id}/history", headers=headers
+        ).json()["nodes"]
+        assert [n["role"] for n in hist] == ["user", "assistant"]
+        assert hist[-1]["content"] == "Steered answer."
+
+        # The run is finished: its handle is gone.
+        gone = client.post(
+            f"/conversations/deep/runs/{run_id}/steer",
+            json={"guidance": "again"},
+            headers=headers,
+        )
+        assert gone.status_code == 404
+
+
+def test_steer_requires_workspace_membership(monkeypatch, make_workspace, make_user):
+    monkeypatch.setattr(router_mod.settings, "groq_api_key", "test-key")
+    fake = _PausingGraph()
+    monkeypatch.setattr(
+        router_mod,
+        "build_ouroboros_graph",
+        lambda **kw: (fake, {}, lambda seed: {"seed": seed}, lambda: 42),
+    )
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, headers, wid, title="guided")["branch_id"]
+        resp = client.post(
+            f"/conversations/{branch_id}/deep",
+            json={"prompt": "q", "steerable": True},
+            headers=headers,
+        )
+        run_id = json.loads(_parse_sse(resp.text)[0])["run_id"]
+
+        outsider, _ = make_user(client)
+        denied = client.post(
+            f"/conversations/deep/runs/{run_id}/steer",
+            json={"guidance": "hijack"},
+            headers=outsider,
+        )
+        assert denied.status_code == 404  # not even existence is leaked
