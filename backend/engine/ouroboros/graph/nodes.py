@@ -535,8 +535,9 @@ def make_route_after_synthesis(config: OuroborosConfig):
     from ouroboros.graph.tools import search_available
 
     # Env doesn't change mid-run: decide once at graph-build time whether the
-    # research detour can produce real findings (Tavily key + client present).
-    can_research = search_available()
+    # research detour can produce real findings (Tavily key + client present)
+    # AND is permitted by the host's tool policy (FR-14).
+    can_research = search_available() and getattr(config, "allow_research", True)
 
     def route_after_synthesis(state: OuroborosState) -> str:
         # Adaptive mode: the metacognitive controller already decided in synthesize

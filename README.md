@@ -1,23 +1,44 @@
 # Helix
 
-A multi-tenant **collaborative AI workspace**: shared & branchable conversations,
-a shared prompt library, real-time presence, and a monitored **Deep Reasoning**
-mode. See `helix-product.md` (what), `helix-srs.md` (requirements), and
-`helix-build-plan.md` (how).
+A multi-tenant **collaborative AI workspace** — "Git for your team's AI work."
+Shared & branchable conversations with one team-wide assistant, live presence and
+real-time fan-out over WebSockets, a shared prompt library, cross-conversation
+references, and a monitored, steerable **Deep Reasoning** mode that halts itself
+when its answer converges.
+
+See `helix-product.md` (what), `helix-srs.md` (requirements),
+`REQUIREMENTS-COVERAGE.md` (what's delivered, mapped to the SRS), and
+`HELIX-AI-EXPLAINED.md` (how the AI layer works).
 
 ## Status
 
-- **Week 0 ✅** — monorepo + vertical slice (React → FastAPI → DB, streaming LLM reply).
-- **M1 ✅** — auth (register/login/JWT), workspaces, memberships + roles, invite
-  links, RBAC. Verified end-to-end. See `helix-api-contract.md` §4–§5.
+All 14 functional requirements are implemented and tested (FR-14 as a
+server-side policy flag; the per-role allowlist UI is future work):
+
+- **Auth & tenancy** — register/login/JWT, workspaces, role-carrying invite
+  links; RBAC enforced **server-side** on every conversation/prompt route.
+- **Conversations** — shared/private threads, real token streaming (SSE), an
+  immutable node tree, O(1) **fork** with context inheritance, live
+  **cross-conversation references**, replay, and authenticated export (md/json).
+- **Real-time** — a WebSocket room per workspace: presence rosters, and
+  teammates' turns stream into your open thread token-by-token; you can even
+  live-watch a teammate's Deep Reasoning trace.
+- **Deep Reasoning (Ouroboros)** — recursive reason → reflect → synthesize on
+  the 70B model with semantic-convergence halting, budget caps, kill switch,
+  and **guided mode**: the run pauses between cycles so anyone on the team can
+  steer it mid-flight.
+- **Prompt library** — save/tag/search/insert, updating live for the room.
+
+Backend: **64/64 tests** (hermetic — stub provider + throwaway SQLite).
+Frontend: React 18 + Vite + TS, builds clean.
 
 ```
-frontend/        React + TS + Vite
-backend/api/     FastAPI app: auth, workspaces, providers, streaming
-  routers/       auth.py, workspaces.py
-  models.py      ORM (users, workspaces, memberships, invites)
-backend/engine/  Deep Reasoning engine — placeholder (Weeks 6-7)
-shared/          shared schemas (later)
+frontend/app/    React + TS + Vite (the real UI)
+backend/api/     FastAPI: auth, workspaces, conversations, prompts, realtime
+  conversation/  engine (send/ResumableRun), producers, SSE contract, store
+  realtime.py    workspace WebSocket rooms (presence + fan-out)
+  providers/     LLM seam: groq | ollama | stub
+backend/engine/  vendored Ouroboros deep-reasoning engine (LangGraph)
 docker-compose.yml   (optional — for Postgres/prod; not needed for dev)
 ```
 
@@ -26,30 +47,32 @@ docker-compose.yml   (optional — for Postgres/prod; not needed for dev)
 Dev runs on **SQLite** (a local file, zero infra). Postgres is only for prod.
 
 ```bash
-cp .env.example .env          # runs as-is; SQLite + stub LLM, no keys/containers
+cp .env.example backend/.env       # runs as-is; SQLite + stub LLM, no keys
 
 # Terminal 1 — backend
 cd backend
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt   # (Windows)
+.venv/Scripts/python -m pip install -r requirements.txt -r requirements-engine.txt   # (Windows)
 .venv/Scripts/python -m uvicorn api.main:app --reload      # http://localhost:8000
 
 # Terminal 2 — frontend
-cd frontend
+cd frontend/app
 npm install
 npm run dev                    # http://localhost:5173
 ```
 
-Open http://localhost:5173 — **backend health: ok**, send a prompt, watch it stream.
+Open http://localhost:5173, register, create a workspace, and chat.
 API docs at http://localhost:8000/docs.
+`requirements-engine.txt` includes `sentence-transformers` so convergence and
+semantic memory use real MiniLM embeddings (first run downloads the model).
 
 ### Switch to Postgres later
-Set `DATABASE_URL=postgresql+asyncpg://helix:helix@localhost:5432/helix` in `.env`
-and run `docker compose up postgres` — no code changes.
+Set `DATABASE_URL=postgresql+asyncpg://helix:helix@localhost:5432/helix` in
+`backend/.env` and run `docker compose up postgres` — no code changes.
 
 ## Choosing an LLM provider
 
-Set `LLM_PROVIDER` in `.env`:
+Set `LLM_PROVIDER` in `backend/.env`:
 
 | Value    | Needs                          | Notes                                |
 |----------|--------------------------------|--------------------------------------|
@@ -57,8 +80,12 @@ Set `LLM_PROVIDER` in `.env`:
 | `groq`   | `GROQ_API_KEY`                 | hosted, fast, free tier              |
 | `ollama` | `docker compose --profile ollama up` then `docker compose exec ollama ollama pull llama3.2` | local, ~8GB RAM |
 
-## Next (M2 — conversations)
+Deep Reasoning always runs on Groq and uses its own model
+(`DEEP_REASONING_MODEL`, default the 70B) so chat can stay on a fast small
+model while the reasoning loop gets the strongest one.
 
-Shared/private conversations persisted as the node tree (contract §6–§7), the
-real streaming send endpoint replacing the `/chat/stream` stub, then the
-WebSocket room for presence + live fan-out (M3, §11).
+## Roadmap (post-v2)
+
+- Per-role tool allowlist UI for Deep Reasoning (FR-14 beyond the policy flag).
+- Postgres row-level security + Alembic migrations for prod hardening.
+- Redis pub/sub behind the realtime seam for multi-process deployment.
