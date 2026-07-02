@@ -29,14 +29,20 @@ class Settings(BaseSettings):
     # --- Deep Reasoning (Ouroboros) power feature ---
     # Always runs on Groq (its own provider enum — never the chat `llm_provider`,
     # which may be `stub`). Uses `groq_api_key` above.
+    #
+    # Deliberately decoupled from `groq_model`: chat can stay on a fast/cheap
+    # small model while the recursive self-critique loop — whose whole value is
+    # reasoning quality — runs on the strongest available model.
+    deep_reasoning_model: str = "llama-3.3-70b-versatile"
     deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize
     deep_reasoning_adaptive: bool = True
     deep_reasoning_compute_budget: int = 4
     deep_reasoning_token_budget: int = 200_000
-    # Convergence thresholds, calibrated to the active (lexical-fallback) embedder so
-    # an adaptive run halts on a real `converged` signal (the answer has settled)
-    # instead of always exhausting the budget. Proven in demo_helix.py. Demo-safe.
-    deep_reasoning_stability_threshold: float = 0.78
+    # Convergence thresholds. `None` = auto-calibrate to the active embedder at
+    # graph-build time (neural MiniLM cosines run much hotter than the lexical
+    # fallback's, so one fixed number can't serve both): ~0.90 neural / 0.78
+    # lexical. Set explicitly in .env to pin a value.
+    deep_reasoning_stability_threshold: float | None = None
     deep_reasoning_confidence_threshold: float = 0.7
 
 

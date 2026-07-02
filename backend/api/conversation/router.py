@@ -359,7 +359,7 @@ async def escalate_deep_reasoning(branch_id: str, body: SendMessage):
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
         thread_id=uuid4().hex,
         groq_api_key=settings.groq_api_key,
-        groq_model=settings.groq_model,
+        groq_model=settings.deep_reasoning_model,
         mode=settings.deep_reasoning_mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,

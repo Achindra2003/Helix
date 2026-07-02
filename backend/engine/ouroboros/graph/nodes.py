@@ -532,6 +532,12 @@ def steer(state: OuroborosState) -> dict:
 
 
 def make_route_after_synthesis(config: OuroborosConfig):
+    from ouroboros.graph.tools import search_available
+
+    # Env doesn't change mid-run: decide once at graph-build time whether the
+    # research detour can produce real findings (Tavily key + client present).
+    can_research = search_available()
+
     def route_after_synthesis(state: OuroborosState) -> str:
         # Adaptive mode: the metacognitive controller already decided in synthesize
         # (stored on state). Honour it; allow one research detour for grounded modes
@@ -541,7 +547,12 @@ def make_route_after_synthesis(config: OuroborosConfig):
                 return "surface"
             mode = state.get("mode", "explore")
             research_done = len(state.get("research_queries", []))
-            if mode in ("analyze", "solve") and research_done == 0 and state.get("depth", 0) >= 1:
+            if (
+                can_research
+                and mode in ("analyze", "solve")
+                and research_done == 0
+                and state.get("depth", 0) >= 1
+            ):
                 return "research"
             return "think"
 
@@ -557,9 +568,9 @@ def make_route_after_synthesis(config: OuroborosConfig):
             return "surface"
         if depth > 2 and state.get("mood") in ("serene", "melancholic"):
             return "surface"
-        if mode in ("analyze", "solve") and research_done == 0 and depth >= 2:
+        if can_research and mode in ("analyze", "solve") and research_done == 0 and depth >= 2:
             return "research"
-        if random.random() < 0.2 and depth >= 1 and research_done < 2:
+        if can_research and random.random() < 0.2 and depth >= 1 and research_done < 2:
             return "research"
         return "think"
 
