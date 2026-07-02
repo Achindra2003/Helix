@@ -1,4 +1,5 @@
 import { initialOf } from "@/lib/format";
+import { Markdown } from "@/components/common/Markdown";
 import s from "./chat.module.css";
 
 export interface ChatMessage {
@@ -33,8 +34,17 @@ function Bubble({ m, onForkHere }: { m: ChatMessage; onForkHere?: (id: string) =
           )}
         </div>
         <div className={s.msgBody}>
-          {m.body}
-          {m.typing && <span className={s.cursor} />}
+          {asst ? (
+            <>
+              <Markdown>{m.body}</Markdown>
+              {m.typing && <span className={s.cursor} />}
+            </>
+          ) : (
+            <>
+              {m.body}
+              {m.typing && <span className={s.cursor} />}
+            </>
+          )}
         </div>
         {m.tokens && <div className={s.msgTokens}>{m.tokens}</div>}
       </div>

@@ -204,7 +204,12 @@ nodes (nodes.py):
   **critiques and rewrites the current best answer to the original question**,
   anchored so it can't drift, and asks the model to rate its own `CONFIDENCE`.
 - **surface** — emit the final, converged answer (this is the *only* node whose
-  tokens are streamed to the user as the assistant reply).
+  tokens are streamed to the user as the assistant reply). In Helix it runs a
+  **humanize** pass (`config.humanize`, on for chat / off for the benchmark):
+  the converged synthesis is optimised for *convergence*, not for a reader, so
+  surface rewrites it into a warm, conversational, lightly-Markdown answer and
+  streams it token-by-token. Convergence is still measured on the terse synthesis,
+  so the halting signal is unaffected.
 - **breathe / remember / steer** — recover energy, store insights, and the
   human-in-the-loop pause point.
 
@@ -310,9 +315,11 @@ backend/engine/ouroboros/
 
 ### Known rough edges (be honest in Q&A)
 
-- **Reply formatting / "voice."** Streamed replies (chat, and especially the
-  Ouroboros surface answer) currently read a bit flat / not very conversational.
-  This is a prompt-and-presentation polish item, not an architecture gap.
+- **Reply formatting / "voice."** *Addressed.* Chat now gets an explicit
+  conversational system-prompt voice, the Ouroboros surface answer gets a
+  humanize rewrite (§6), and the UI renders replies as **Markdown**
+  (`components/common/Markdown.tsx`) so bold/lists/code render instead of showing
+  literal `**`/`-`. Remaining polish is subjective tuning, not a gap.
 - **Rigidity.** Deep-reasoning mode, budgets, and thresholds are largely fixed per
   preset right now; making them feel more fluid/interactive is future work.
 - **Server-side RBAC.** Roles are enforced in the UI; the chat routes don't yet

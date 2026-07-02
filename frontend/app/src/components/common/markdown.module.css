@@ -1,0 +1,67 @@
+/* Markdown rendered on parchment. Tuned to read like prose, not a document:
+   tight vertical rhythm, oxblood/gilt accents, code on a faint inked panel. */
+.md {
+  font-size: 15.5px;
+  line-height: 1.62;
+  color: var(--ink);
+  white-space: normal; /* override the bubble's pre-wrap; blocks handle wrapping */
+}
+
+/* Collapse the outer margins so a bubble hugs its text, but keep breathing
+   room *between* blocks. */
+.md > :first-child { margin-top: 0; }
+.md > :last-child { margin-bottom: 0; }
+
+.md p { margin: 0 0 10px; }
+
+.md h1, .md h2, .md h3, .md h4 {
+  font-family: var(--font-display);
+  line-height: 1.2;
+  margin: 16px 0 8px;
+  color: var(--ink);
+}
+.md h1 { font-size: 21px; }
+.md h2 { font-size: 18px; }
+.md h3 { font-size: 16px; }
+.md h4 { font-size: 15px; }
+
+.md strong { font-weight: 700; color: var(--ink); }
+.md em { font-style: italic; }
+
+.md ul, .md ol { margin: 0 0 10px; padding-left: 22px; }
+.md li { margin: 3px 0; }
+.md li::marker { color: var(--oxblood); }
+
+.md a { color: var(--oxblood); text-decoration: underline; text-underline-offset: 2px; }
+.md a:hover { color: var(--cinnabar); }
+
+.md blockquote {
+  margin: 0 0 10px; padding: 2px 14px;
+  border-left: 3px solid var(--gilt);
+  color: var(--ink-2); font-style: italic;
+}
+
+/* inline code */
+.md code {
+  font-family: var(--font-mono); font-size: 0.88em;
+  background: rgba(36, 27, 18, 0.06);
+  border: 1px solid var(--rule-soft);
+  border-radius: 4px; padding: 1px 5px;
+}
+
+/* fenced code block */
+.md pre {
+  margin: 0 0 10px; padding: 12px 14px; overflow-x: auto;
+  background: rgba(36, 27, 18, 0.05);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+}
+.md pre code {
+  background: none; border: none; padding: 0; font-size: 13px; line-height: 1.55;
+}
+
+.md table { border-collapse: collapse; margin: 0 0 10px; font-size: 14px; }
+.md th, .md td { border: 1px solid var(--rule); padding: 6px 10px; text-align: left; }
+.md th { background: var(--paper-3); font-weight: 600; }
+
+.md hr { border: none; border-top: 1px solid var(--rule-soft); margin: 14px 0; }

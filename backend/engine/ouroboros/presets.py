@@ -65,7 +65,8 @@ MODE_PRESETS: dict[Mode, dict] = {
             "Previous analysis:\n{recent}\n\n"
             "Evidence recalled:\n{memories}\n\n"
             "What new angle, counterargument, or unexamined assumption emerges? "
-            "Be precise and structured. 1-3 sentences."
+            "Be precise and structured. 1-3 sentences. Write the thought directly, "
+            "with no heading or label (do not start with 'New Angle:' or similar)."
         ),
         "reflect_prompt": (
             'You just analyzed: "{thought}"\n\n'

@@ -161,13 +161,26 @@ def make_emotional_analysis(llm: BaseChatModel, config: OuroborosConfig):
     async def emotional_analysis(state: OuroborosState) -> dict:
         thought = state.get("thought", "")
         new_mood = derive_mood(thought, state.get("mood", "curious"), config)
-        prompt = (
-            f'A mind in a "{new_mood}" state is examining this thought:\n'
-            f'"{thought}"\n\n'
-            "Speak from the emotional/affective perspective ONLY (not logic). "
-            "What feeling underlies this thought? What is it avoiding, or yearning "
-            "toward? One or two sentences."
-        )
+        mode = state.get("mode", "explore")
+        if mode in ("analyze", "solve", "create"):
+            # Practical modes: the "emotional" perspective is the *human* dimension,
+            # not therapy for the thought. Keeps answers grounded instead of talking
+            # about the mind's "yearning" / "emotional burden".
+            prompt = (
+                f'Examine this thinking on a real problem:\n"{thought}"\n\n'
+                "Give the human perspective in one or two sentences: who is affected, "
+                "what do the people involved actually care about, and what human factor "
+                "(motivation, risk tolerance, workload) is being under-weighted? Be "
+                "concrete and practical — do NOT psychoanalyze or use therapy language."
+            )
+        else:
+            prompt = (
+                f'A mind in a "{new_mood}" state is examining this thought:\n'
+                f'"{thought}"\n\n'
+                "Speak from the emotional/affective perspective ONLY (not logic). "
+                "What feeling underlies this thought? What is it avoiding, or yearning "
+                "toward? One or two sentences."
+            )
         try:
             resp = await llm.ainvoke([{"role": "system", "content": prompt}])
             reading = resp.content.strip()
@@ -225,6 +238,29 @@ def _parse_confidence(text: str) -> tuple[str, float]:
     return answer, conf
 
 
+# A labelled answer section ("IMPROVED answer:", "Revised answer:", "Final answer:")
+# at the start of a line — models often precede it with a critique paragraph despite
+# being told not to. We keep only what follows the *last* such label.
+_ANSWER_LABEL_RE = re.compile(
+    r'(?im)^[\s>*"\']*(?:the\s+)?'
+    r"(?:improved|revised|final|updated|new|better|refined)\s+answer[\s\"']*:\s*"
+)
+
+
+def _strip_answer_label(text: str) -> str:
+    """Drop a leading critique + ``... answer:`` label, keeping only the answer.
+
+    Defensive: if the model followed instructions and emitted only the answer,
+    there's no label and the text is returned unchanged (minus wrapping quotes).
+    """
+    last = None
+    for last in _ANSWER_LABEL_RE.finditer(text):
+        pass
+    if last is not None:
+        text = text[last.end():]
+    return text.strip().strip('"').strip()
+
+
 def make_synthesize(llm: BaseChatModel, config: OuroborosConfig | None = None):
     adaptive = bool(config and config.adaptive)
 
@@ -276,19 +312,23 @@ async def _synthesize_adaptive(
     seed = state.get("seed", "")
     prev = state.get("synthesis", "")
     prompt = (
-        f'You are refining an answer to this exact question:\n"{seed}"\n\n'
+        f'You are improving an answer to this exact question:\n"{seed}"\n\n'
         f"Current best answer:\n{prev or '(none yet — write the first answer)'}\n\n"
-        "Three perspectives just examined the latest thinking:\n"
-        f"- Emotional: {emo}\n- Logical: {logic}\n- Memory: {mem}\n\n"
-        "Critique the current answer in light of these, then write an IMPROVED, "
-        "complete, self-contained answer to the question above. Stay strictly on "
-        "that question; be concrete and non-obvious; 2-4 sentences. Do not describe "
-        "your process. Finally, on a new line, rate how settled your answer now is "
-        'as "CONFIDENCE: <0.0-1.0>".'
+        "Three perspectives just examined the latest thinking. Use only what makes "
+        f"the answer more correct or complete:\n- {emo}\n- {logic}\n- {mem}\n\n"
+        "Now write the improved answer. STRICT RULES:\n"
+        "- Output ONLY the answer itself. No preamble, no critique, no meta-commentary; "
+        "do NOT write phrases like 'the current answer', 'this answer overlooks', or "
+        "'IMPROVED answer'. Do not describe what you changed.\n"
+        "- Answer the question directly and decisively — commit to a concrete "
+        "recommendation with the reasoning, not a vague 'weigh the pros and cons'.\n"
+        "- Stay strictly on the question. 2-4 sentences.\n"
+        'Then, on a new line, rate how settled it is as "CONFIDENCE: <0.0-1.0>".'
     )
     try:
         resp = await llm.ainvoke([{"role": "system", "content": prompt}])
         answer, confidence = _parse_confidence(resp.content.strip())
+        answer = _strip_answer_label(answer)
     except Exception:
         answer = prev or " ".join(p for p in (emo, logic, mem) if p).strip()
         confidence = 0.5
@@ -312,9 +352,39 @@ async def _synthesize_adaptive(
     }
 
 
+async def _voice_final_answer(llm: BaseChatModel, *, seed: str, answer: str) -> str:
+    """Rewrite the converged synthesis into a warm, human-facing final answer.
+
+    Kept separate from `_synthesize_adaptive` on purpose: convergence is measured
+    on the terse anchored synthesis, and only the *surfaced* answer gets this voice
+    pass — so the halting signal is unaffected. Streams (via the caller's messages
+    stream mode); returns "" on failure so the caller can fall back to the raw
+    converged answer.
+    """
+    prompt = (
+        "You have finished reasoning through a question and reached this conclusion:\n"
+        f'"{answer}"\n\n'
+        f'The person originally asked:\n"{seed}"\n\n'
+        "Now write the final answer to give them directly. Speak to them naturally, "
+        "as a thoughtful colleague talking it through — warm, clear, and human, not a "
+        "clinical summary. Lead with the heart of the answer. Use light Markdown only "
+        "where it genuinely helps readability (a short **bold** lead-in, a bullet list, "
+        "or a code block) — don't force structure onto a simple answer. Do NOT mention "
+        "your reasoning process, confidence, or that you 'converged' — just give them "
+        "the answer as if it were the natural thing to say."
+    )
+    try:
+        resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+        return resp.content.strip()
+    except Exception:
+        return ""
+
+
 def make_surface(llm: BaseChatModel, config: OuroborosConfig):
     prompt_template = _get_prompt(config.mode, "surface_prompt")
     adaptive = bool(config and config.adaptive)
+
+    humanize = bool(config and getattr(config, "humanize", False))
 
     async def surface(state: OuroborosState) -> dict:
         # Adaptive mode: the converged synthesis *is* the answer. Surface it as-is
@@ -322,6 +392,19 @@ def make_surface(llm: BaseChatModel, config: OuroborosConfig):
         # aphorism — this is the output-parity fix for a fair comparison.
         if adaptive:
             answer = state.get("synthesis", "") or state.get("thought", "")
+            # Humanize: the converged synthesis is terse and clinical (it was
+            # optimised for convergence, not for a reader). Rewrite it into a warm,
+            # conversational answer addressed to the person who asked; the LLM call
+            # streams token-by-token so it reads like someone talking back. We do
+            # NOT also return it on the `messages` channel, because the stream would
+            # then re-emit the whole message and the reader would see the answer
+            # twice. `surfaced_insight` carries it downstream instead.
+            if humanize and answer:
+                voiced = await _voice_final_answer(
+                    llm, seed=state.get("seed", ""), answer=answer
+                )
+                if voiced:
+                    return {"surfaced_insight": voiced, "insights": [voiced]}
             return {
                 "surfaced_insight": answer,
                 "messages": [AIMessage(content=f"[answer] {answer}")],

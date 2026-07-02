@@ -46,6 +46,12 @@ class OuroborosConfig(BaseModel):
     stability_threshold: float = Field(default=0.92, ge=0, le=1)  # cosine → converged
     confidence_threshold: float = Field(default=0.75, ge=0, le=1)  # self-reported settle
 
+    # When enabled, the `surface` node rewrites the converged (terse, anchored)
+    # synthesis into a warm, conversational final answer for a human reader, and
+    # streams it token-by-token. Off by default so the benchmark keeps output
+    # parity (surfacing the raw synthesis); Helix turns it on for the chat surface.
+    humanize: bool = False
+
 
 class SessionMeta(BaseModel):
     id: str
