@@ -71,16 +71,16 @@ export const acceptInvite = (token: string) =>
   request<Workspace>(`/api/invites/${token}/accept`, { method: "POST" });
 
 // --- conversations (live engine routes are root-level) ---
-export const listConversations = (workspaceId: string, viewerId?: string) => {
+// Identity (viewer/author) is derived server-side from the JWT — never sent.
+export const listConversations = (workspaceId: string) => {
   const q = new URLSearchParams({ workspace_id: workspaceId });
-  if (viewerId) q.set("viewer_id", viewerId);
   return request<{ items: Conversation[] }>(`/conversations?${q.toString()}`);
 };
 export const getConversation = (cid: string) => request<Conversation>(`/conversations/${cid}`);
-export const createConversation = (workspaceId: string, title: string, visibility = "shared", authorId = "u1") =>
+export const createConversation = (workspaceId: string, title: string, visibility = "shared") =>
   request<{ conversation_id: string; branch_id: string }>("/conversations", {
     method: "POST",
-    body: JSON.stringify({ workspace_id: workspaceId, author_id: authorId, title, visibility }),
+    body: JSON.stringify({ workspace_id: workspaceId, title, visibility }),
   });
 export const listBranches = (cid: string) =>
   request<{ items: Branch[] }>(`/conversations/${cid}/branches`);
@@ -91,8 +91,25 @@ export const forkBranch = (cid: string, fromNodeId: string, name: string) =>
     method: "POST",
     body: JSON.stringify({ from_node_id: fromNodeId, name }),
   });
-export const exportUrl = (cid: string, branchId: string, format: "md" | "json") =>
-  `${API_BASE}/conversations/${cid}/export?format=${format}&branch=${branchId}`;
+// Export is auth-gated, so a plain <a href> can't carry the JWT: fetch with the
+// token and hand the payload to the browser as a blob download.
+export const downloadExport = async (cid: string, branchId: string, format: "md" | "json") => {
+  const token = getToken();
+  const res = await fetch(
+    `${API_BASE}/conversations/${cid}/export?format=${format}&branch=${branchId}`,
+    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
+  );
+  if (!res.ok) throw new ApiError(res.status, "export_failed", `Export failed (HTTP ${res.status})`);
+  const disposition = res.headers.get("Content-Disposition") ?? "";
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `conversation.${format}`;
+  const blob = await res.blob();
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+};
 
 // --- cross-conversation references (link another shared thread as live context) ---
 export const listReferences = (cid: string) =>
@@ -116,9 +133,9 @@ export const listPrompts = (wid: string, q?: string, tag?: string) => {
   const qs = p.toString();
   return request<{ prompts: Prompt[] }>(`/workspaces/${wid}/prompts${qs ? `?${qs}` : ""}`);
 };
-export const savePrompt = (wid: string, title: string, body: string, tags: string[], authorId = "u1") =>
+export const savePrompt = (wid: string, title: string, body: string, tags: string[]) =>
   request<Prompt>(`/workspaces/${wid}/prompts`, {
     method: "POST",
-    body: JSON.stringify({ author_id: authorId, title, body, tags }),
+    body: JSON.stringify({ title, body, tags }),
   });
 export const getPrompt = (pid: string) => request<Prompt>(`/prompts/${pid}`);

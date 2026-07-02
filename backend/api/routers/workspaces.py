@@ -1,6 +1,7 @@
 import secrets
 
 from fastapi import APIRouter, Depends
+from pydantic import BaseModel
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -136,18 +137,28 @@ async def update_member_role(
 
 
 # --- Invites (§5) ---
+class InviteCreate(BaseModel):
+    role: str = ROLE_COLLABORATOR  # collaborator | observer
+
+
 @router.post("/workspaces/{workspace_id}/invites", response_model=InviteOut, status_code=201)
 async def create_invite(
     workspace_id: str,
+    body: InviteCreate | None = None,
     _owner: Membership = Depends(require_role(ROLE_OWNER)),
     session: AsyncSession = Depends(get_session),
 ):
+    # The invite carries the role the joiner will get. Owner can't be granted by
+    # link — ownership is transferred explicitly, never mass-mailed.
+    role = (body.role if body else ROLE_COLLABORATOR) or ROLE_COLLABORATOR
+    if role not in ROLE_RANK or role == ROLE_OWNER:
+        raise api_error(400, "bad_request", f"Invites cannot grant role '{role}'.")
     token = secrets.token_urlsafe(24)
     invite = Invite(
         token=token,
         workspace_id=workspace_id,
         created_by=_owner.user_id,
-        role=ROLE_COLLABORATOR,
+        role=role,
         expires_at=Invite.default_expiry(),
     )
     session.add(invite)
