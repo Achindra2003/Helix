@@ -197,6 +197,7 @@ def build_ouroboros_graph(
     stability_threshold: float | None = None,
     confidence_threshold: float | None = None,
     steer_interval: int | None = None,
+    adaptive_steer: bool = False,
 ):
     """Construct a real, isolated Ouroboros graph + the wiring the producer needs.
 
@@ -231,6 +232,9 @@ def build_ouroboros_graph(
         # into a warm, conversational, streamed final answer (the benchmark leaves
         # this off to preserve raw-synthesis output parity).
         "humanize": True,
+        # Guided mode: pause the adaptive loop at the steer checkpoint between
+        # refinement cycles so the caller can inject guidance over HTTP.
+        "adaptive_steer": adaptive_steer,
     }
     # Convergence thresholds are tunable so the controller can halt on a real
     # `converged` / `no_marginal_gain` signal (the answer has stopped moving)

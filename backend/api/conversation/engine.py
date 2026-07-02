@@ -22,7 +22,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
-from .events import AssistantNode, Complete, Done, Event, Token, UserNode
+from .events import AssistantNode, Complete, Done, Event, Token, UserNode, Waiting
 from .producer import Producer
 from .store import ConversationStore
 
@@ -62,3 +62,63 @@ async def send(
     yield AssistantNode(node=assistant_node)
 
     yield Done()
+
+
+class ResumableRun:
+    """A deep-reasoning turn that can pause at a human steer checkpoint (FR-11).
+
+    Same contract as `send()`, split at the pause: `start()` persists the user
+    node and streams until the producer either finishes or pauses at a steer
+    interrupt (a `Waiting` event ends the stream). While paused, `steer()`
+    resumes from the engine's checkpoint — injecting the human guidance — and
+    streams the continuation; a run may pause any number of times. The
+    assistant node is persisted only when the run truly completes, so a paused
+    run never leaves an empty reply on the branch. Token text accumulates
+    across all segments into that one final reply.
+    """
+
+    def __init__(self, *, store: ConversationStore, producer, branch_id: str) -> None:
+        self._store = store
+        self._producer = producer
+        self._branch_id = branch_id
+        self._parts: list[str] = []
+        self.paused = False
+
+    async def start(self, *, prompt: str, author_id: str) -> AsyncIterator[Event]:
+        user_node = await self._store.add_node(
+            branch_id=self._branch_id, role="user", content=prompt, author_id=author_id
+        )
+        yield UserNode(node=user_node)
+        history = await self._store.get_history(self._branch_id)
+        async for event in self._drive(self._producer.run(history)):
+            yield event
+
+    async def steer(self, guidance: str) -> AsyncIterator[Event]:
+        """Resume a paused run with (possibly empty) human guidance."""
+        self.paused = False
+        async for event in self._drive(self._producer.resume(guidance)):
+            yield event
+
+    async def _drive(self, gen) -> AsyncIterator[Event]:
+        try:
+            async for event in gen:
+                if isinstance(event, Token):
+                    self._parts.append(event.text)
+                if isinstance(event, Waiting):
+                    self.paused = True
+                yield event
+        except Exception as exc:  # mirror send(): clean terminal event
+            yield Complete(stop_reason=f"error: {exc}", status="error")
+
+        if self.paused:
+            return  # mid-run; the reply isn't finished, persist nothing yet
+
+        assistant_node = await self._store.add_node(
+            branch_id=self._branch_id,
+            role="assistant",
+            content="".join(self._parts),
+            author_id=None,
+            token_count=len(self._parts),
+        )
+        yield AssistantNode(node=assistant_node)
+        yield Done()

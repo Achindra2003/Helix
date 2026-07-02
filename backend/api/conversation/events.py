@@ -63,6 +63,19 @@ class Done:
 
 # --- Deep-reasoning extension events (Ouroboros runs — wired in E3/E4) ---
 @dataclass
+class DeepRunRegistered:
+    """First frame of a *steerable* deep run: the handle for run control.
+
+    The client keeps `run_id` so that when the run pauses (`Waiting`), it can
+    POST guidance to `/conversations/deep/runs/{run_id}/steer` and stream the
+    continuation.
+    """
+
+    run_id: str
+    kind: str = field(default="deep_run", init=False)
+
+
+@dataclass
 class Step:
     """One reasoning transition (reason / reflect / synthesize / ...)."""
 
@@ -102,7 +115,8 @@ class Complete:
 
 
 Event = (
-    UserNode | Token | AssistantNode | Done | Step | Budget | Waiting | Complete
+    UserNode | Token | AssistantNode | Done
+    | DeepRunRegistered | Step | Budget | Waiting | Complete
 )
 
 

@@ -7,7 +7,7 @@ export interface TraceStep {
   text: string;
 }
 
-export type RunStatus = "idle" | "live" | "done" | "killed" | "error";
+export type RunStatus = "idle" | "live" | "waiting" | "done" | "killed" | "error";
 
 export interface RunState {
   status: RunStatus;
@@ -25,6 +25,10 @@ export interface RunState {
   abort?: () => void;
   conversationId?: string;
   branchId?: string;
+  // Guided runs (FR-11): the server-side run handle, and the callback the
+  // monitor invokes to resume a paused run with (optional) human guidance.
+  runId?: string;
+  onSteer?: (guidance: string) => void;
 }
 
 interface MonitorStore {
