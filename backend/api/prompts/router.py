@@ -17,6 +17,7 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_RANK, User
+from .. import realtime
 from .store import PromptStore
 
 router = APIRouter(tags=["prompts"])
@@ -64,6 +65,11 @@ async def create_prompt(
         title=body.title,
         body=body.body,
         tags=body.tags,
+    )
+    await realtime.broadcast(
+        workspace_id,
+        {"kind": "prompt.saved", "workspace_id": workspace_id, "prompt": _to_dict(prompt)},
+        exclude_user=user.id,
     )
     return _to_dict(prompt)
 

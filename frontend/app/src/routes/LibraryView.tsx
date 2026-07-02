@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { listPrompts, savePrompt } from "@/lib/api";
+import { onRoomEvent } from "@/lib/realtime";
 import { usePendingInsert } from "@/store/insert";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { can } from "@/lib/rbac";
@@ -45,6 +46,15 @@ export function LibraryView() {
     enabled: !!wid,
   });
   const prompts = data?.prompts ?? [];
+
+  // Live fan-out: a teammate saving a prompt refreshes the library in place.
+  useEffect(
+    () =>
+      onRoomEvent((ev) => {
+        if (ev.kind === "prompt.saved") qc.invalidateQueries({ queryKey: ["prompts", wid] });
+      }),
+    [wid, qc],
+  );
 
   // Seed a starter set the first time a workspace's library is empty (no LLM cost).
   useEffect(() => {

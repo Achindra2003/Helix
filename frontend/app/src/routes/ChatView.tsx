@@ -6,6 +6,7 @@ import {
   listReferences, addReference, removeReference,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
+import { onRoomEvent } from "@/lib/realtime";
 import type { Branch, Conversation, ConversationRef, Node } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
@@ -269,6 +270,102 @@ export function ChatView() {
     }
     getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null)))).catch(() => {});
   }
+
+  // --- Live fan-out (FR-5): teammates' activity arrives over the workspace
+  // room. A turn streaming on the branch I'm viewing renders in place,
+  // token-by-token, exactly like my own; anything else refreshes the lists.
+  // A teammate's Deep Reason run even lights up my monitor (watch-only) when
+  // mine is idle.
+  const remoteRuns = useRef<Map<string, { asst: ChatMessage; acc: string; watching: boolean }>>(new Map());
+  useEffect(() => {
+    remoteRuns.current.clear();
+    const off = onRoomEvent((ev) => {
+      if (ev.kind === "conversation.created") {
+        qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      } else if (ev.kind === "branch.created") {
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+        }
+      } else if (ev.kind === "references.updated") {
+        if (ev.conversation_id === activeConvId) {
+          qc.invalidateQueries({ queryKey: ["references", activeConvId] });
+        }
+      } else if (ev.kind === "run_event") {
+        if (ev.branch_id !== activeBranchId) return;
+        const key = `${ev.author_id}:${ev.branch_id}`;
+        const e = ev.event;
+        let run = remoteRuns.current.get(key);
+        if (e.kind === "user_node") {
+          const userMsg: ChatMessage = {
+            id: e.node.id, role: "user",
+            authorName: e.node.author_id ?? "teammate",
+            body: e.node.content, time: nowTime(),
+          };
+          const asst: ChatMessage = {
+            id: `remote-${e.node.id}`, role: "assistant", authorName: "Helix",
+            body: "", time: nowTime(), typing: true,
+          };
+          run = { asst, acc: "", watching: false };
+          remoteRuns.current.set(key, run);
+          setMessages((m) => [...m, userMsg, asst]);
+          scrollDown();
+        } else if (e.kind === "token" && run) {
+          run.acc += e.text;
+          run.asst.body = run.acc;
+          setMessages((m) => [...m]);
+          scrollDown();
+          if (run.watching) {
+            const cur = useMonitor.getState().run;
+            if (cur) monitor.patch({ answer: (cur.answer + e.text).replace(/^\s*\[answer\]\s*/i, "") });
+          }
+        } else if (e.kind === "step" && run) {
+          // A teammate escalated to Deep Reason on this branch: if my monitor
+          // is idle, watch their reasoning trace live (no kill control — it's
+          // their run).
+          const cur = useMonitor.getState().run;
+          if (!run.watching && (!cur || cur.status !== "live")) {
+            run.watching = true;
+            monitor.start({
+              status: "live", question: `👁 watching ${ev.author_id}'s deep run`,
+              depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
+              budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
+              abort: () => {}, conversationId: ev.conversation_id, branchId: ev.branch_id,
+            });
+          }
+          if (run.watching) {
+            const now = useMonitor.getState().run;
+            if (now) {
+              const p = e.payload ?? {};
+              const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
+              monitor.patch({
+                depth: e.depth ?? now.depth, energy: e.energy ?? now.energy,
+                loopGuard: num("loop_guard", now.loopGuard),
+                stability: num("stability", now.stability),
+                confidence: num("confidence", now.confidence),
+              });
+              monitor.addStep({ kind: e.node, meta: `step ${e.idx} · depth ${e.depth}`, text: pickText(p) });
+            }
+          }
+        } else if (e.kind === "budget" && run?.watching) {
+          const now = useMonitor.getState().run;
+          if (now) monitor.patch({ budgetPct: Math.round(e.pct <= 1 ? e.pct * 100 : e.pct), tokensUsed: e.tokens_used ?? now.tokensUsed });
+        } else if (e.kind === "complete" && run?.watching) {
+          monitor.patch({ status: e.status === "killed" ? "killed" : e.status === "error" ? "error" : "done", stopReason: e.stop_reason });
+        } else if (e.kind === "assistant_node" && run) {
+          run.asst.id = e.node.id;
+          run.asst.typing = false;
+          run.asst.body = e.node.content || run.acc;
+          run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ☁ ${provider}` : undefined;
+          setMessages((m) => [...m]);
+        } else if (e.kind === "done") {
+          remoteRuns.current.delete(key);
+          if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+        }
+      }
+    });
+    return off;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wid, activeConvId, activeBranchId]);
 
   const shownMessages = useMemo(
     () => (replay === null ? messages : messages.slice(0, replay)),

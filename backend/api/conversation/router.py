@@ -26,6 +26,7 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_RANK, User
+from .. import realtime
 from ..prompts.store import PromptStore
 from ..providers import get_provider
 from . import engine
@@ -115,6 +116,36 @@ async def _require_branch(
     return branch, conv
 
 
+def _streamed_run(conv, branch_id: str, user: User, gen) -> StreamingResponse:
+    """Stream a run as SSE while relaying each event to the workspace room.
+
+    Only *shared* conversations are relayed — a private thread's turns must
+    never leave its author's own stream. The author is excluded from the
+    relay (their SSE already carries every event); teammates watching the
+    same branch see the turn appear token-by-token.
+    """
+    shared = conv.visibility == "shared"
+
+    async def stream():
+        async for event in gen:
+            yield to_sse(event)
+            if shared:
+                await realtime.broadcast(
+                    conv.workspace_id,
+                    {
+                        "kind": "run_event",
+                        "workspace_id": conv.workspace_id,
+                        "conversation_id": conv.id,
+                        "branch_id": branch_id,
+                        "author_id": user.id,
+                        "event": to_dict(event),
+                    },
+                    exclude_user=user.id,
+                )
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 async def _resolve_reference_blocks(conversation_id: str) -> list[ReferenceBlock]:
     """Pull the *current* context of every conversation linked to `conversation_id`.
 
@@ -145,6 +176,17 @@ async def create_conversation(
         title=body.title,
         visibility=body.visibility,
     )
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.created",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "title": conv.title,
+            },
+            exclude_user=user.id,
+        )
     return {"conversation_id": conv.id, "branch_id": conv.default_branch_id}
 
 
@@ -247,13 +289,25 @@ async def fork_branch(
     session: AsyncSession = Depends(get_session),
 ):
     """Fork a new branch off any node — O(1), no history copied (algorithm A1)."""
-    await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
     try:
         branch = await _store.create_branch(
             conversation_id=conversation_id, from_node_id=body.from_node_id, name=body.name
         )
     except KeyError:
         raise api_error(404, "not_found", "node not found")
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.created",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "branch_id": branch.id,
+                "name": branch.name,
+            },
+            exclude_user=user.id,
+        )
     return {"branch_id": branch.id, "fork_node_id": branch.fork_node_id, "name": branch.name}
 
 
@@ -305,6 +359,16 @@ async def add_reference(
     await _store.add_reference(
         conversation_id=conversation_id, referenced_conversation_id=target_id
     )
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "references.updated",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+            },
+            exclude_user=user.id,
+        )
     return {"items": await _reference_summaries(conversation_id)}
 
 
@@ -316,11 +380,21 @@ async def remove_reference(
     session: AsyncSession = Depends(get_session),
 ):
     """Unlink a referenced conversation (idempotent)."""
-    await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
     await _store.remove_reference(
         conversation_id=conversation_id,
         referenced_conversation_id=referenced_conversation_id,
     )
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "references.updated",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+            },
+            exclude_user=user.id,
+        )
     return {"items": await _reference_summaries(conversation_id)}
 
 
@@ -332,22 +406,19 @@ async def send_message(
     session: AsyncSession = Depends(get_session),
 ):
     """Stream one turn as SSE: user_node -> token* -> assistant_node -> [DONE]."""
-    branch, _conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
 
     references = await _resolve_reference_blocks(branch.conversation_id)
     producer = ChatProducer(get_provider(), references=references)
 
-    async def event_stream():
-        async for event in engine.send(
-            store=_store,
-            producer=producer,
-            branch_id=branch_id,
-            prompt=body.prompt,
-            author_id=user.id,
-        ):
-            yield to_sse(event)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    gen = engine.send(
+        store=_store,
+        producer=producer,
+        branch_id=branch_id,
+        prompt=body.prompt,
+        author_id=user.id,
+    )
+    return _streamed_run(conv, branch_id, user, gen)
 
 
 @router.post("/{branch_id}/messages/from-prompt")
@@ -370,17 +441,14 @@ async def send_from_prompt(
     references = await _resolve_reference_blocks(branch.conversation_id)
     producer = ChatProducer(get_provider(), references=references)
 
-    async def event_stream():
-        async for event in engine.send(
-            store=_store,
-            producer=producer,
-            branch_id=branch_id,
-            prompt=prompt.body,
-            author_id=user.id,
-        ):
-            yield to_sse(event)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    gen = engine.send(
+        store=_store,
+        producer=producer,
+        branch_id=branch_id,
+        prompt=prompt.body,
+        author_id=user.id,
+    )
+    return _streamed_run(conv, branch_id, user, gen)
 
 
 @router.post("/{branch_id}/deep")
@@ -397,7 +465,7 @@ async def escalate_deep_reasoning(
     user_node -> (step | budget)* -> token (final answer) -> complete ->
     assistant_node -> [DONE].
     """
-    await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
     if not settings.groq_api_key:
         raise api_error(503, "deep_reasoning_unavailable", "GROQ_API_KEY is not configured")
 
@@ -419,14 +487,13 @@ async def escalate_deep_reasoning(
         token_budget=settings.deep_reasoning_token_budget,
     )
 
-    async def event_stream():
-        async for event in engine.send(
-            store=_store,
-            producer=producer,
-            branch_id=branch_id,
-            prompt=body.prompt,
-            author_id=user.id,
-        ):
-            yield to_sse(event)
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    gen = engine.send(
+        store=_store,
+        producer=producer,
+        branch_id=branch_id,
+        prompt=body.prompt,
+        author_id=user.id,
+    )
+    # Relaying deep runs means a teammate watching the same shared branch sees
+    # the live reasoning trace (steps/budget), not just the final answer.
+    return _streamed_run(conv, branch_id, user, gen)

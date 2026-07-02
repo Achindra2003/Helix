@@ -23,14 +23,14 @@ export function TopBar({ viewLabel }: { viewLabel: string }) {
         </div>
       </div>
       <div className={s.spacer} />
-      <div className={s.presence} title={live ? "live presence" : "presence: WebSocket not yet wired"}>
+      <div className={s.presence} title={live ? `online now: ${members.map((m) => m.email).join(", ")}` : "reconnecting to the workspace room…"}>
         {members.slice(0, 5).map((m) => (
           <div key={m.user_id} className={s.pAvatar} style={{ background: colorFor(m.email) }} title={m.email}>
             {initialOf(m.email)}
           </div>
         ))}
-        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)", marginLeft: 12 }}>
-          {members.length} online
+        <span className="mono" style={{ fontSize: 11, color: live ? "var(--ink-3)" : "var(--ink-4, #a99)", marginLeft: 12 }}>
+          {live ? `${members.length} online · live` : "offline"}
         </span>
       </div>
       <div className={s.sep} />
