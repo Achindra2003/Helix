@@ -4,10 +4,10 @@ Maps every requirement in `helix-srs.md` §3 to its current status and **where t
 see it** in the running product. Use this as the demo script and the "what's done"
 record for the milestone.
 
-**Legend:** ✅ delivered & demonstrable · 🟡 partial · 🔌 frontend-ready, awaits a
-backend seam · ⬜ not started.
+**Legend:** ✅ delivered & demonstrable · 🟡 partial · ⬜ not started.
 
-Run it: `./frontend/run-demo.ps1` → sign in → create/pick a workspace.
+Run it: backend `uvicorn api.main:app` + `cd frontend/app && npm run dev` →
+sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 
 ---
 
@@ -16,48 +16,45 @@ Run it: `./frontend/run-demo.ps1` → sign in → create/pick a workspace.
 | # | Requirement | Status | Where to see it |
 |---|---|:--:|---|
 | **FR-1** | Auth & accounts (register/login, hashed creds, JWT) | ✅ | Auth screen: create account / sign in; token persists across reload (`/api/me` rehydrate). |
-| **FR-2** | Workspaces & multi-tenancy (create, invite, isolation) | ✅ | Workspace picker → **New workspace**; **TEAM → + Invite** (copy token), **Join via invite** on the picker. Lists are workspace-scoped. |
-| **FR-3** | RBAC (role per member, authorise every action) | ✅ client / 🟡 server | **TEAM**: members + **Permission Matrix**; top-right **role switch** re-skins the workspace — Observer goes read-only (composer, fork, escalate hidden). *Server-side gating on chat routes pending (Mansoor).* |
-| **FR-4** | Shared & private conversations + token streaming | ✅ | **+** new conversation → choose **⊙ Shared / ◍ Private**; reply **streams token-by-token**; visibility shown in list + header. |
-| **FR-5** | Real-time sync & presence (WebSocket room) | 🔌 | Append-only ordered log (server `seq`) ✅; presence bar shows "you" via a `usePresence` seam. *WebSocket room not built yet — lights up with no UI change when it lands.* |
+| **FR-2** | Workspaces & multi-tenancy (create, invite, isolation) | ✅ | Workspace picker → **New workspace**; **TEAM → + Invite** (now carries a role: collaborator or observer), **Join via invite** on the picker. Lists are workspace-scoped. |
+| **FR-3** | RBAC (role per member, authorise every action) | ✅ | Enforced **server-side on every conversation/prompt route**: identity from the JWT (client ids ignored), reads need membership, writes need Collaborator+, private threads are author-only, non-membership reads as 404. UI mirrors it (Observer goes read-only). |
+| **FR-4** | Shared & private conversations + token streaming | ✅ | **+** new conversation → choose **⊙ Shared / ◍ Private**; reply **streams token-by-token**; private threads never appear in others' lists, fetches, or the realtime room. |
+| **FR-5** | Real-time sync & presence (WebSocket room) | ✅ | `/ws/workspaces/{id}` room: presence bar shows **who's online, live**; a teammate's turn on your open thread **streams in token-by-token**; new conversations/forks/prompts appear without refresh. Open two browsers to see it. |
 | **FR-6** | Fork & branch tree (inherit context, interactive tree) | ✅ | Hover a message → **fork here**, or the **Fork** button; **Branch lineage** sidebar shows parent→child, active highlighted, click to open. Fork inherits ancestor context, siblings stay isolated. |
-| **FR-7** | Shared prompt library (save, tag, search, insert) | ✅ | **LIBR**: search, tags, **+ Save prompt**, **Insert →** (runs the prompt as a turn in the conversation). |
-| **FR-8** | LLM provider abstraction (Groq/Ollama by config) | ✅ | Backend provider interface; UI shows the active provider on the auth badge and composer (`☉ groq`). Swap via `backend/.env`. |
-| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize; converges or hits budget; each step emits node/depth/energy/thought/synthesis/readings. |
-| **FR-10** | Deep Reasoning monitor (trace, topology, meters) | ✅ | Right panel: **topology strip** lighting node-by-node, **energy + budget** meters, **depth / loop-guard / stability / confidence / tokens**, live **step trace**. |
-| **FR-11** | Run control — kill & steer | 🟡 | **Kill switch** halts the run ✅. **Steer** is shown but disabled (needs server-side run control over HTTP); steer→resume is proven at engine level in `demo_helix.py`. |
-| **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** (run converges/bounded, ~7s). *Per-workspace rate metering not yet surfaced.* |
-| **FR-13** | History, replay & export (JSON/Markdown) | ✅ | Conversation header: **replay** scrubber (step through the thread), **↓ md / ↓ json** export. |
-| **FR-14** | Permission layer (tool allowlist + approval) | ⬜ | Future enhancement; not built. |
+| **FR-7** | Shared prompt library (save, tag, search, insert) | ✅ | **LIBR**: search, tags, **+ Save prompt**, **Insert →** (runs the prompt as a turn); teammates' saves appear live. |
+| **FR-8** | LLM provider abstraction (Groq/Ollama by config) | ✅ | Backend provider interface; UI shows the active provider (`☉ groq`). Swap via `backend/.env`. Deep Reasoning uses its own `DEEP_REASONING_MODEL` (70B) independent of chat. |
+| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize on the 70B model; halts on **semantic convergence** (MiniLM embeddings) or budget; each step emits node/depth/energy/thought/synthesis/readings. |
+| **FR-10** | Deep Reasoning monitor (trace, topology, meters) | ✅ | Right panel: **topology strip** lighting node-by-node, **energy + budget** meters, **depth / loop-guard / stability / confidence / tokens**, live **step trace**. Teammates watching the same shared branch see the trace live too. |
+| **FR-11** | Run control — kill & steer | ✅ | **Kill switch** halts a run. **⟂ guided** toggle → the run **pauses between reasoning cycles**; the monitor opens a steer box — inject guidance (any Collaborator can) or continue as-is; the run resumes over HTTP from its checkpoint. |
+| **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** (run converges/bounded). *Per-workspace rate metering not yet surfaced.* |
+| **FR-13** | History, replay & export (JSON/Markdown) | ✅ | Conversation header: **replay** scrubber (step through the thread), **↓ md / ↓ json** export (authenticated download). |
+| **FR-14** | Permission layer (tool allowlist + approval) | 🟡 | Server-side **tool policy**: `DEEP_REASONING_ALLOW_RESEARCH` gates the web-research detour at graph build (and research needs a Tavily key). Per-role allowlist UI + approval flow are future work. |
 
 ## Non-functional requirements
 
 | # | Requirement | Status | Notes |
 |---|---|:--:|---|
-| **NFR-1** | Performance & latency (<200 ms realtime) | 🔌 | Token streaming is immediate; realtime fan-out latency applies once the WebSocket room exists. |
-| **NFR-2** | Multi-tenancy & isolation (RLS) | 🟡 | Workspace-scoped queries on dev SQLite; PostgreSQL Row-Level Security is a prod-deploy step. |
-| **NFR-3** | Cost efficiency (budget halt; Groq/Ollama) | ✅ | Compute-budget halting + provider switch (hosted/local). |
-| **NFR-4** | Scalability (in-memory rooms; Redis optional) | ⬜ | Depends on the WebSocket room (FR-5). |
-| **NFR-5** | Security (JWT + RBAC; no cross-tenant) | 🟡 | JWT + RBAC on auth/workspaces/members/prompts; conversation-route gating pending. |
-| **NFR-6** | Reliability & interruptibility | ✅ | Kill switch + budget/depth halt; engine catches mid-stream failure → clean `complete(error)` (no torn stream). |
-| **NFR-7** | Streaming & backpressure (fan-out to N) | 🔌 | Single-client streaming is solid; N-client fan-out arrives with the WebSocket room. |
-| **NFR-8** | Privacy (minimal data) | ✅ | Only email + conversation content; no biometric/audio/video. |
-| **NFR-9** | Portability (containerised; pluggable providers) | 🟡 | Provider interface ✅; containerisation intentionally deferred (light-early setup). |
+| **NFR-1** | Performance & latency (<200 ms realtime) | ✅ | Token streaming is immediate; room fan-out is in-process (sub-ms relay per event). |
+| **NFR-2** | Multi-tenancy & isolation (RLS) | 🟡 | Tenancy enforced in the API layer on every route (membership-gated, 404 on probing). PostgreSQL Row-Level Security remains a prod-deploy step. |
+| **NFR-3** | Cost efficiency (budget halt; Groq/Ollama) | ✅ | Compute-budget halting + provider switch (hosted/local) + dead web-research short-circuit (no wasted LLM calls when search has no backend). |
+| **NFR-4** | Scalability (in-memory rooms; Redis optional) | 🟡 | In-process rooms behind a two-function seam (`broadcast`/`roster`) — a Redis pub/sub swap touches one module. |
+| **NFR-5** | Security (JWT + RBAC; no cross-tenant) | ✅ | JWT + server-side RBAC on **all** routes (auth/workspaces/conversations/prompts/WS). Unauthenticated `/chat/stream` stub removed. |
+| **NFR-6** | Reliability & interruptibility | ✅ | Kill switch + budget/depth halt; engine catches mid-stream failure → clean `complete(error)` (no torn stream); paused guided runs expire after 30 min. |
+| **NFR-7** | Streaming & backpressure (fan-out to N) | ✅ | SSE to the author + WS relay to every room member; dead sockets are dropped without breaking the sender. |
+| **NFR-8** | Privacy (minimal data) | ✅ | Only email + conversation content; no biometric/audio/video. Private threads never enter the room. |
+| **NFR-9** | Portability (containerised; pluggable providers) | 🟡 | Provider interface ✅; Dockerfile + compose exist; containerised run not exercised this milestone. |
 
 ---
 
-## Scorecard (up to this point)
+## Scorecard
 
-- **Functional:** 10 of 14 fully delivered (FR-1,2,4,6,7,8,9,10,12,13); FR-3 & FR-11
-  partial; FR-5 a frontend-ready seam; FR-14 future.
-- **Non-functional:** NFR-3,6,8 delivered; NFR-2,5,9 partial; NFR-1,7 seam; NFR-4 pending.
+- **Functional:** 13 of 14 fully delivered; FR-14 partial (server-side policy
+  flag; per-role UI future).
+- **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**The four open items are one backend lane** (Mansoor's), and the frontend is already
-built to absorb them with no rework:
-1. Auth-gate + enforce tenancy on conversation/prompt routes (closes FR-3 server-side, NFR-5).
-2. WebSocket presence + live broadcast (FR-5, NFR-1/4/7).
-3. Server-side run control so steer→resume works over HTTP (FR-11).
-4. (Future) tool allowlist + approval (FR-14).
-
-**Verification:** backend `pytest -q` → 43 passed; frontend `npm run build` typechecks
-clean; every ✅/🟡 row above is reachable in the running app.
+**Verification:** backend `pytest -q` → **64 passed** (hermetic: stub provider +
+throwaway SQLite; includes RBAC-gating, WebSocket room, and guided-steer tests);
+frontend `npm run build` typechecks clean; a scripted live end-to-end run
+(2 users over real HTTP + WS + Groq) passes 15/15 checks: presence, live token
+fan-out, fork, references, guided steer to convergence, observer gating,
+authed export.

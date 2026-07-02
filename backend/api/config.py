@@ -35,6 +35,10 @@ class Settings(BaseSettings):
     # reasoning quality — runs on the strongest available model.
     deep_reasoning_model: str = "llama-3.3-70b-versatile"
     deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize
+    # Tool policy (FR-14): may deep runs reach out to the web (research fan-out)?
+    # Enforced server-side when the graph is built; research additionally needs
+    # a TAVILY_API_KEY to do anything at all.
+    deep_reasoning_allow_research: bool = True
     deep_reasoning_adaptive: bool = True
     deep_reasoning_compute_budget: int = 4
     deep_reasoning_token_budget: int = 200_000

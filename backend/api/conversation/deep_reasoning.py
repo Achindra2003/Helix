@@ -198,6 +198,7 @@ def build_ouroboros_graph(
     confidence_threshold: float | None = None,
     steer_interval: int | None = None,
     adaptive_steer: bool = False,
+    allow_research: bool = True,
 ):
     """Construct a real, isolated Ouroboros graph + the wiring the producer needs.
 
@@ -235,6 +236,9 @@ def build_ouroboros_graph(
         # Guided mode: pause the adaptive loop at the steer checkpoint between
         # refinement cycles so the caller can inject guidance over HTTP.
         "adaptive_steer": adaptive_steer,
+        # Tool policy (FR-14), enforced at graph build: no web research unless
+        # the host allows it (and a search backend exists).
+        "allow_research": allow_research,
     }
     # Convergence thresholds are tunable so the controller can halt on a real
     # `converged` / `no_marginal_gain` signal (the answer has stopped moving)

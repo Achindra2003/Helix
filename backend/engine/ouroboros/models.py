@@ -60,6 +60,11 @@ class OuroborosConfig(BaseModel):
     # `steer_interval`, which paces pauses in the mood/energy loop.
     adaptive_steer: bool = False
 
+    # Tool permission (FR-14): whether the run may take the web-research detour
+    # at all. The host application sets this from its own policy; even when
+    # True, research still requires a live search backend (Tavily key).
+    allow_research: bool = True
+
 
 class SessionMeta(BaseModel):
     id: str

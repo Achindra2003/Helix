@@ -510,6 +510,7 @@ async def escalate_deep_reasoning(
         stability_threshold=settings.deep_reasoning_stability_threshold,
         confidence_threshold=settings.deep_reasoning_confidence_threshold,
         adaptive_steer=body.steerable,
+        allow_research=settings.deep_reasoning_allow_research,
     )
     producer = DeepReasoningProducer(
         graph=graph,

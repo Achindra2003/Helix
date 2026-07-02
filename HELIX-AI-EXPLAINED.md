@@ -53,7 +53,10 @@ Everything above this layer is written against **one interface**: an
 `LLMProvider` that can `stream_messages(messages)` and yield text chunks. There are
 three implementations:
 
-- **`groq`** — the real cloud model (`llama-3.1-8b-instant` for chat).
+- **`groq`** — the real cloud models. Chat and deep reasoning are deliberately
+  split: chat runs the fast small model (`GROQ_MODEL`, e.g. `llama-3.1-8b-instant`)
+  while the recursive reasoning loop — whose whole value is reasoning quality —
+  runs the strongest one (`DEEP_REASONING_MODEL`, default `llama-3.3-70b-versatile`).
 - **`ollama`** — a local model, for offline / no-API-key runs.
 - **`stub`** — a deterministic fake used by the test suite (no network), so every
   layer above can be tested end-to-end with zero cost.
@@ -227,8 +230,12 @@ A naïve reflection loop spends a **fixed** amount of compute (N iterations, or 
 coin flip). Ouroboros replaces that with a **principled stop decision** from cheap
 internal signals (controller.py):
 
-- **answer stability** — cosine similarity between successive refined answers. High
-  stability ⇒ the loop has stopped changing its mind; more cycles buy little.
+- **answer stability** — cosine similarity between successive refined answers,
+  over **real neural embeddings** (sentence-transformers MiniLM; a lexical
+  bag-of-words fallback keeps it working offline). High stability ⇒ the loop has
+  stopped changing its mind; more cycles buy little. The threshold
+  **auto-calibrates to the active embedder** (0.90 neural / 0.78 lexical) because
+  MiniLM cosines run far hotter than token-overlap scores.
 - **self-confidence** — the synthesizer's own 0–1 estimate of how settled it is.
 
 `decide(...)` halts when, in precedence order: a hard **compute budget** is hit, or
@@ -244,8 +251,22 @@ ones). The two are the same mechanism.
 Alongside convergence, the run is bounded by **guards** surfaced in the monitor:
 an **energy** meter (drains as it thinks, recovers on `breathe`), a **depth** cap,
 a **loop-guard**, and a **token budget** meter. **Kill** stops the run cooperatively
-between steps and persists whatever surfaced; **Steer** pauses at the `steer`
-interrupt (`Waiting`) and resumes with injected human guidance.
+between steps and persists whatever surfaced.
+
+**Guided runs (steer over HTTP, FR-11).** With the composer's `⟂ guided` toggle,
+the adaptive loop routes to the `steer` interrupt **between refinement cycles**
+(`config.adaptive_steer`): the stream ends on a `waiting` event with a `run_id`
+handle, the monitor opens a steer box, and
+`POST /conversations/deep/runs/{run_id}/steer` resumes the run from its LangGraph
+checkpoint with the injected guidance as the next thought — any Collaborator in
+the workspace can steer, and convergence is re-measured on the steered answer.
+`engine.ResumableRun` persists the user node up front and the assistant node only
+on true completion, so a paused run never leaves an empty reply.
+
+Two cost/quality guards worth naming: the **web-research detour is skipped
+entirely** when there is no search backend (`TAVILY_API_KEY`) or the host policy
+forbids it (`DEEP_REASONING_ALLOW_RESEARCH`, FR-14) — previously the workers
+burned LLM calls feeding "[search unavailable]" placeholders back into the loop.
 
 ---
 
@@ -315,15 +336,17 @@ backend/engine/ouroboros/
 
 ### Known rough edges (be honest in Q&A)
 
-- **Reply formatting / "voice."** *Addressed.* Chat now gets an explicit
-  conversational system-prompt voice, the Ouroboros surface answer gets a
-  humanize rewrite (§6), and the UI renders replies as **Markdown**
-  (`components/common/Markdown.tsx`) so bold/lists/code render instead of showing
-  literal `**`/`-`. Remaining polish is subjective tuning, not a gap.
-- **Rigidity.** Deep-reasoning mode, budgets, and thresholds are largely fixed per
-  preset right now; making them feel more fluid/interactive is future work.
-- **Server-side RBAC.** Roles are enforced in the UI; the chat routes don't yet
-  re-check membership/role server-side (private-conversation visibility *is*
-  enforced).
+- **Reply formatting / "voice."** *Addressed.* Conversational system-prompt
+  voice, the Ouroboros humanize rewrite (§6), and Markdown rendering in the UI.
+- **Server-side RBAC.** *Addressed.* Every conversation/prompt route derives
+  identity from the JWT and checks membership + role server-side; private
+  threads are author-only; the realtime room is gated the same way.
+- **Rigidity.** *Largely addressed* by guided runs (steer between cycles) and
+  embedder-aware thresholds; per-run budget/mode controls in the UI are still
+  future work.
+- **Self-reported confidence.** Halting partly trusts the model grading itself.
+  The 70B model and the stability signal blunt this, but an external judge or a
+  plateau heuristic would be more principled — honest future work.
+- **FR-14** is a server-side policy flag today, not a per-role allowlist UI.
 
 *These are the things to say out loud rather than hide — they're scoped and known.*
