@@ -20,17 +20,25 @@ server-side policy flag; the per-role allowlist UI is future work):
 - **Conversations** — shared/private threads, real token streaming (SSE), an
   immutable node tree, O(1) **fork** with context inheritance, live
   **cross-conversation references**, replay, and authenticated export (md/json).
-- **Real-time** — a WebSocket room per workspace: presence rosters, and
-  teammates' turns stream into your open thread token-by-token; you can even
-  live-watch a teammate's Deep Reasoning trace.
+- **Real-time** — a WebSocket room per workspace: presence rosters (including
+  *which branch* each teammate is reading), and teammates' turns stream into
+  your open thread token-by-token — named in a live attribution banner, with
+  author-colored margins; you can even live-watch a teammate's Deep Reasoning
+  trace.
+- **The Map** — the workspace's reasoning as a zoomable graph: every
+  conversation a spine of turns, forks splitting at the exact message they
+  diverged, references drawn as gilt threads between threads, live presence
+  dots on the branches teammates have open. Click any node to land there.
 - **Deep Reasoning (Ouroboros)** — recursive reason → reflect → synthesize on
   the 70B model with semantic-convergence halting, budget caps, kill switch,
   and **guided mode**: the run pauses between cycles so anyone on the team can
-  steer it mid-flight.
+  steer it mid-flight. The monitor shows convergence happening: a stability
+  sparkline climbing to the halting threshold and the ouroboros ring closing.
 - **Prompt library** — save/tag/search/insert, updating live for the room.
 
-Backend: **64/64 tests** (hermetic — stub provider + throwaway SQLite).
+Backend: **69/69 tests** (hermetic — stub provider + throwaway SQLite).
 Frontend: React 18 + Vite + TS, builds clean.
+Market context: see `MARKET-VALIDATION.md` (July 2026 landscape).
 
 ```
 frontend/app/    React + TS + Vite (the real UI)
