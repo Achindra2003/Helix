@@ -98,6 +98,21 @@ async def test_maps_steps_tokens_and_completes():
     assert events[-1].status == "done" and events[-1].stop_reason == "converged"
 
 
+async def test_steps_carry_the_stability_threshold_from_config_metadata():
+    """The resolved convergence target rides on every step payload (monitor viz)."""
+    _, _, history = await _node()
+    producer = DeepReasoningProducer(
+        graph=FakeGraph(_RUN_EVENTS),
+        graph_config={"metadata": {"stability_threshold": 0.9}},
+    )
+    steps = [e async for e in producer.run(history) if isinstance(e, Step)]
+    assert steps and all(s.payload["stability_threshold"] == 0.9 for s in steps)
+
+    # Without metadata (the fakes' default), the key is simply absent.
+    bare = [e async for e in _producer(_RUN_EVENTS).run(history) if isinstance(e, Step)]
+    assert all("stability_threshold" not in s.payload for s in bare)
+
+
 async def test_waiting_on_steer_interrupt():
     _, _, history = await _node()
     events = [e async for e in _producer(_RUN_EVENTS, next_=("steer",)).run(history)]

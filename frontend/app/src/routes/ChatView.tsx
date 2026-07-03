@@ -254,12 +254,19 @@ export function ChatView() {
     } else if (ev.kind === "step") {
       const p = ev.payload ?? {};
       const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
+      // Convergence viz: collect each cycle's stability reading (and the run's
+      // resolved halting threshold) for the sparkline + closing ring.
+      const stabNow = typeof p.stability === "number" ? (p.stability as number) : null;
+      const thr = typeof p.stability_threshold === "number" ? (p.stability_threshold as number) : undefined;
       monitor.patch({
         depth: ev.depth ?? run.depth,
         energy: ev.energy ?? run.energy,
         loopGuard: num("loop_guard", run.loopGuard),
         stability: num("stability", run.stability),
         confidence: num("confidence", run.confidence),
+        ...(stabNow !== null && stabNow !== run.stabilityHistory[run.stabilityHistory.length - 1]
+          ? { stabilityHistory: [...run.stabilityHistory, stabNow] } : {}),
+        ...(thr !== undefined ? { threshold: thr } : {}),
       });
       const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
       monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
@@ -311,6 +318,7 @@ export function ChatView() {
     const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
     monitor.start({
       status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
+      stabilityHistory: [],
       budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
       abort: h.abort, conversationId: activeConvId, branchId,
       onSteer: guided ? (g) => { steerRun(g); } : undefined,
@@ -375,6 +383,7 @@ export function ChatView() {
             monitor.start({
               status: "live", question: `👁 watching ${ev.author_id}'s deep run`,
               depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
+              stabilityHistory: [],
               budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
               abort: () => {}, conversationId: ev.conversation_id, branchId: ev.branch_id,
             });
@@ -384,11 +393,16 @@ export function ChatView() {
             if (now) {
               const p = e.payload ?? {};
               const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
+              const stabNow = typeof p.stability === "number" ? (p.stability as number) : null;
+              const thr = typeof p.stability_threshold === "number" ? (p.stability_threshold as number) : undefined;
               monitor.patch({
                 depth: e.depth ?? now.depth, energy: e.energy ?? now.energy,
                 loopGuard: num("loop_guard", now.loopGuard),
                 stability: num("stability", now.stability),
                 confidence: num("confidence", now.confidence),
+                ...(stabNow !== null && stabNow !== now.stabilityHistory[now.stabilityHistory.length - 1]
+                  ? { stabilityHistory: [...now.stabilityHistory, stabNow] } : {}),
+                ...(thr !== undefined ? { threshold: thr } : {}),
               });
               monitor.addStep({ kind: e.node, meta: `step ${e.idx} · depth ${e.depth}`, text: pickText(p) });
             }

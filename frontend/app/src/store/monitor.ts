@@ -17,6 +17,10 @@ export interface RunState {
   loopGuard: number;
   stability: number;
   confidence: number;
+  // Convergence made visible: every per-cycle stability reading, plus the
+  // run's resolved halting threshold (delivered on step payloads; 0.90 default).
+  stabilityHistory: number[];
+  threshold?: number;
   budgetPct: number;
   tokensUsed: number;
   steps: TraceStep[];

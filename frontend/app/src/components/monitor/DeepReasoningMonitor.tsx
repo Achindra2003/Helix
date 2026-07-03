@@ -9,17 +9,65 @@ const KIND_COLOR: Record<string, string> = {
   breathe: "var(--ink-3)", surface: "var(--gilt)", steer: "var(--violet)",
 };
 
-function OuroborosRing({ depth, spin }: { depth: number; spin: boolean }) {
+const RING_C = 2 * Math.PI * 40; // circumference of the r=40 arc
+
+/** The ring *closes* as the answer converges: the gap is driven by stability
+ *  against the run's halting threshold, and the head meets the tail on
+ *  convergence. A killed/errored run freezes mid-gap — honestly incomplete. */
+function OuroborosRing({ depth, spin, progress, closed }: {
+  depth: number; spin: boolean; progress: number; closed: boolean;
+}) {
+  const gap = closed ? 0 : 8 + (1 - Math.min(Math.max(progress, 0), 1)) * 56;
   return (
     <div className={s.ring}>
       <svg viewBox="0 0 100 100" width={78} height={78} className={spin ? s.ringSpin : ""} aria-hidden>
-        <circle cx="50" cy="50" r="40" fill="none" stroke="var(--oxblood)" strokeWidth="2.5" strokeDasharray="210 41" strokeLinecap="round" />
+        <circle
+          className={s.ringArc}
+          cx="50" cy="50" r="40" fill="none"
+          stroke={closed ? "var(--gilt-1)" : "var(--oxblood)"} strokeWidth="2.5"
+          strokeDasharray={`${RING_C - gap} ${gap}`} strokeLinecap="round"
+        />
         <circle cx="10" cy="50" r="4" fill="var(--gilt-2)" />
       </svg>
       <div className={s.ringCenter}>
         <span className={s.depth}>{depth}</span>
         <span className={s.depthLabel}>depth</span>
       </div>
+    </div>
+  );
+}
+
+/** Axes-free sparkline of per-cycle stability climbing toward the dashed
+ *  halting threshold; locks gilt with a "converged" stamp when it crosses.
+ *  Numbers live in the readings row — this shows the *settling*. */
+function StabilitySparkline({ history, threshold, converged }: {
+  history: number[]; threshold: number; converged: boolean;
+}) {
+  if (history.length < 2) return null;
+  const W = 300, H = 44, padX = 6, padT = 7, padB = 7;
+  const x = (i: number) => padX + (i * (W - 2 * padX)) / Math.max(history.length - 1, 7);
+  const y = (v: number) => padT + (1 - Math.min(Math.max(v, 0), 1)) * (H - padT - padB);
+  const d = history.map((v, i) => `${i ? "L" : "M"} ${x(i).toFixed(1)} ${y(v).toFixed(1)}`).join(" ");
+  const crossed = converged || history[history.length - 1] >= threshold;
+  const line = crossed ? "var(--gilt-1)" : "var(--ink-2)";
+  return (
+    <div className={s.spark}>
+      <div className={s.sparkTop}>
+        <span>CONVERGENCE</span>
+        {crossed && <span className={s.sparkStamp}>❧ converged</span>}
+      </div>
+      <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} role="img"
+        aria-label={`Answer stability across ${history.length} cycles; halting threshold ${threshold.toFixed(2)}`}>
+        <line x1={padX} x2={W - padX} y1={y(threshold)} y2={y(threshold)}
+          stroke="var(--ink-faint)" strokeWidth="1" strokeDasharray="4 4" />
+        <text x={W - padX} y={y(threshold) - 3} textAnchor="end" className={s.sparkThr}>
+          halts at {threshold.toFixed(2)}
+        </text>
+        <path d={d} fill="none" stroke={line} strokeWidth="2"
+          strokeLinecap="round" strokeLinejoin="round" />
+        <circle cx={x(history.length - 1)} cy={y(history[history.length - 1])} r="3"
+          fill={line} stroke="var(--paper)" strokeWidth="1.5" />
+      </svg>
     </div>
   );
 }
@@ -79,12 +127,15 @@ export function DeepReasoningMonitor() {
     if (traceRef.current) traceRef.current.scrollTop = traceRef.current.scrollHeight;
   }, [run?.steps.length, run?.answer]);
 
+  const threshold = run?.threshold ?? 0.9;
+  const holding = run?.status === "waiting";
+
   return (
-    <div className={`${s.pane} monitor-pane`}>
+    <div className={`${s.pane} ${holding ? s.holding : ""} monitor-pane`}>
       <div className={s.head}>
         <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⟳</span>
         <span className="eyebrow" style={{ flex: 1, letterSpacing: "0.14em" }}>Deep Reasoning</span>
-        <span className={`${s.status} ${run?.status === "live" ? s.statusLive : run?.status === "done" ? s.statusDone : ""}`}>
+        <span className={`${s.status} ${run?.status === "live" ? s.statusLive : run?.status === "done" ? s.statusDone : holding ? s.statusHold : ""}`}>
           {run ? statusLabel(run.status) : "idle"}
         </span>
       </div>
@@ -106,7 +157,12 @@ export function DeepReasoningMonitor() {
       ) : (
         <>
           <div className={s.gauges}>
-            <OuroborosRing depth={run.depth} spin={run.status === "live"} />
+            <OuroborosRing
+              depth={run.depth}
+              spin={run.status === "live"}
+              progress={threshold ? run.stability / threshold : 0}
+              closed={run.status === "done"}
+            />
             <div className={s.meters}>
               <div>
                 <div className={s.meterTop}><span>ENERGY</span><span>{Math.round(run.energy)}</span></div>
@@ -126,6 +182,12 @@ export function DeepReasoningMonitor() {
             <span className={s.reading}>confidence <b>{run.confidence ? run.confidence.toFixed(2) : "—"}</b></span>
             <span className={s.reading}>tokens <b>{run.tokensUsed || 0}</b></span>
           </div>
+
+          <StabilitySparkline
+            history={run.stabilityHistory}
+            threshold={threshold}
+            converged={run.status === "done"}
+          />
 
           <div className={s.trace} ref={traceRef}>
             {run.steps.map((step, i) => <Step key={i} step={step} />)}
@@ -199,5 +261,5 @@ function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
 }
 
 function statusLabel(s: string) {
-  return ({ live: "● running", waiting: "⟂ awaiting steer", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
+  return ({ live: "● running", waiting: "⟂ holding for you", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
 }

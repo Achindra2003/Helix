@@ -3,6 +3,7 @@
 .status { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 .statusLive { color: var(--oxblood); }
 .statusDone { color: var(--verde); }
+.statusHold { color: var(--ember); }
 
 .idle { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 30px 26px; text-align: center; }
 .idleTitle { font-family: var(--font-display); font-size: 20px; color: var(--ink-2); }
@@ -11,6 +12,8 @@
 .gauges { padding: 18px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid var(--rule-soft); }
 .ring { position: relative; width: 78px; height: 78px; flex: 0 0 auto; }
 .ringSpin { animation: hx-spin 9s linear infinite; }
+/* the arc's gap closes as stability approaches the halting threshold */
+.ringArc { transition: stroke-dasharray 0.6s ease, stroke 0.6s ease; }
 .ringCenter { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; }
 .depth { font-family: var(--font-mono); font-size: 17px; font-weight: 600; }
 .depthLabel { font-size: 8px; letter-spacing: 0.12em; color: var(--ink-faint); text-transform: uppercase; }
@@ -28,7 +31,35 @@
 .reading { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); }
 .reading b { color: var(--ink); font-weight: 600; }
 
-.trace { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; }
+/* Convergence sparkline: stability climbing toward the dashed halting line. */
+.spark { padding: 8px 16px 2px; }
+.sparkTop {
+  display: flex; justify-content: space-between; align-items: baseline;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em;
+  color: var(--ink-3); margin-bottom: 2px;
+}
+.sparkStamp { color: var(--gilt-1); font-size: 10.5px; letter-spacing: 0.06em; }
+.sparkThr { font-family: var(--font-mono); font-size: 8.5px; fill: var(--ink-faint); }
+
+.trace { flex: 1; min-height: 0; overflow-y: auto; padding: 14px 16px; display: flex; flex-direction: column; transition: opacity 0.4s; }
+
+/* The steer pause: the pane holds its breath — trace dims, the steer box
+   glows like a candle until the human answers. */
+.holding .trace { opacity: 0.55; }
+.holding .steerBox {
+  border-color: var(--ember);
+  background: rgba(197, 117, 42, 0.07);
+  animation: candle-glow 2.2s ease-in-out infinite;
+}
+@keyframes candle-glow {
+  0%, 100% { box-shadow: 0 0 0 rgba(197, 117, 42, 0); }
+  50% { box-shadow: 0 0 22px rgba(197, 117, 42, 0.38); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ringArc { transition: none; }
+  .holding .steerBox { animation: none; box-shadow: 0 0 14px rgba(197, 117, 42, 0.28); }
+  .trace { transition: none; }
+}
 .step { display: flex; gap: 11px; animation: hx-rise 0.2s ease both; }
 .stepRail { display: flex; flex-direction: column; align-items: center; flex: 0 0 auto; }
 .stepDot { width: 10px; height: 10px; border-radius: 50%; margin-top: 4px; box-shadow: 0 0 0 3px rgba(36,27,18,0.06); }
