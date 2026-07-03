@@ -46,6 +46,34 @@
 .msgTime { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
 .msgBody { font-size: 15.5px; line-height: 1.62; color: var(--ink); white-space: pre-wrap; }
 .msgTokens { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); margin-top: 7px; }
+/* the thread's first assistant reply opens like a chapter */
+.dropCap p:first-of-type::first-letter {
+  font-family: var(--font-display);
+  font-size: 3.1em;
+  line-height: 0.82;
+  float: left;
+  color: var(--oxblood);
+  padding: 3px 8px 0 0;
+}
+/* an always-visible margin mark where branches split off */
+.forkMark {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--oxblood);
+  border: 1px solid rgba(140, 43, 30, 0.35);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+/* token/provider line as a small centered colophon */
+.colophon {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-faint);
+  text-align: center;
+  margin-top: 12px;
+}
 .forkTag { font-family: var(--font-mono); font-size: 10.5px; color: var(--violet); border: 1px solid rgba(110,90,168,0.4); border-radius: 4px; padding: 1px 6px; }
 .cursor { display: inline-block; width: 8px; height: 17px; background: var(--oxblood); margin-left: 3px; vertical-align: text-bottom; animation: hx-blink 1s step-end infinite; }
 .forkHere { background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 5px; font-size: 11px; padding: 1px 7px; opacity: 0; transition: opacity .15s; }

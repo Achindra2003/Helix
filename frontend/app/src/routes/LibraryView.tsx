@@ -111,7 +111,7 @@ export function LibraryView() {
         </div>
 
         {isLoading || seeding ? <Spinner /> : filtered.length === 0 ? (
-          <EmptyState title="No prompts yet">Save a winning prompt and the whole team can reuse it.</EmptyState>
+          <EmptyState title="An empty library">Save a winning prompt — a page kept here can be inserted into any thread, by anyone on the team.</EmptyState>
         ) : (
           <div className={s.grid}>
             {filtered.map((p, i) => (
