@@ -121,7 +121,13 @@ def test_viewing_presence_reaches_teammates(make_workspace, join_workspace):
                 # Owner reports the branch they're viewing; the mate's next
                 # presence frame carries it.
                 ws_owner.send_text(
-                    json.dumps({"kind": "viewing", "branch_id": "branch-42"})
+                    json.dumps(
+                        {
+                            "kind": "viewing",
+                            "branch_id": "branch-42",
+                            "conversation_id": "conv-7",
+                        }
+                    )
                 )
                 frame = json.loads(ws_mate.receive_text())
                 assert frame["kind"] == "presence"
@@ -129,6 +135,7 @@ def test_viewing_presence_reaches_teammates(make_workspace, join_workspace):
                     u for u in frame["users"] if u["user_id"] == owner_id
                 )
                 assert owner_entry["viewing"] == "branch-42"
+                assert owner_entry["viewing_conversation"] == "conv-7"
 
                 # Clearing it (leave the thread) rebroadcasts null.
                 ws_owner.send_text(json.dumps({"kind": "viewing", "branch_id": None}))
