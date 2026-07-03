@@ -80,6 +80,28 @@ export interface Prompt {
   tags: string[];
 }
 
+// --- Workspace Map (GET /workspaces/{wid}/map): the reasoning graph ---
+// Lean node skeleton — no content; excerpts load lazily via getHistory.
+export interface MapNode {
+  id: string;
+  branch_id: string;
+  parent_id: string | null;
+  seq: number;
+  role: "user" | "assistant" | "system";
+  author_id: string | null;
+}
+
+export interface MapConversation {
+  id: string;
+  title: string;
+  visibility: Visibility;
+  author_id: string;
+  default_branch_id: string;
+  branches: Branch[];
+  nodes: MapNode[];
+  references: string[]; // conversation ids this one draws live context from
+}
+
 export interface Health {
   status: string;
   db_time: string;

@@ -1,12 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
-import { onRoomEvent } from "@/lib/realtime";
+import { onRoomEvent, sendViewing } from "@/lib/realtime";
 import type { Branch, Conversation, ConversationRef, Node } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
@@ -66,6 +66,23 @@ export function ChatView() {
   const [linkDlg, setLinkDlg] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
 
+  // Deep link from the Map: /w/:wid?conv=…&branch=… lands directly in that
+  // thread at that branch. Consumed once, then removed from the URL.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const wantedBranchRef = useRef<string | null>(searchParams.get("branch"));
+  useEffect(() => {
+    const conv = searchParams.get("conv");
+    if (conv) {
+      setActiveConvId(conv);
+      setSearchParams({}, { replace: true });
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // Presence: tell the room which branch we're reading (Map dots, row dots).
+  useEffect(() => { sendViewing(activeBranchId); }, [activeBranchId]);
+  useEffect(() => () => sendViewing(null), []);
+
   const { data: convData } = useQuery({
     queryKey: ["conversations", wid, user?.id],
     queryFn: () => listConversations(wid!),
@@ -114,8 +131,13 @@ export function ChatView() {
     listBranches(activeConvId).then((r) => {
       if (!alive) return;
       setBranches(r.items);
-      const main = r.items.find((b) => b.parent_branch_id === null) ?? r.items[0];
-      setActiveBranchId(main?.id ?? null);
+      // A Map deep-link may name a branch; otherwise open the main spine.
+      const wanted = wantedBranchRef.current;
+      wantedBranchRef.current = null;
+      const pick =
+        (wanted && r.items.find((b) => b.id === wanted)) ||
+        r.items.find((b) => b.parent_branch_id === null) || r.items[0];
+      setActiveBranchId(pick?.id ?? null);
     }).catch(() => {});
     return () => { alive = false; };
   }, [activeConvId]);

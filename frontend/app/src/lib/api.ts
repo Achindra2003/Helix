@@ -3,6 +3,7 @@
 import { getToken } from "@/lib/auth";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
+  MapConversation,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -110,6 +111,10 @@ export const downloadExport = async (cid: string, branchId: string, format: "md"
   a.click();
   URL.revokeObjectURL(url);
 };
+
+// --- workspace map (the whole reasoning graph in one read) ---
+export const getWorkspaceMap = (wid: string) =>
+  request<{ conversations: MapConversation[] }>(`/workspaces/${wid}/map`);
 
 // --- cross-conversation references (link another shared thread as live context) ---
 export const listReferences = (cid: string) =>

@@ -7,6 +7,7 @@ from fastapi.responses import JSONResponse
 
 from . import db
 from .config import settings
+from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
 from .prompts.router import router as prompts_router
 from .realtime import router as realtime_router
@@ -52,6 +53,7 @@ async def validation_handler(_: Request, exc: RequestValidationError):
 app.include_router(auth.router)
 app.include_router(workspaces.router)
 app.include_router(conversation_router)
+app.include_router(map_router)
 app.include_router(prompts_router)
 app.include_router(realtime_router)
 

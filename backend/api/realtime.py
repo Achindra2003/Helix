@@ -37,10 +37,21 @@ _rooms: dict[str, dict[WebSocket, dict]] = defaultdict(dict)
 
 
 def roster(workspace_id: str) -> list[dict]:
-    """Unique online users in a workspace (one entry even with several tabs)."""
+    """Unique online users in a workspace (one entry even with several tabs).
+
+    `viewing` is the branch the user has open right now (client-reported, see
+    the read loop) — with several tabs, any tab that *is* viewing a branch wins
+    over an idle one, so the Map's presence dot doesn't flicker off when a
+    second tab opens.
+    """
     seen: dict[str, dict] = {}
     for info in _rooms.get(workspace_id, {}).values():
-        seen[info["user_id"]] = {"user_id": info["user_id"], "email": info["email"]}
+        prev = seen.get(info["user_id"])
+        seen[info["user_id"]] = {
+            "user_id": info["user_id"],
+            "email": info["email"],
+            "viewing": info.get("viewing") or (prev.get("viewing") if prev else None),
+        }
     return sorted(seen.values(), key=lambda u: u["email"])
 
 
@@ -100,12 +111,25 @@ async def workspace_room(
     await _broadcast_presence(workspace_id)
 
     try:
-        # The server never *needs* client messages; this read loop keeps the
-        # connection alive and answers pings so proxies don't idle it out.
+        # The read loop keeps the connection alive (ping/pong for proxies) and
+        # accepts one client-reported fact: which branch this user is viewing
+        # (`{"kind": "viewing", "branch_id": ...|null}`), folded into presence
+        # so the Map can put live dots on the branches teammates have open.
         while True:
             text = await ws.receive_text()
             if text == "ping":
                 await ws.send_text(json.dumps({"kind": "pong"}))
+                continue
+            try:
+                msg = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("kind") == "viewing":
+                branch_id = msg.get("branch_id")
+                _rooms[workspace_id][ws]["viewing"] = (
+                    branch_id if isinstance(branch_id, str) else None
+                )
+                await _broadcast_presence(workspace_id)
     except WebSocketDisconnect:
         pass
     finally:
