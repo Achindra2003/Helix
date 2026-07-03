@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import time
 from dataclasses import asdict
+from datetime import date
 
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response, StreamingResponse
@@ -268,13 +269,38 @@ async def export_conversation(
             headers={"Content-Disposition": f'attachment; filename="{stem}.json"'},
         )
 
-    lines = [f"# {conv.title}", f"_branch: {br.name} · {len(nodes)} nodes_", ""]
+    # "Fair copy": a manuscript-styled rendering — title block, a rule, the
+    # turns with authors resolved to emails, and a colophon footer.
+    emails: dict[str, str] = {}
+
+    async def _who(author_id: str | None) -> str:
+        if author_id is None:
+            return "Helix"
+        if author_id not in emails:
+            author = await session.get(User, author_id)
+            emails[author_id] = author.email if author else author_id
+        return emails[author_id]
+
+    lines = [
+        f"# {conv.title}",
+        "",
+        f"*a Helix conversation · branch “{br.name}” · {len(nodes)} nodes*",
+        "",
+        "---",
+        "",
+    ]
     for n in nodes:
-        who = "Helix" if n.role == "assistant" else (n.author_id or "user")
+        who = "Helix" if n.role == "assistant" else await _who(n.author_id)
         lines.append(f"**{who}**")
         lines.append("")
         lines.append(n.content)
         lines.append("")
+    lines += [
+        "---",
+        "",
+        f"❧ fair copy · exported from Helix on {date.today().isoformat()} ❧",
+        "",
+    ]
     return Response(
         content="\n".join(lines),
         media_type="text/markdown",

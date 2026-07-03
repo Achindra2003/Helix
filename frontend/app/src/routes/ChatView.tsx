@@ -33,6 +33,7 @@ function nodeToMsg(
   meId: string | undefined,
   forkNodeId: string | null,
   emailOf?: (id: string | null) => string | undefined,
+  forkMap?: Record<string, string[]>,
 ): ChatMessage {
   const email = emailOf?.(n.author_id);
   return {
@@ -44,6 +45,7 @@ function nodeToMsg(
     time: "",
     tokens: n.token_count ? `${n.token_count} tokens` : undefined,
     forkPoint: !!forkNodeId && n.id === forkNodeId,
+    forkChildren: forkMap?.[n.id],
   };
 }
 
@@ -125,6 +127,13 @@ export function ChatView() {
   // composer ("you can see each other think").
   const [remoteAuthorId, setRemoteAuthorId] = useState<string | null>(null);
 
+  // node id -> names of branches forked from it (always-visible margin glyphs).
+  const forkSourceMap = useMemo(() => {
+    const map: Record<string, string[]> = {};
+    for (const b of branches) if (b.fork_node_id) (map[b.fork_node_id] ??= []).push(b.name);
+    return map;
+  }, [branches]);
+
   // Cross-conversation references: other shared threads whose live context is
   // folded into this conversation's replies. Re-fetched per active conversation.
   const { data: refData } = useQuery({
@@ -182,11 +191,11 @@ export function ChatView() {
     setReplay(null);
     getHistory(activeBranchId).then((r) => {
       if (!alive) return;
-      setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf)));
+      setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)));
     }).catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBranchId, memberData]);
+  }, [activeBranchId, memberData, forkSourceMap]);
 
   function scrollDown() {
     requestAnimationFrame(() => { if (canvasRef.current) canvasRef.current.scrollTop = canvasRef.current.scrollHeight; });
@@ -331,7 +340,7 @@ export function ChatView() {
       if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
     }
     if (useMonitor.getState().run?.status !== "waiting") {
-      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf)))).catch(() => {});
+      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)))).catch(() => {});
     }
   }
 

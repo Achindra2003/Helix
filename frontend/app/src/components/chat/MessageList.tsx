@@ -15,9 +15,11 @@ export interface ChatMessage {
   tokens?: string;
   typing?: boolean;
   forkPoint?: boolean;
+  // Names of branches forked *from* this message (always-visible margin glyph).
+  forkChildren?: string[];
 }
 
-function Bubble({ m, onForkHere }: { m: ChatMessage; onForkHere?: (id: string) => void }) {
+function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void }) {
   const asst = m.role === "assistant";
   return (
     <div
@@ -34,13 +36,18 @@ function Bubble({ m, onForkHere }: { m: ChatMessage; onForkHere?: (id: string) =
           </span>
           {m.time && <span className={s.msgTime}>{m.time}</span>}
           {m.forkPoint && <span className={s.forkTag}>⌇ fork point</span>}
+          {m.forkChildren && m.forkChildren.length > 0 && (
+            <span className={s.forkMark} title={`branches from here: ${m.forkChildren.join(", ")}`}>
+              ⎇ {m.forkChildren[0]}{m.forkChildren.length > 1 ? ` +${m.forkChildren.length - 1}` : ""}
+            </span>
+          )}
           {onForkHere && !m.typing && (
             <button className={s.forkHere} title="Fork a new branch from here" onClick={() => onForkHere(m.id)}>
               ⌇ fork here
             </button>
           )}
         </div>
-        <div className={s.msgBody}>
+        <div className={`${s.msgBody} ${asst && dropCap && !m.typing ? s.dropCap : ""}`}>
           {asst ? (
             <>
               <Markdown>{m.body}</Markdown>
@@ -53,17 +60,20 @@ function Bubble({ m, onForkHere }: { m: ChatMessage; onForkHere?: (id: string) =
             </>
           )}
         </div>
-        {m.tokens && <div className={s.msgTokens}>{m.tokens}</div>}
+        {m.tokens && <div className={s.colophon}>❧ {m.tokens} ❧</div>}
       </div>
     </div>
   );
 }
 
 export function MessageList({ messages, onForkHere }: { messages: ChatMessage[]; onForkHere?: (id: string) => void }) {
+  // The thread's first assistant reply opens with a drop cap, like the first
+  // page of a chapter.
+  const firstAsst = messages.findIndex((m) => m.role === "assistant");
   return (
     <>
-      {messages.map((m) => (
-        <Bubble key={m.id} m={m} onForkHere={onForkHere} />
+      {messages.map((m, i) => (
+        <Bubble key={m.id} m={m} dropCap={i === firstAsst} onForkHere={onForkHere} />
       ))}
     </>
   );
