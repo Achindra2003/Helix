@@ -86,7 +86,18 @@ class DeepReasoningProducer:
                 self._state[key] = val
 
     def _payload(self) -> dict[str, Any]:
-        return {k: self._state[k] for k in _STEP_KEYS if k in self._state}
+        payload = {k: self._state[k] for k in _STEP_KEYS if k in self._state}
+        # The convergence target rides along with every step so the monitor can
+        # draw stability *against its threshold* (the sparkline + closing ring),
+        # not just as a bare number. `build_ouroboros_graph` stamps the resolved
+        # value into the config's metadata; absent (e.g. test fakes), the client
+        # falls back to its default.
+        threshold = (self._graph_config or {}).get("metadata", {}).get(
+            "stability_threshold"
+        )
+        if threshold is not None:
+            payload["stability_threshold"] = threshold
+        return payload
 
     def _budget_event(self) -> Budget | None:
         if self._usage_reader is None:
@@ -266,6 +277,9 @@ def build_ouroboros_graph(
     graph_config = {
         "configurable": {"thread_id": thread_id},
         "callbacks": [usage_handler],
+        # Resolved convergence target (auto-calibration applied above): the
+        # producer copies it onto step payloads for the monitor's convergence viz.
+        "metadata": {"stability_threshold": stability_threshold},
     }
 
     def make_inputs(seed: str) -> dict[str, Any]:
