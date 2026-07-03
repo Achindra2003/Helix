@@ -15,6 +15,9 @@ import { usePresenceStore } from "@/store/presence";
 export interface RoomUser {
   user_id: string;
   email: string;
+  // Branch this user has open right now (null/absent = idle). Server folds it
+  // into every presence frame; the Map and conversation rows draw dots from it.
+  viewing?: string | null;
 }
 
 export type RoomEvent =
@@ -40,7 +43,16 @@ let currentWid: string | null = null;
 let retry = 0;
 let reconnectTimer: number | null = null;
 let pingTimer: number | null = null;
+let lastViewing: string | null = null; // resent after reconnect
 const listeners = new Set<Listener>();
+
+/** Tell the room which branch this client is viewing (null = none). */
+export function sendViewing(branchId: string | null) {
+  lastViewing = branchId;
+  if (socket && socket.readyState === WebSocket.OPEN) {
+    socket.send(JSON.stringify({ kind: "viewing", branch_id: branchId }));
+  }
+}
 
 export function onRoomEvent(fn: Listener): () => void {
   listeners.add(fn);
@@ -71,6 +83,9 @@ function open(wid: string) {
   ws.onopen = () => {
     retry = 0;
     usePresenceStore.getState().setLive(true);
+    // A reconnect starts with a blank socket info dict server-side: replay
+    // what we're viewing so presence stays truthful.
+    if (lastViewing) ws.send(JSON.stringify({ kind: "viewing", branch_id: lastViewing }));
     // Keep intermediaries from idling the connection out.
     pingTimer = window.setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");

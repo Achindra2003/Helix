@@ -6,6 +6,7 @@ import s from "./shell.module.css";
 
 const NAV = [
   { key: "", glyph: "⌇", label: "CHAT" },
+  { key: "map", glyph: "⎇", label: "MAP" },
   { key: "library", glyph: "▦", label: "LIBR" },
   { key: "members", glyph: "♔", label: "TEAM" },
 ];

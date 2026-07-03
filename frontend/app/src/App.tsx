@@ -10,6 +10,7 @@ import { WorkspaceLayout } from "@/routes/WorkspaceLayout";
 import { ChatView } from "@/routes/ChatView";
 import { LibraryView } from "@/routes/LibraryView";
 import { MembersView } from "@/routes/MembersView";
+import { MapView } from "@/routes/MapView";
 
 function ApiHealthBanner() {
   const [down, setDown] = useState(false);
@@ -78,6 +79,7 @@ export function App() {
         <Route path="/workspaces" element={<RequireAuth><WorkspacePicker /></RequireAuth>} />
         <Route path="/w/:wid" element={<RequireAuth><WorkspaceLayout /></RequireAuth>}>
           <Route index element={<ChatView />} />
+          <Route path="map" element={<MapView />} />
           <Route path="library" element={<LibraryView />} />
           <Route path="members" element={<MembersView />} />
         </Route>

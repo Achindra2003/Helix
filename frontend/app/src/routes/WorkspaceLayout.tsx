@@ -24,8 +24,8 @@ export function WorkspaceLayout() {
   }, [wid]);
 
   const tail = loc.pathname.split("/").slice(3).join("/"); // after /w/:wid
-  const active = tail.startsWith("library") ? "library" : tail.startsWith("members") ? "members" : "";
-  const viewLabel = active === "library" ? "prompt library" : active === "members" ? "members & roles" : "conversations";
+  const active = tail.startsWith("library") ? "library" : tail.startsWith("members") ? "members" : tail.startsWith("map") ? "map" : "";
+  const viewLabel = active === "library" ? "prompt library" : active === "members" ? "members & roles" : active === "map" ? "the map" : "conversations";
 
   return (
     <div className={s.shell}>
