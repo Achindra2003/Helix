@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference,
+  listReferences, addReference, removeReference, listMembers,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
@@ -11,8 +11,9 @@ import type { Branch, Conversation, ConversationRef, Node } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
+import { usePresenceStore } from "@/store/presence";
 import { can } from "@/lib/rbac";
-import { nowTime } from "@/lib/format";
+import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
@@ -27,11 +28,18 @@ import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor"
 import { ReplayBar } from "@/components/chat/ReplayBar";
 import s from "@/components/chat/chat.module.css";
 
-function nodeToMsg(n: Node, meId: string | undefined, forkNodeId: string | null): ChatMessage {
+function nodeToMsg(
+  n: Node,
+  meId: string | undefined,
+  forkNodeId: string | null,
+  emailOf?: (id: string | null) => string | undefined,
+): ChatMessage {
+  const email = emailOf?.(n.author_id);
   return {
     id: n.id,
     role: n.role,
-    authorName: n.role === "assistant" ? "Helix" : n.author_id === meId ? "You" : (n.author_id ?? "teammate"),
+    authorName: n.role === "assistant" ? "Helix" : n.author_id === meId ? "You" : (email ?? "teammate"),
+    authorColor: n.role === "assistant" ? undefined : colorFor(email ?? n.author_id ?? "?"),
     body: n.content,
     time: "",
     tokens: n.token_count ? `${n.token_count} tokens` : undefined,
@@ -80,7 +88,7 @@ export function ChatView() {
   }, []);
 
   // Presence: tell the room which branch we're reading (Map dots, row dots).
-  useEffect(() => { sendViewing(activeBranchId); }, [activeBranchId]);
+  useEffect(() => { sendViewing(activeBranchId, activeConvId); }, [activeBranchId, activeConvId]);
   useEffect(() => () => sendViewing(null), []);
 
   const { data: convData } = useQuery({
@@ -91,6 +99,31 @@ export function ChatView() {
   const conversations: Conversation[] = convData?.items ?? [];
   const activeConv = conversations.find((c) => c.id === activeConvId) ?? null;
   const activeBranch = branches.find((b) => b.id === activeBranchId) ?? null;
+
+  // Members: resolve author ids to emails so multi-author threads read as
+  // people, and colors stay consistent with the Map's presence dots.
+  const { data: memberData } = useQuery({
+    queryKey: ["members", wid],
+    queryFn: () => listMembers(wid!),
+    enabled: !!wid,
+  });
+  const emailOf = (id: string | null) =>
+    id === user?.id ? user?.email : memberData?.find((m) => m.user_id === id)?.email;
+
+  // Teammates reading each conversation right now (dots on the rows).
+  const presenceUsers = usePresenceStore((st) => st.users);
+  const conversationViewers = useMemo(() => {
+    const map: Record<string, { email: string }[]> = {};
+    for (const u of presenceUsers) {
+      if (!u.viewing_conversation || u.user_id === user?.id) continue;
+      (map[u.viewing_conversation] ??= []).push({ email: u.email });
+    }
+    return map;
+  }, [presenceUsers, user?.id]);
+
+  // While a teammate's turn streams into the open branch, name them above the
+  // composer ("you can see each other think").
+  const [remoteAuthorId, setRemoteAuthorId] = useState<string | null>(null);
 
   // Cross-conversation references: other shared threads whose live context is
   // folded into this conversation's replies. Re-fetched per active conversation.
@@ -149,11 +182,11 @@ export function ChatView() {
     setReplay(null);
     getHistory(activeBranchId).then((r) => {
       if (!alive) return;
-      setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null)));
+      setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf)));
     }).catch(() => {});
     return () => { alive = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [activeBranchId]);
+  }, [activeBranchId, memberData]);
 
   function scrollDown() {
     requestAnimationFrame(() => { if (canvasRef.current) canvasRef.current.scrollTop = canvasRef.current.scrollHeight; });
@@ -184,7 +217,7 @@ export function ChatView() {
 
   async function streamTurn(branchId: string, path: string, body: unknown) {
     setBusy(true);
-    const userMsg: ChatMessage = { id: "tmp-u", role: "user", authorName: "You", body: typeof (body as any).prompt === "string" ? (body as any).prompt : "(inserted prompt)", time: nowTime() };
+    const userMsg: ChatMessage = { id: "tmp-u", role: "user", authorName: "You", authorColor: colorFor(user?.email ?? "?"), body: typeof (body as any).prompt === "string" ? (body as any).prompt : "(inserted prompt)", time: nowTime() };
     const asstMsg: ChatMessage = { id: "tmp-a", role: "assistant", authorName: "Helix", body: "", time: nowTime(), typing: true };
     setMessages((m) => [...m, userMsg, asstMsg]);
     scrollDown();
@@ -298,7 +331,7 @@ export function ChatView() {
       if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
     }
     if (useMonitor.getState().run?.status !== "waiting") {
-      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null)))).catch(() => {});
+      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf)))).catch(() => {});
     }
   }
 
@@ -334,6 +367,7 @@ export function ChatView() {
   const remoteRuns = useRef<Map<string, { asst: ChatMessage; acc: string; watching: boolean }>>(new Map());
   useEffect(() => {
     remoteRuns.current.clear();
+    setRemoteAuthorId(null);
     const off = onRoomEvent((ev) => {
       if (ev.kind === "conversation.created") {
         qc.invalidateQueries({ queryKey: ["conversations", wid] });
@@ -351,9 +385,12 @@ export function ChatView() {
         const e = ev.event;
         let run = remoteRuns.current.get(key);
         if (e.kind === "user_node") {
+          setRemoteAuthorId(ev.author_id);
+          const authorEmail = emailOf(e.node.author_id);
           const userMsg: ChatMessage = {
             id: e.node.id, role: "user",
-            authorName: e.node.author_id ?? "teammate",
+            authorName: authorEmail ?? "teammate",
+            authorColor: colorFor(authorEmail ?? e.node.author_id ?? "?"),
             body: e.node.content, time: nowTime(),
           };
           const asst: ChatMessage = {
@@ -420,6 +457,7 @@ export function ChatView() {
           setMessages((m) => [...m]);
         } else if (e.kind === "done") {
           remoteRuns.current.delete(key);
+          setRemoteAuthorId(null);
           if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
         }
       }
@@ -444,6 +482,7 @@ export function ChatView() {
             canCreate={canSend}
             onSelect={setActiveConvId}
             onNew={() => { setDraftTitle(""); setNewDlg(true); }}
+            viewers={conversationViewers}
           />
           {activeConv && branches.length > 0 && (
             <BranchTree branches={branches} activeId={activeBranchId} onSelect={setActiveBranchId} />
@@ -525,6 +564,15 @@ export function ChatView() {
             </div>
 
             <div className={s.composerWrap}>
+              {remoteAuthorId && (
+                <div className={s.remoteBanner}>
+                  <span
+                    className={s.rowDot}
+                    style={{ background: colorFor(emailOf(remoteAuthorId) ?? remoteAuthorId) }}
+                  />
+                  ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
+                </div>
+              )}
               {canSend ? (
                 <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep} onLibrary={() => nav(`/w/${wid}/library`)} />
               ) : (

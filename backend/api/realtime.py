@@ -47,11 +47,16 @@ def roster(workspace_id: str) -> list[dict]:
     seen: dict[str, dict] = {}
     for info in _rooms.get(workspace_id, {}).values():
         prev = seen.get(info["user_id"])
-        seen[info["user_id"]] = {
+        entry = {
             "user_id": info["user_id"],
             "email": info["email"],
-            "viewing": info.get("viewing") or (prev.get("viewing") if prev else None),
+            "viewing": info.get("viewing"),
+            "viewing_conversation": info.get("viewing_conversation"),
         }
+        if entry["viewing"] is None and prev and prev["viewing"] is not None:
+            entry["viewing"] = prev["viewing"]
+            entry["viewing_conversation"] = prev["viewing_conversation"]
+        seen[info["user_id"]] = entry
     return sorted(seen.values(), key=lambda u: u["email"])
 
 
@@ -126,8 +131,11 @@ async def workspace_room(
                 continue
             if isinstance(msg, dict) and msg.get("kind") == "viewing":
                 branch_id = msg.get("branch_id")
-                _rooms[workspace_id][ws]["viewing"] = (
-                    branch_id if isinstance(branch_id, str) else None
+                conv_id = msg.get("conversation_id")
+                info = _rooms[workspace_id][ws]
+                info["viewing"] = branch_id if isinstance(branch_id, str) else None
+                info["viewing_conversation"] = (
+                    conv_id if isinstance(conv_id, str) and info["viewing"] else None
                 )
                 await _broadcast_presence(workspace_id)
     except WebSocketDisconnect:

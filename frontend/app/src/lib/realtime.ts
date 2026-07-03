@@ -15,9 +15,11 @@ import { usePresenceStore } from "@/store/presence";
 export interface RoomUser {
   user_id: string;
   email: string;
-  // Branch this user has open right now (null/absent = idle). Server folds it
-  // into every presence frame; the Map and conversation rows draw dots from it.
+  // Branch/conversation this user has open right now (null/absent = idle).
+  // Server folds it into every presence frame; the Map and conversation rows
+  // draw dots from it.
   viewing?: string | null;
+  viewing_conversation?: string | null;
 }
 
 export type RoomEvent =
@@ -43,14 +45,14 @@ let currentWid: string | null = null;
 let retry = 0;
 let reconnectTimer: number | null = null;
 let pingTimer: number | null = null;
-let lastViewing: string | null = null; // resent after reconnect
+let lastViewing: { branch: string | null; conv: string | null } = { branch: null, conv: null }; // resent after reconnect
 const listeners = new Set<Listener>();
 
-/** Tell the room which branch this client is viewing (null = none). */
-export function sendViewing(branchId: string | null) {
-  lastViewing = branchId;
+/** Tell the room which branch (and conversation) this client is viewing. */
+export function sendViewing(branchId: string | null, conversationId: string | null = null) {
+  lastViewing = { branch: branchId, conv: conversationId };
   if (socket && socket.readyState === WebSocket.OPEN) {
-    socket.send(JSON.stringify({ kind: "viewing", branch_id: branchId }));
+    socket.send(JSON.stringify({ kind: "viewing", branch_id: branchId, conversation_id: conversationId }));
   }
 }
 
@@ -85,7 +87,9 @@ function open(wid: string) {
     usePresenceStore.getState().setLive(true);
     // A reconnect starts with a blank socket info dict server-side: replay
     // what we're viewing so presence stays truthful.
-    if (lastViewing) ws.send(JSON.stringify({ kind: "viewing", branch_id: lastViewing }));
+    if (lastViewing.branch) {
+      ws.send(JSON.stringify({ kind: "viewing", branch_id: lastViewing.branch, conversation_id: lastViewing.conv }));
+    }
     // Keep intermediaries from idling the connection out.
     pingTimer = window.setInterval(() => {
       if (ws.readyState === WebSocket.OPEN) ws.send("ping");

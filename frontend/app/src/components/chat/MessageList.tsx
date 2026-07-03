@@ -6,6 +6,10 @@ export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
   authorName: string;
+  // Deterministic per-author accent (colorFor(email)); paints the margin quill
+  // on user turns so a multi-author thread reads at a glance. Assistant stays
+  // neutral ink.
+  authorColor?: string;
   body: string;
   time: string;
   tokens?: string;
@@ -16,7 +20,10 @@ export interface ChatMessage {
 function Bubble({ m, onForkHere }: { m: ChatMessage; onForkHere?: (id: string) => void }) {
   const asst = m.role === "assistant";
   return (
-    <div className={s.msg}>
+    <div
+      className={`${s.msg} ${s.msgQuill}`}
+      style={{ borderLeftColor: !asst && m.authorColor ? m.authorColor : "transparent" }}
+    >
       <div className={`${s.avatar} ${asst ? s.avatarAsst : s.avatarUser}`}>
         {asst ? "⟳" : initialOf(m.authorName)}
       </div>
