@@ -97,10 +97,13 @@ async def test_window_keeps_system_frame_and_most_recent_turns():
 
     messages = build_messages(await store.get_history(b), max_turns=3)
     assert messages[0]["role"] == "system"
-    bodies = [m["content"] for m in messages[1:]]
+    # The dropped turns are admitted in a system-side elision note (with any
+    # relevant ones recalled as quoted data); the *dialogue* is the newest 3.
+    bodies = [m["content"] for m in messages if m["role"] != "system"]
     assert len(bodies) == 3
     assert any("turn-9" in c for c in bodies)  # newest kept
-    assert not any("turn-0" in c for c in bodies)  # oldest dropped
+    assert not any("turn-0" in c for c in bodies)  # oldest dropped from dialogue
+    assert any("not shown below" in m["content"] for m in messages if m["role"] == "system")
 
 
 async def test_linked_reference_context_grounds_reply_without_polluting_lineage():
