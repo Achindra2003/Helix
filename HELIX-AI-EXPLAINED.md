@@ -230,18 +230,35 @@ A naïve reflection loop spends a **fixed** amount of compute (N iterations, or 
 coin flip). Ouroboros replaces that with a **principled stop decision** from cheap
 internal signals (controller.py):
 
-- **answer stability** — cosine similarity between successive refined answers,
+- **answer stability** — semantic similarity between successive refined answers,
   over **real neural embeddings** (sentence-transformers MiniLM; a lexical
   bag-of-words fallback keeps it working offline). High stability ⇒ the loop has
   stopped changing its mind; more cycles buy little. The threshold
   **auto-calibrates to the active embedder** (0.90 neural / 0.78 lexical) because
-  MiniLM cosines run far hotter than token-overlap scores.
-- **self-confidence** — the synthesizer's own 0–1 estimate of how settled it is.
+  MiniLM cosines run far hotter than token-overlap scores. Long drafts are
+  **chunk-embedded and mean-pooled** (MiniLM truncates at 256 tokens — untreated,
+  a contradiction past the cutoff scored 1.0000 similarity), and stability blends
+  the pooled score with a **least-anchored-sentence floor**, so a flipped
+  conclusion or deleted section anywhere in a long answer buys another cycle.
+- **self-confidence** — the synthesizer's own 0–1 estimate of how settled it is,
+  parsed with a repair pass and **flagged when the model failed to report it** —
+  an unreported placeholder can never satisfy the convergence gate.
 
-`decide(...)` halts when, in precedence order: a hard **compute budget** is hit, or
-the answer is **stable *and* confident** (`converged`), or it's stable but not yet
-confident (`no_marginal_gain` — it's stopped moving regardless). It's a pure
-function of scalars, so it's fully unit-testable.
+`decide(...)` halts when, in precedence order: a hard **compute budget** is hit,
+or the answer is **stable *and* confident** (`converged`). Stable-but-unconfident
+— what a *stuck* loop looks like, not just a finished one — triggers
+**perturb-on-stall**: the first stall issues a self-challenge (the next cycle
+attacks the answer's weakest assumption) and only convergence after the
+challenge, or a second stall (`no_marginal_gain`), is accepted. Repetition is
+weak evidence; surviving an attack is real evidence. It's a pure function of
+scalars, so it's fully unit-testable.
+
+**Failure honesty:** transient provider errors (429/5xx/timeouts) retry with
+backoff at every LLM call site; a hard failure in the synthesizer halts the run
+with its own `provider_error` stop reason instead of masquerading as
+convergence (the old path kept the previous answer, and
+`stability(prev, prev) == 1.0` halted the run "no_marginal_gain" — a rate-limit
+blip wearing a converged face).
 
 **The dual payoff:** halting early is both the *product virtue* (you don't watch it
 spin) and the way it stays inside free-tier rate limits — and it's the *research
@@ -334,6 +351,31 @@ backend/engine/ouroboros/
 
 ---
 
+### The empirical layer (July 4)
+
+The AI stack now has the discipline that separates demo-grade from
+production-grade:
+
+- **Context is managed, not truncated** (`context.py`): the window is
+  token-budgeted as well as turn-capped; elided turns are admitted in a system
+  note and the ones relevant to the current question come back via **semantic
+  recall** over the engine's embedder; reference transcripts are per-turn
+  truncated under a shared budget.
+- **Prompt-injection defenses for the multiplayer surface**: referenced
+  threads and recalled turns ride inside `<quoted-context>` boundaries with
+  explicit data-not-instructions rules; titles are sanitized; the system frame
+  declares author prefixes system-attached so in-message `[admin]` spoofs carry
+  no authority.
+- **Every deep run leaves a durable record** (`run_log.py`, `deep_runs` table):
+  question, answer, stop reason, signal trajectories, steers, token cost, and a
+  compact step trace — readable via `GET /conversations/{id}/deep/runs` and
+  `/conversations/deep/runs/{run_id}/record`. Yesterday's weird run is a query,
+  not a shrug.
+- **An eval harness** (`backend/evals/`): an 18-question golden set, fixed-N
+  baseline arms vs the adaptive controller (same production wiring, output
+  parity), and a blind absolute LLM judge — the experiment that tests the
+  research claim instead of asserting it. See `backend/evals/results/`.
+
 ### Known rough edges (be honest in Q&A)
 
 - **Reply formatting / "voice."** *Addressed.* Conversational system-prompt
@@ -344,9 +386,13 @@ backend/engine/ouroboros/
 - **Rigidity.** *Largely addressed* by guided runs (steer between cycles) and
   embedder-aware thresholds; per-run budget/mode controls in the UI are still
   future work.
-- **Self-reported confidence.** Halting partly trusts the model grading itself.
-  The 70B model and the stability signal blunt this, but an external judge or a
-  plateau heuristic would be more principled — honest future work.
+- **Self-reported confidence.** *Mitigated, not eliminated.* Unreported ratings
+  are flagged and can't satisfy the convergence gate, and perturb-on-stall stops
+  a stuck loop from shipping on stability alone — but calibration (does 0.9 mean
+  right 90% of the time?) is unmeasured; the run records now accumulate the data
+  to measure it.
+- **Energy/mood are telemetry theater** — interpretable meters from the
+  engine's introspection origins, not measured signals. Say so if asked.
 - **FR-14** is a server-side policy flag today, not a per-role allowlist UI.
 
 *These are the things to say out loud rather than hide — they're scoped and known.*
