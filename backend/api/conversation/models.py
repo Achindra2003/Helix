@@ -9,7 +9,7 @@ identical semantics to `InMemoryStore`, just durable.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import ForeignKey, Integer, String, Text
+from sqlalchemy import Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -64,6 +64,37 @@ class ConversationReferenceRow(Base):
     referenced_conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id")
     )
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class DeepRunRow(Base):
+    """One persisted Deep Reasoning run: signals, outcome, and a compact trace.
+
+    The monitor shows a run live and then it's gone — this row is the durable
+    record ("the deep run gave a weird answer yesterday" becomes inspectable),
+    and accumulated rows are the raw material for evals: real questions, real
+    stop reasons, real stability/confidence trajectories.
+    """
+
+    __tablename__ = "deep_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # the run_id
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    conversation_id: Mapped[str] = mapped_column(
+        ForeignKey("conversations.id"), index=True
+    )
+    branch_id: Mapped[str] = mapped_column(String)
+    author_id: Mapped[str] = mapped_column(String)
+    question: Mapped[str] = mapped_column(Text)
+    answer: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String)  # done|killed|error
+    stop_reason: Mapped[str] = mapped_column(String, default="")
+    depth: Mapped[int] = mapped_column(Integer, default=0)
+    stability: Mapped[float] = mapped_column(Float, default=0.0)
+    confidence: Mapped[float] = mapped_column(Float, default=0.0)
+    tokens_used: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    trace: Mapped[str] = mapped_column(Text, default="[]")  # JSON: steps/steers/history
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 
