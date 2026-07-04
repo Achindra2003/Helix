@@ -1,0 +1,15 @@
+[
+  {
+    "question_id": "easy-auth",
+    "tier": "easy",
+    "arm": "fixed-1",
+    "answer": "Given the 4-person startup's constraints and the need for a secure and scalable authentication system, I recommend using a managed provider. This approach allows them to focus on core product development while leveraging a proven and widely-used authentication solution, reducing the risk of security vulnerabilities and expertise gaps within the team. By offloading authentication management, the founders can allocate their resources more efficiently and minimize the risk of project delays and burnout. This decision will also enable them to scale their authentication system more easily as their user base grows.",
+    "depth": 0,
+    "stop_reason": "budget",
+    "tokens": 1283,
+    "duration_s": 1.3,
+    "score": 9.0,
+    "justification": "The answer provides a clear and decisive recommendation to use a managed provider, citing valid reasons such as reduced security risks and more efficient resource allocation, but does not explicitly address the 20-employee user base in the context of the recommendation.",
+    "error": ""
+  }
+]

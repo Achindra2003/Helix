@@ -207,12 +207,14 @@ def build_ouroboros_graph(
     mode: str = "analyze",
     adaptive: bool = True,
     compute_budget: int = 6,
+    min_cycles: int | None = None,
     temperature: float = 0.7,
     stability_threshold: float | None = None,
     confidence_threshold: float | None = None,
     steer_interval: int | None = None,
     adaptive_steer: bool = False,
     allow_research: bool = True,
+    humanize: bool = True,
 ):
     """Construct a real, isolated Ouroboros graph + the wiring the producer needs.
 
@@ -244,9 +246,9 @@ def build_ouroboros_graph(
         "compute_budget": compute_budget,
         "temperature": temperature,
         # Helix surfaces answers to a human in chat: rewrite the converged synthesis
-        # into a warm, conversational, streamed final answer (the benchmark leaves
-        # this off to preserve raw-synthesis output parity).
-        "humanize": True,
+        # into a warm, conversational, streamed final answer. The eval harness turns
+        # this off to preserve raw-synthesis output parity across arms.
+        "humanize": humanize,
         # Guided mode: pause the adaptive loop at the steer checkpoint between
         # refinement cycles so the caller can inject guidance over HTTP.
         "adaptive_steer": adaptive_steer,
@@ -267,6 +269,10 @@ def build_ouroboros_graph(
     overrides["stability_threshold"] = stability_threshold
     if confidence_threshold is not None:
         overrides["confidence_threshold"] = confidence_threshold
+    if min_cycles is not None:
+        # min_cycles == compute_budget pins the loop to exactly N cycles — the
+        # fixed-N baseline arms of the eval harness.
+        overrides["min_cycles"] = min_cycles
     if steer_interval is not None:
         # Non-adaptive runs pause for human steer every `steer_interval` cycles;
         # a small value makes a steer demo pause promptly instead of after many cycles.
