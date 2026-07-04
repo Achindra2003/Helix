@@ -13,7 +13,7 @@ from ouroboros.graph.nodes import _parse_confidence, _strip_answer_label  # noqa
 
 
 def _clean(raw: str) -> str:
-    answer, _conf = _parse_confidence(raw.strip())
+    answer, _conf, _reported = _parse_confidence(raw.strip())
     return _strip_answer_label(answer)
 
 

@@ -36,6 +36,8 @@ _STEP_KEYS = (
     "insights",
     "stability",
     "confidence",
+    "confidence_reported",
+    "provider_error",
     "stop_reason",
     "loop_guard",
     "tick",
