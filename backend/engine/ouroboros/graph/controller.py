@@ -86,14 +86,27 @@ class Decision:
 
 
 def decide(
-    *, depth: int, stability: float, confidence: float, config: OuroborosConfig
+    *,
+    depth: int,
+    stability: float,
+    confidence: float,
+    config: OuroborosConfig,
+    perturbed: bool = False,
 ) -> Decision:
     """Decide whether to stop refining, from internal signals + the budget.
 
     Pure function of scalars (no LLM, no embedding) so it is fully unit-testable.
     Precedence: honour ``min_cycles`` first, then the hard ``compute_budget`` cap,
-    then convergence (stable *and* confident), then diminishing returns (stable
-    but not yet confident — the answer has stopped moving regardless).
+    then convergence (stable *and* confident).
+
+    Stable-but-unconfident is the suspicious case: the answer stopped moving,
+    but the model won't vouch for it — which is what a loop that is *stuck*
+    (confidently wrong, or circling) looks like, not just one that is done.
+    Halting there ships the stuck answer. So the first time it happens the
+    controller returns a ``perturb`` decision instead: the next cycle
+    stress-tests the answer, and only convergence *after* the challenge (or a
+    second stall, ``perturbed=True``) is accepted. Repetition is weak evidence;
+    surviving an attack is real evidence.
     """
     if depth < config.min_cycles:
         return Decision(False, "min_cycles")
@@ -105,5 +118,7 @@ def decide(
     ):
         return Decision(True, "converged")
     if stability >= config.stability_threshold:
+        if not perturbed:
+            return Decision(False, "perturb")
         return Decision(True, "no_marginal_gain")
     return Decision(False, "continue")

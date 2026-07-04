@@ -38,6 +38,7 @@ _STEP_KEYS = (
     "confidence",
     "confidence_reported",
     "provider_error",
+    "challenge",
     "stop_reason",
     "loop_guard",
     "tick",
@@ -307,6 +308,8 @@ def build_ouroboros_graph(
             "research_findings": [],
             "human_input": "",
             "steer_count": 0,
+            "perturbed": False,
+            "challenge": "",
         }
 
     def usage_reader() -> int:

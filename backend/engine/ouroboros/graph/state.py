@@ -48,3 +48,5 @@ class OuroborosState(TypedDict):
     should_halt: bool  # controller's halt decision (read by the router)
     stop_reason: str  # why the controller halted (converged | budget | ...)
     provider_error: str  # set when a run halts on LLM-provider failure (429/5xx after retries)
+    perturbed: bool  # one stress-test challenge has been issued this run
+    challenge: str  # pending self-challenge for the next think cycle ("" = none)
