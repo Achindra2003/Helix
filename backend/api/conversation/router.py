@@ -12,6 +12,7 @@ reported as 404 so tenants can't probe for each other's resources.
 """
 from __future__ import annotations
 
+import json
 import time
 from dataclasses import asdict
 from datetime import date
@@ -19,6 +20,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import uuid4
@@ -35,6 +37,8 @@ from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .events import DeepRunRegistered, to_dict, to_sse
+from .models import DeepRunRow
+from .run_log import DeepRunRecorder
 from .producer import ChatProducer
 from .store import DbStore
 
@@ -545,6 +549,17 @@ async def escalate_deep_reasoning(
         usage_reader=usage_reader,
         token_budget=settings.deep_reasoning_token_budget,
     )
+    # Every deep run leaves a durable record (question, signals, outcome, compact
+    # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.
+    run_id = uuid4().hex
+    recorder = DeepRunRecorder(
+        run_id=run_id,
+        workspace_id=conv.workspace_id,
+        conversation_id=conv.id,
+        branch_id=branch_id,
+        author_id=user.id,
+        session_factory=SessionLocal,
+    )
 
     if not body.steerable:
         gen = engine.send(
@@ -556,13 +571,13 @@ async def escalate_deep_reasoning(
         )
         # Relaying deep runs means a teammate watching the same shared branch
         # sees the live reasoning trace (steps/budget), not just the answer.
-        return _streamed_run(conv, branch_id, user, gen)
+        return _streamed_run(conv, branch_id, user, recorder.wrap(gen))
 
     _prune_deep_runs()
     run = engine.ResumableRun(store=_store, producer=producer, branch_id=branch_id)
-    run_id = uuid4().hex
     _deep_runs[run_id] = {
         "run": run,
+        "recorder": recorder,
         "conversation_id": conv.id,
         "branch_id": branch_id,
         "ts": time.time(),
@@ -575,7 +590,7 @@ async def escalate_deep_reasoning(
         if not run.paused:  # finished (or errored) in one segment
             _deep_runs.pop(run_id, None)
 
-    return _streamed_run(conv, branch_id, user, gen())
+    return _streamed_run(conv, branch_id, user, recorder.wrap(gen()))
 
 
 @router.post("/deep/runs/{run_id}/steer")
@@ -602,6 +617,8 @@ async def steer_deep_run(
     run = entry["run"]
     if not run.paused:
         raise api_error(409, "conflict", "run is not paused for steer")
+    recorder: DeepRunRecorder = entry["recorder"]
+    recorder.note_steer(body.guidance)
 
     async def gen():
         async for event in run.steer(body.guidance):
@@ -609,4 +626,68 @@ async def steer_deep_run(
         if not run.paused:
             _deep_runs.pop(run_id, None)
 
-    return _streamed_run(conv, entry["branch_id"], user, gen())
+    return _streamed_run(conv, entry["branch_id"], user, recorder.wrap(gen()))
+
+
+@router.get("/{conversation_id}/deep/runs")
+async def list_deep_runs(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The conversation's persisted deep-run records, newest first (any member
+    who can read the conversation can read its run history)."""
+    await _require_conversation(conversation_id, user, session)
+    result = await session.execute(
+        select(DeepRunRow)
+        .where(DeepRunRow.conversation_id == conversation_id)
+        .order_by(DeepRunRow.created_at.desc())
+        .limit(50)
+    )
+    return {
+        "items": [
+            {
+                "id": r.id,
+                "question": r.question[:200],
+                "status": r.status,
+                "stop_reason": r.stop_reason,
+                "depth": r.depth,
+                "stability": r.stability,
+                "confidence": r.confidence,
+                "tokens_used": r.tokens_used,
+                "duration_ms": r.duration_ms,
+                "created_at": r.created_at.isoformat(),
+            }
+            for r in result.scalars()
+        ]
+    }
+
+
+@router.get("/deep/runs/{run_id}/record")
+async def get_deep_run_record(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """One run's full record, trace included — the post-hoc debugging view."""
+    row = await session.get(DeepRunRow, run_id)
+    if row is None:
+        raise api_error(404, "not_found", "deep run record not found")
+    await _require_conversation(row.conversation_id, user, session)
+    return {
+        "id": row.id,
+        "conversation_id": row.conversation_id,
+        "branch_id": row.branch_id,
+        "author_id": row.author_id,
+        "question": row.question,
+        "answer": row.answer,
+        "status": row.status,
+        "stop_reason": row.stop_reason,
+        "depth": row.depth,
+        "stability": row.stability,
+        "confidence": row.confidence,
+        "tokens_used": row.tokens_used,
+        "duration_ms": row.duration_ms,
+        "trace": json.loads(row.trace),
+        "created_at": row.created_at.isoformat(),
+    }
