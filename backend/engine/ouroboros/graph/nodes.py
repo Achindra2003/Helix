@@ -129,13 +129,25 @@ def make_think(llm: BaseChatModel, config: OuroborosConfig):
     async def think(state: OuroborosState) -> dict:
         recent = [m.content for m in state["messages"][-6:] if isinstance(m, AIMessage)]
         mems = state.get("memories", [])[-5:]
-        prompt = prompt_template.format(
-            mood=state.get("mood", "curious"),
-            depth=state.get("depth", 0),
-            recent="\n".join(recent[-3:]) or "(beginning)",
-            memories="\n".join(mems) or "(no memories yet)",
-            seed=state.get("seed", ""),
-        )
+        challenge = state.get("challenge", "")
+        if challenge:
+            # Perturb cycle: the controller found the answer stable but
+            # unconfident. This thought attacks the current best answer instead
+            # of extending it; the critique then flows through reflect/analyses
+            # into the next synthesis. Consumed once (cleared below).
+            prompt = (
+                f'You are stress-testing the current best answer to: '
+                f'"{state.get("seed", "")}"\n\n'
+                f"Current answer:\n{state.get('synthesis', '')}\n\n{challenge}"
+            )
+        else:
+            prompt = prompt_template.format(
+                mood=state.get("mood", "curious"),
+                depth=state.get("depth", 0),
+                recent="\n".join(recent[-3:]) or "(beginning)",
+                memories="\n".join(mems) or "(no memories yet)",
+                seed=state.get("seed", ""),
+            )
         try:
             resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             new_thought = resp.content.strip()
@@ -145,6 +157,7 @@ def make_think(llm: BaseChatModel, config: OuroborosConfig):
             )
         return {
             "thought": new_thought,
+            "challenge": "",
             "messages": [AIMessage(content=new_thought)],
             "energy": state.get("energy", config.starting_energy) - config.energy_drain_think,
             "tick": state.get("tick", 0) + 1,
@@ -405,8 +418,9 @@ async def _synthesize_adaptive(
         stability=stability,
         confidence=confidence if reported else 0.0,
         config=config,
+        perturbed=bool(state.get("perturbed")),
     )
-    return {
+    out = {
         "synthesis": answer,
         "prev_synthesis": prev,
         "confidence": confidence,
@@ -419,6 +433,19 @@ async def _synthesize_adaptive(
         # anchored to it (not to a drifting free-association).
         "messages": [AIMessage(content=answer)],
     }
+    if decision.reason == "perturb":
+        # Stable but unconfident: don't ship a possibly-stuck answer — attack it.
+        # `think` consumes this challenge next cycle; convergence only counts if
+        # the answer survives (or is fixed by) the attack.
+        out["perturbed"] = True
+        out["challenge"] = (
+            "The answer has stopped changing but is not yet confident. Stress-test "
+            "it: what is its weakest assumption or most likely failure mode, and "
+            "what concrete scenario would break it? If the critique holds, state "
+            "precisely what must change in the answer; if it does not hold, say "
+            "why the answer stands."
+        )
+    return out
 
 
 async def _voice_final_answer(llm: BaseChatModel, *, seed: str, answer: str) -> str:
@@ -594,6 +621,9 @@ def steer(state: OuroborosState) -> dict:
             "messages": [AIMessage(content=f"[steer] {human_input}")],
             "thought": human_input,
             "human_input": "",
+            # Human guidance supersedes any pending automatic challenge — the
+            # person is steering the next cycle, not the controller.
+            "challenge": "",
             "steer_count": state.get("steer_count", 0) + 1,
             "energy": min(100, state.get("energy", 0) + 15),
         }
