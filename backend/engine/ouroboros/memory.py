@@ -53,8 +53,31 @@ class LexicalEmbedder:
         return vectors
 
 
+# MiniLM silently truncates input past its max sequence length (256 tokens,
+# roughly ~190 words). Un-chunked, the "stability" of a long answer would
+# measure only whether its *opening* stopped changing — a change buried deep in
+# a two-page synthesis would be invisible to the convergence controller. Long
+# texts are therefore split into word chunks, embedded separately, mean-pooled,
+# and re-normalized, so every part of the text weighs on the vector.
+_CHUNK_WORDS = 180
+
+
+def _word_chunks(text: str, chunk_words: int = _CHUNK_WORDS) -> list[str]:
+    """Split on whitespace into chunks of at most ``chunk_words`` words."""
+    words = text.split()
+    if len(words) <= chunk_words:
+        return [text]
+    return [
+        " ".join(words[i : i + chunk_words]) for i in range(0, len(words), chunk_words)
+    ]
+
+
 class SentenceTransformerEmbedder:
-    """Local neural embeddings via sentence-transformers (lazy-loaded)."""
+    """Local neural embeddings via sentence-transformers (lazy-loaded).
+
+    Long inputs are chunk-embedded and mean-pooled (see ``_word_chunks``) so
+    similarity reflects the whole text, not the first 256 tokens.
+    """
 
     def __init__(self, model_name: str = "all-MiniLM-L6-v2"):
         from sentence_transformers import SentenceTransformer
@@ -63,8 +86,23 @@ class SentenceTransformerEmbedder:
         self._model = SentenceTransformer(model_name)
 
     def embed(self, texts: list[str]) -> list[list[float]]:
-        embeddings = self._model.encode(texts, normalize_embeddings=True)
-        return [list(map(float, row)) for row in embeddings]
+        # One batched encode over every chunk of every text, then pool per text.
+        all_chunks: list[str] = []
+        spans: list[tuple[int, int]] = []
+        for text in texts:
+            chunks = _word_chunks(text)
+            spans.append((len(all_chunks), len(chunks)))
+            all_chunks.extend(chunks)
+        embeddings = self._model.encode(all_chunks, normalize_embeddings=True)
+        out: list[list[float]] = []
+        for start, count in spans:
+            if count == 1:
+                out.append(list(map(float, embeddings[start])))
+                continue
+            rows = embeddings[start : start + count]
+            mean = [float(sum(col)) / count for col in zip(*rows)]
+            out.append(_l2_normalize(mean))
+        return out
 
 
 @lru_cache(maxsize=1)
