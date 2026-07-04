@@ -1,0 +1,95 @@
+{
+  "description": "Golden question set for the Helix deep-reasoning evals. Three tiers: easy (a decisive single-consideration answer exists), medium (real trade-off analysis or a checkable reasoning puzzle), hard (multi-constraint design where refinement plausibly pays). Questions are provider-neutral and need no external context.",
+  "questions": [
+    {
+      "id": "easy-auth",
+      "tier": "easy",
+      "question": "A 4-person startup needs login for an internal dashboard used by 20 employees. Should they build custom authentication or use a managed provider? Give one recommendation."
+    },
+    {
+      "id": "easy-cache",
+      "tier": "easy",
+      "question": "Our API response for a public product-catalog page takes 900ms, almost all of it a database query that changes about once an hour. What is the single highest-leverage fix?"
+    },
+    {
+      "id": "easy-branch",
+      "tier": "easy",
+      "question": "A two-person team ships a small web app twice a week. Should they use trunk-based development or long-lived feature branches? Recommend one."
+    },
+    {
+      "id": "easy-index",
+      "tier": "easy",
+      "question": "A SQL query filtering orders by (customer_id, created_at) does a full table scan on 20M rows. What one change fixes it?"
+    },
+    {
+      "id": "easy-timeout",
+      "tier": "easy",
+      "question": "A payment service calls a fraud-check API with no timeout configured. The fraud API hung for 10 minutes yesterday and took the checkout down with it. What is the first fix, and what value roughly makes sense?"
+    },
+    {
+      "id": "easy-secrets",
+      "tier": "easy",
+      "question": "A developer accidentally committed an API key to a public GitHub repository five minutes ago. List the correct first action and why the obvious alternative (deleting the commit) is insufficient."
+    },
+    {
+      "id": "med-bridge",
+      "tier": "medium",
+      "question": "Four people must cross a bridge at night with one flashlight; at most two can cross at a time, and crossers move at the slower person's pace. Their times are 1, 2, 7, and 10 minutes. The flashlight must be walked back, never thrown. What is the minimum total time, and what is the crossing plan?"
+    },
+    {
+      "id": "med-batch",
+      "tier": "medium",
+      "question": "A nightly ETL job processes 500k records in 6 hours and the window is shrinking. Profiling shows 80% of time is per-record HTTP calls to an internal enrichment service (25ms each, sequential). The service can handle 50x the current request rate. What change gets the job under 1 hour, and what is the rough math?"
+    },
+    {
+      "id": "med-retries",
+      "tier": "medium",
+      "question": "A mobile app retries failed requests immediately, up to 5 times. During a partial outage, traffic to the backend quintupled and made recovery impossible. Explain the failure mechanism and specify a concrete, complete retry policy that prevents it."
+    },
+    {
+      "id": "med-migration",
+      "tier": "medium",
+      "question": "A team must migrate a 200GB production PostgreSQL table (orders, written to constantly) to a new schema without downtime. Outline the safest migration strategy, including how writes stay consistent during the transition and what the rollback point is."
+    },
+    {
+      "id": "med-estimate",
+      "tier": "medium",
+      "question": "A product manager asks: roughly how much would it cost per month to serve 10 million LLM chat requests averaging 500 input and 300 output tokens, at $0.05 per million input tokens and $0.08 per million output tokens? Show the arithmetic and give one cost-reduction lever."
+    },
+    {
+      "id": "med-flaky",
+      "tier": "medium",
+      "question": "A CI test suite fails about once in every 15 runs, each time in a different test, always with connection-reset errors. Re-runs pass. The team wants to add automatic retries to CI. Diagnose the likely root-cause category, say whether retries are the right fix, and give the better one."
+    },
+    {
+      "id": "hard-queue",
+      "tier": "hard",
+      "question": "Design a job-queue architecture for a document-processing SaaS: jobs take 1-90 seconds, arrive in bursts of up to 10k, must never be lost, must not run twice (customers are billed per job), and p95 wait must stay under 30 seconds during bursts. Specify the queue semantics (at-least-once vs exactly-once and how deduplication works), the autoscaling signal, and the failure story for a worker that dies mid-job."
+    },
+    {
+      "id": "hard-tenancy",
+      "tier": "hard",
+      "question": "A B2B app is moving from single-tenant deployments to a multi-tenant database. Compare row-level tenancy (tenant_id column + RLS) against schema-per-tenant for: blast radius of a bug, migration cost at 5,000 tenants, noisy-neighbor isolation, and per-tenant backup/restore. Recommend one with the deciding factor made explicit."
+    },
+    {
+      "id": "hard-feed",
+      "tier": "hard",
+      "question": "Design the read path for a social feed serving 50M users where the median user follows 200 accounts and celebrities have 10M followers. Address fan-out-on-write vs fan-out-on-read, the celebrity problem specifically, cache invalidation on unfollow, and what consistency users actually need."
+    },
+    {
+      "id": "hard-rollout",
+      "tier": "hard",
+      "question": "A payments company must roll out a new fraud-scoring model that disagrees with the old one on 8% of transactions. False positives block real customers; false negatives cost money directly. Design the rollout: how the new model is evaluated in production before it makes decisions, the promotion criteria, the guardrail metrics with kill thresholds, and how long each phase should hold."
+    },
+    {
+      "id": "hard-offline",
+      "tier": "hard",
+      "question": "Design conflict resolution for a note-taking app that works offline on multiple devices: concurrent edits to the same note must merge without data loss, deletions must not resurrect, and the solution must be explainable to users when merges surprise them. Say what data structure or scheme you would use, its known weaknesses, and the UX for the unresolvable cases."
+    },
+    {
+      "id": "hard-llmcache",
+      "tier": "hard",
+      "question": "An AI product spends 60% of its LLM bill on near-duplicate requests (support questions phrased slightly differently). Design a semantic caching layer: how similarity is decided safely (what threshold semantics avoid wrong-answer hits), staleness handling when the underlying docs change, cache poisoning risk, and the metric that proves the cache is not silently degrading answer quality."
+    }
+  ]
+}

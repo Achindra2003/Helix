@@ -546,12 +546,18 @@ def make_breathe(config: OuroborosConfig):
         mood = state.get("mood", "curious")
         if mood in ("anxious", "obsessed"):
             mood = "curious" if random.random() < 0.6 else mood
-        return {
+        out = {
             "energy": energy,
             "mood": mood,
-            "depth": 0,
             "loop_guard": state.get("loop_guard", 0) + 1,
         }
+        # Legacy loop: depth counts one rumination between breathes, so it
+        # resets here. Adaptive mode ends right after breathe — resetting would
+        # erase the run's final cycle count from the state every consumer
+        # (harness, run records) reads it from.
+        if not config.adaptive:
+            out["depth"] = 0
+        return out
 
     return breathe
 
