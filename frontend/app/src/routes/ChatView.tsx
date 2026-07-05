@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference, listMembers,
+  listReferences, addReference, removeReference, listMembers, getProviderSettings,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
@@ -111,6 +111,15 @@ export function ChatView() {
   });
   const emailOf = (id: string | null) =>
     id === user?.id ? user?.email : memberData?.find((m) => m.user_id === id)?.email;
+
+  // BYO-key status: a keyless workspace gets a "plug in a key" nudge instead
+  // of a composer that dies with an opaque error on first send.
+  const { data: providerSettings } = useQuery({
+    queryKey: ["provider-settings", wid],
+    queryFn: () => getProviderSettings(wid!),
+    enabled: !!wid,
+  });
+  const providerUnconfigured = providerSettings ? !providerSettings.configured : false;
 
   // Teammates reading each conversation right now (dots on the rows).
   const presenceUsers = usePresenceStore((st) => st.users);
@@ -580,6 +589,12 @@ export function ChatView() {
                     style={{ background: colorFor(emailOf(remoteAuthorId) ?? remoteAuthorId) }}
                   />
                   ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
+                </div>
+              )}
+              {canSend && providerUnconfigured && (
+                <div className={s.remoteBanner} style={{ cursor: "pointer" }} onClick={() => nav(`/w/${wid}/members`)}>
+                  ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
+                  {" "}<u>Add a key under TEAM → Provider</u> (owners only).
                 </div>
               )}
               {canSend ? (

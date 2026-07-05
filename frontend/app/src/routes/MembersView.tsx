@@ -10,6 +10,7 @@ import { Dialog } from "@/components/common/Dialog";
 import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
 import type { Role } from "@/lib/types";
+import { ProviderPanel } from "./ProviderPanel";
 import s from "./members.module.css";
 
 const ROLES: Role[] = ["owner", "collaborator", "observer"];
@@ -77,7 +78,9 @@ export function MembersView() {
           </div>
         )}
 
-        <div className={s.matrixHead}>
+        {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
+
+        <div className={s.matrixHead} style={{ marginTop: 38 }}>
           <span className="serif-d" style={{ fontSize: 22 }}>Permission Matrix</span>
           <span className={`mono ${s.tag}`}>policy as data</span>
         </div>
