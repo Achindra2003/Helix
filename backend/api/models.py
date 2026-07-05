@@ -54,6 +54,30 @@ class Workspace(Base):
     )
 
 
+class WorkspaceSettings(Base):
+    """Per-workspace LLM provider configuration (the BYO-key seam).
+
+    One row per workspace, created lazily on first save. `provider == ""` means
+    "inherit the server default" — self-hosters never touch this table. The API
+    key is Fernet-encrypted at rest (see `provider_settings.py`) and is
+    write-only at the HTTP surface: responses carry a masked form at most.
+    """
+
+    __tablename__ = "workspace_settings"
+
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), primary_key=True
+    )
+    provider: Mapped[str] = mapped_column(String, default="")
+    api_key_encrypted: Mapped[str] = mapped_column(String, default="")
+    base_url: Mapped[str] = mapped_column(String, default="")
+    chat_model: Mapped[str] = mapped_column(String, default="")
+    deep_model: Mapped[str] = mapped_column(String, default="")
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=_now, onupdate=_now
+    )
+
+
 class Membership(Base):
     __tablename__ = "memberships"
     __table_args__ = (UniqueConstraint("user_id", "workspace_id", name="uq_member"),)
