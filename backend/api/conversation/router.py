@@ -32,7 +32,8 @@ from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_RANK, User
 from .. import realtime
 from ..prompts.store import PromptStore
-from ..providers import get_provider
+from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
+from ..models import WorkspaceSettings
 from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
@@ -441,6 +442,23 @@ async def remove_reference(
     return {"items": await _reference_summaries(conversation_id)}
 
 
+async def _workspace_provider(workspace_id: str, session: AsyncSession) -> ResolvedProvider:
+    """The workspace's resolved LLM settings (BYO key), or a clear 503.
+
+    A missing key must fail *before* the user node persists and the SSE stream
+    opens — a dead composer with a reason beats a torn stream.
+    """
+    resolved = resolve(await session.get(WorkspaceSettings, workspace_id))
+    if resolved.missing_key:
+        raise api_error(
+            503,
+            "provider_unconfigured",
+            "No LLM API key is configured for this workspace — the owner can add "
+            "one under workspace settings → Provider.",
+        )
+    return resolved
+
+
 @router.post("/{branch_id}/messages")
 async def send_message(
     branch_id: str,
@@ -451,8 +469,9 @@ async def send_message(
     """Stream one turn as SSE: user_node -> token* -> assistant_node -> [DONE]."""
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
 
+    resolved = await _workspace_provider(conv.workspace_id, session)
     references = await _resolve_reference_blocks(branch.conversation_id)
-    producer = ChatProducer(get_provider(), references=references)
+    producer = ChatProducer(build_chat_provider(resolved), references=references)
 
     gen = engine.send(
         store=_store,
@@ -481,8 +500,9 @@ async def send_from_prompt(
     if prompt is None or prompt.workspace_id != conv.workspace_id:
         raise api_error(404, "not_found", "prompt not found")
 
+    resolved = await _workspace_provider(conv.workspace_id, session)
     references = await _resolve_reference_blocks(branch.conversation_id)
-    producer = ChatProducer(get_provider(), references=references)
+    producer = ChatProducer(build_chat_provider(resolved), references=references)
 
     gen = engine.send(
         store=_store,
@@ -527,13 +547,21 @@ async def escalate_deep_reasoning(
     `run_id` handle.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
-    if not settings.groq_api_key:
-        raise api_error(503, "deep_reasoning_unavailable", "GROQ_API_KEY is not configured")
+    # Deep Reasoning runs on Groq: the workspace's own Groq key wins, the
+    # server-wide key is the fallback (self-host), no key at all is a clear 503.
+    resolved = resolve(await session.get(WorkspaceSettings, conv.workspace_id))
+    if not resolved.deep_groq_key:
+        raise api_error(
+            503,
+            "deep_reasoning_unavailable",
+            "Deep Reasoning needs a Groq API key — the workspace owner can add "
+            "one under workspace settings → Provider.",
+        )
 
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
         thread_id=uuid4().hex,
-        groq_api_key=settings.groq_api_key,
-        groq_model=settings.deep_reasoning_model,
+        groq_api_key=resolved.deep_groq_key,
+        groq_model=resolved.resolved_deep_model,
         mode=settings.deep_reasoning_mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,

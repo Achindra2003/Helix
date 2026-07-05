@@ -8,9 +8,17 @@ from .base import Message, render_messages_to_prompt
 
 
 class OllamaProvider:
-    """Local inference via the Ollama HTTP API (streaming)."""
+    """Local inference via the Ollama HTTP API (streaming).
+
+    Defaults to the server-wide base URL/model; per-workspace settings pass
+    explicit values.
+    """
 
     name = "ollama"
+
+    def __init__(self, *, base_url: str | None = None, model: str | None = None):
+        self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
+        self._model = model or settings.ollama_model
 
     async def stream_messages(self, messages: list[Message]) -> AsyncIterator[str]:
         """No native chat-messages call here — flatten to one prompt and stream."""
@@ -18,8 +26,8 @@ class OllamaProvider:
             yield chunk
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
-        url = f"{settings.ollama_base_url}/api/generate"
-        body = {"model": settings.ollama_model, "prompt": prompt, "stream": True}
+        url = f"{self._base_url}/api/generate"
+        body = {"model": self._model, "prompt": prompt, "stream": True}
 
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream("POST", url, json=body) as resp:
