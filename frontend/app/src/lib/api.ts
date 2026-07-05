@@ -71,6 +71,37 @@ export const previewInvite = (token: string) =>
 export const acceptInvite = (token: string) =>
   request<Workspace>(`/api/invites/${token}/accept`, { method: "POST" });
 
+// --- per-workspace provider settings (BYO key) ---
+// The API key is write-only: it goes up in PUT, never comes back down (owners
+// see a masked form at most). `configured` is the composer's "am I alive?" bit.
+export type ProviderSettings = {
+  provider: string;
+  chat_model: string;
+  deep_model: string;
+  effective_provider: string;
+  effective_chat_model: string;
+  effective_deep_model: string;
+  source: "workspace" | "server";
+  configured: boolean;
+  deep_available: boolean;
+  base_url?: string; // owner-only
+  api_key_masked?: string; // owner-only
+};
+export const getProviderSettings = (wid: string) =>
+  request<ProviderSettings>(`/api/workspaces/${wid}/settings/provider`);
+export const putProviderSettings = (
+  wid: string,
+  body: { provider: string; api_key?: string; base_url?: string; chat_model?: string; deep_model?: string },
+) =>
+  request<ProviderSettings>(`/api/workspaces/${wid}/settings/provider`, {
+    method: "PUT",
+    body: JSON.stringify(body),
+  });
+export const testProviderSettings = (wid: string) =>
+  request<{ ok: boolean; detail: string }>(`/api/workspaces/${wid}/settings/provider/test`, {
+    method: "POST",
+  });
+
 // --- conversations (live engine routes are root-level) ---
 // Identity (viewer/author) is derived server-side from the JWT — never sent.
 export const listConversations = (workspaceId: string) => {
