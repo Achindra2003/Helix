@@ -262,8 +262,10 @@ blip wearing a converged face).
 
 **The dual payoff:** halting early is both the *product virtue* (you don't watch it
 spin) and the way it stays inside free-tier rate limits — and it's the *research
-claim* (adaptive test-time compute: spend more on hard problems, less on easy
-ones). The two are the same mechanism.
+claim* (adaptive test-time compute: spend more where the answer is still moving,
+less where it has settled). One measured nuance from the July 5 pilot
+(`backend/evals/FINDINGS.md`): cycle spend tracks answer *instability*, which is
+not always the same thing as question *difficulty* — say it that precisely.
 
 Alongside convergence, the run is bounded by **guards** surfaced in the monitor:
 an **energy** meter (drains as it thinks, recovers on `breathe`), a **depth** cap,
@@ -374,7 +376,17 @@ production-grade:
 - **An eval harness** (`backend/evals/`): an 18-question golden set, fixed-N
   baseline arms vs the adaptive controller (same production wiring, output
   parity), and a blind absolute LLM judge — the experiment that tests the
-  research claim instead of asserting it. See `backend/evals/results/`.
+  research claim instead of asserting it.
+- **And its first measured result** (pilot, July 5 — full analysis in
+  `backend/evals/FINDINGS.md`): all six adaptive runs halted on genuine
+  convergence (never the budget cap), and the controller **dominated the
+  fixed-4 "just think longer" baseline on every tier at 29% fewer tokens**
+  (8.17 vs 8.00 mean score, 5.4k vs 7.6k mean tokens). The honest other half:
+  single-pass won the pilot outright (8.83 at 1.6k tokens) — on questions a
+  70B model already answers well, extra refinement dilutes more than it
+  deepens. So the defensible claim is narrower and better: *if you iterate,
+  converge — don't count*; the next experiment is a question set hard enough
+  that single-pass actually fails.
 
 ### Known rough edges (be honest in Q&A)
 
