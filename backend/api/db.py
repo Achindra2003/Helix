@@ -24,7 +24,9 @@ async def connect() -> None:
     """Create tables on startup. Real migrations (Alembic) replace this later."""
     # Import models so they register on Base.metadata before create_all.
     from . import models  # noqa: F401
+    from .conversation import embeddings as embedding_models  # noqa: F401
     from .conversation import models as conversation_models  # noqa: F401
+    from .documents import models as document_models  # noqa: F401
     from .prompts import models as prompt_models  # noqa: F401
 
     async with engine.begin() as conn:

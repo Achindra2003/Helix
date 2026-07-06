@@ -9,6 +9,7 @@ from . import db
 from .config import settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
+from .documents.router import router as documents_router
 from .prompts.router import router as prompts_router
 from .realtime import router as realtime_router
 from .routers import auth, workspaces
@@ -55,6 +56,7 @@ app.include_router(workspaces.router)
 app.include_router(conversation_router)
 app.include_router(map_router)
 app.include_router(prompts_router)
+app.include_router(documents_router)
 app.include_router(realtime_router)
 
 

@@ -17,10 +17,12 @@ from typing import AsyncIterator, Awaitable, Callable, Protocol
 
 from ..providers import LLMProvider
 from .context import ReferenceBlock, build_messages
-from .events import Event, Node, Token
+from .events import Event, Grounding, Node, Token
 
 # Precomputes the semantic-recall block for a send (persisted-vector path).
 Recaller = Callable[[list[Node]], Awaitable[str]]
+# Retrieves file-grounding for a send: (rendered block, citation items).
+Grounder = Callable[[list[Node]], Awaitable[tuple[str, list[dict]]]]
 
 
 class Producer(Protocol):
@@ -50,18 +52,30 @@ class ChatProducer:
         provider: LLMProvider,
         references: list[ReferenceBlock] | None = None,
         recaller: Recaller | None = None,
+        grounder: Grounder | None = None,
     ) -> None:
         self._provider = provider
         self._references = references
         self._recaller = recaller
+        self._grounder = grounder
 
     async def run(self, history: list[Node]) -> AsyncIterator[Event]:
         # Recall runs against persisted node vectors (and in a worker thread)
         # when a recaller is wired; without one, build_messages falls back to
         # its inline embedding path.
         recalled = await self._recaller(history) if self._recaller else None
+        # File grounding: relevant workspace-document chunks, cited to the
+        # client before the reply streams so the UI can show its sources.
+        grounding_block, citations = (
+            await self._grounder(history) if self._grounder else ("", [])
+        )
+        if citations:
+            yield Grounding(items=citations)
         messages = build_messages(
-            history, references=self._references, recalled=recalled
+            history,
+            references=self._references,
+            recalled=recalled,
+            grounding=grounding_block or None,
         )
         async for chunk in self._provider.stream_messages(messages):
             yield Token(text=chunk)

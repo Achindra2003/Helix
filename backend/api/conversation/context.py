@@ -227,6 +227,7 @@ def build_messages(
     token_budget: int = DEFAULT_TOKEN_BUDGET,
     references: list[ReferenceBlock] | None = None,
     recalled: str | None = None,
+    grounding: str | None = None,
 ) -> list[Message]:
     """Render branch history (root -> head) into role-structured chat messages.
 
@@ -251,6 +252,10 @@ def build_messages(
         block = render_references(references)
         if block:
             messages.append({"role": "system", "content": block})
+    if grounding:
+        # Workspace documents relevant to this turn — already rendered inside
+        # the quoted-data boundary (see DocumentIndex.grounding_block).
+        messages.append({"role": "system", "content": grounding})
     if elided:
         if recalled is None:
             query = next(
