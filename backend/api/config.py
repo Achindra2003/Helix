@@ -60,6 +60,13 @@ class Settings(BaseSettings):
     # run indefinitely; this halts it cleanly (stop_reason="deadline") with
     # whatever answer has surfaced so far. The normal halt is still convergence.
     deep_reasoning_deadline_s: float = 300.0
+    # Deep runs execute server-side (they survive a dropped client); at most this
+    # many run concurrently per workspace — the rest queue visibly. Protects the
+    # workspace's own provider rate limits (BYO keys burn the workspace's key).
+    deep_runs_per_workspace: int = 2
+    # How long a finished/paused run's live handle (event log, steer/reconnect
+    # surface) is kept in memory. The durable deep_runs row outlives this.
+    deep_run_retention_s: float = 30 * 60.0
     # Convergence thresholds. `None` = auto-calibrate to the active embedder at
     # graph-build time (neural MiniLM cosines run much hotter than the lexical
     # fallback's, so one fixed number can't serve both): ~0.90 neural / 0.78

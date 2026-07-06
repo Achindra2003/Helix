@@ -64,15 +64,28 @@ class Done:
 # --- Deep-reasoning extension events (Ouroboros runs — wired in E3/E4) ---
 @dataclass
 class DeepRunRegistered:
-    """First frame of a *steerable* deep run: the handle for run control.
+    """First frame of every deep run: the handle for run control.
 
-    The client keeps `run_id` so that when the run pauses (`Waiting`), it can
-    POST guidance to `/conversations/deep/runs/{run_id}/steer` and stream the
-    continuation.
+    The client keeps `run_id` to steer a paused guided run
+    (POST /conversations/deep/runs/{run_id}/steer), to kill a runaway one,
+    and — since runs execute server-side — to *reconnect* to the live stream
+    (GET /conversations/deep/runs/{run_id}/stream) after a dropped connection.
     """
 
     run_id: str
     kind: str = field(default="deep_run", init=False)
+
+
+@dataclass
+class RunQueued:
+    """The run is waiting behind others in this workspace (concurrency cap).
+
+    Emitted when a deep run can't start immediately; the stream stays open and
+    the run starts automatically when a slot frees up. `position` is 1-based.
+    """
+
+    position: int
+    kind: str = field(default="queued", init=False)
 
 
 @dataclass
@@ -116,7 +129,7 @@ class Complete:
 
 Event = (
     UserNode | Token | AssistantNode | Done
-    | DeepRunRegistered | Step | Budget | Waiting | Complete
+    | DeepRunRegistered | RunQueued | Step | Budget | Waiting | Complete
 )
 
 
