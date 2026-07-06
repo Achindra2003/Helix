@@ -99,6 +99,12 @@ def test_completed_run_is_persisted_and_readable(monkeypatch, make_workspace):
         assert any(s["node"] == "synthesize" for s in trace["steps"])
         # Step excerpts are compact diagnostics, not archival dumps.
         assert all(len(s.get("synthesis", "")) <= 300 for s in trace["steps"])
+        # Provenance: every run is attributable to what produced it.
+        assert record["model"]  # the resolved deep model name
+        prov = record["provenance"]
+        assert prov["compute_budget"] >= 1
+        assert "adaptive" in prov and "embedder" in prov
+        assert prov["provider_source"] in ("workspace", "server")
 
 
 def test_run_records_are_tenancy_gated(monkeypatch, make_workspace, make_user):
