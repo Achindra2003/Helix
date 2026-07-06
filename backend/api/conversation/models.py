@@ -95,6 +95,11 @@ class DeepRunRow(Base):
     tokens_used: Mapped[int] = mapped_column(Integer, default=0)
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
     trace: Mapped[str] = mapped_column(Text, default="[]")  # JSON: steps/steers/history
+    # Provenance: which model/prompts/thresholds produced this run. When
+    # behaviour shifts after a model or config swap, attribution is a query —
+    # this cannot be retrofitted onto old runs, so it is stamped on every one.
+    model: Mapped[str] = mapped_column(String, default="")
+    provenance: Mapped[str] = mapped_column(Text, default="{}")  # JSON
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

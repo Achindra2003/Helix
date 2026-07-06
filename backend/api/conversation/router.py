@@ -647,6 +647,23 @@ async def escalate_deep_reasoning(
         branch_id=branch_id,
         author_id=user.id,
         session_factory=SessionLocal,
+        model=resolved.resolved_deep_model,
+        provenance={
+            "mode": settings.deep_reasoning_mode,
+            "adaptive": settings.deep_reasoning_adaptive,
+            "steerable": body.steerable,
+            "compute_budget": settings.deep_reasoning_compute_budget,
+            # The *resolved* threshold (auto-calibration applied), from the
+            # graph build -- not the possibly-None configured value.
+            "stability_threshold": (graph_config.get("metadata") or {}).get(
+                "stability_threshold"
+            ),
+            "confidence_threshold": settings.deep_reasoning_confidence_threshold,
+            "token_budget": settings.deep_reasoning_token_budget,
+            "deadline_s": settings.deep_reasoning_deadline_s,
+            "embedder": _embeddings.version,
+            "provider_source": resolved.source,  # workspace BYO key vs server
+        },
     )
     # ResumableRun serves both kinds: a non-steerable graph simply never pauses.
     run = engine.ResumableRun(store=_store, producer=producer, branch_id=branch_id)
@@ -802,5 +819,7 @@ async def get_deep_run_record(
         "tokens_used": row.tokens_used,
         "duration_ms": row.duration_ms,
         "trace": json.loads(row.trace),
+        "model": row.model or "",
+        "provenance": json.loads(row.provenance or "{}"),
         "created_at": row.created_at.isoformat(),
     }

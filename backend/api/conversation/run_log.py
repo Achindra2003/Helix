@@ -36,6 +36,8 @@ class DeepRunRecorder:
         branch_id: str,
         author_id: str,
         session_factory,
+        model: str = "",
+        provenance: dict[str, Any] | None = None,
     ) -> None:
         self._sf = session_factory
         self._row_seed = dict(
@@ -44,6 +46,10 @@ class DeepRunRecorder:
             conversation_id=conversation_id,
             branch_id=branch_id,
             author_id=author_id,
+            # Stamped at launch: when behaviour shifts after a model/config
+            # swap, old runs answer "what produced you?" — unretrofittable.
+            model=model,
+            provenance=json.dumps(provenance or {}, ensure_ascii=False),
         )
         self._t0 = time.monotonic()
         self._question = ""

@@ -31,6 +31,30 @@ async def connect() -> None:
 
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # create_all only creates missing *tables*; columns added to an
+        # existing table (e.g. deep_runs.provenance) would silently not exist
+        # on a dev DB created before them. This forward-only shim adds them.
+        # Real migrations (Alembic) replace this for the hosted instance.
+        await conn.run_sync(_add_missing_columns)
+
+
+def _add_missing_columns(conn) -> None:
+    from sqlalchemy import inspect as sa_inspect
+
+    inspector = sa_inspect(conn)
+    for table in Base.metadata.sorted_tables:
+        if not inspector.has_table(table.name):
+            continue
+        existing = {c["name"] for c in inspector.get_columns(table.name)}
+        for column in table.columns:
+            if column.name in existing:
+                continue
+            ddl = (
+                f"ALTER TABLE {table.name} ADD COLUMN "
+                f"{column.name} {column.type.compile(conn.dialect)}"
+            )
+            conn.execute(text(ddl))  # pre-existing rows read NULL — callers
+            # treat provenance columns as optional (`row.model or ''`)
 
 
 async def disconnect() -> None:
