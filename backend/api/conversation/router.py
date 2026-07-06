@@ -37,6 +37,7 @@ from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
+from ..documents.service import DocumentIndex
 from .events import DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
 from .run_log import DeepRunRecorder
@@ -50,6 +51,18 @@ router = APIRouter(prefix="/conversations", tags=["conversations"])
 # fire-and-forget off the hot path; backfilled lazily on first retrieval), and
 # semantic recall reads those instead of re-embedding a thread per send.
 _embeddings = EmbeddingIndex(SessionLocal)
+
+# File grounding: workspace documents, retrieved per turn when relevant.
+_documents = DocumentIndex(SessionLocal)
+
+
+def _grounder_for(workspace_id: str):
+    """A Grounder bound to one workspace (see producer.Grounder)."""
+
+    async def grounder(history):
+        return await _documents.grounding_block(workspace_id, history)
+
+    return grounder
 
 # Durable persistence: conversations/branches/nodes survive restarts. The engine
 # is unchanged by this swap — it only ever sees the `ConversationStore` Protocol.
@@ -481,6 +494,7 @@ async def send_message(
         build_chat_provider(resolved),
         references=references,
         recaller=_embeddings.recall_block,
+        grounder=_grounder_for(conv.workspace_id),
     )
 
     gen = engine.send(
@@ -516,6 +530,7 @@ async def send_from_prompt(
         build_chat_provider(resolved),
         references=references,
         recaller=_embeddings.recall_block,
+        grounder=_grounder_for(conv.workspace_id),
     )
 
     gen = engine.send(

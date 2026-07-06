@@ -39,6 +39,21 @@ class Settings(BaseSettings):
     # workspace burns its own key; no accidental spend on the operator's key).
     llm_enable_server_fallback: bool = True
 
+    # --- Workspace documents / file grounding ---
+    document_max_bytes: int = 8 * 1024 * 1024  # upload cap
+    document_max_chars: int = 500_000  # extracted-text cap per document
+    # Retrieval at send time: top-k chunks above the relevance floor are folded
+    # into the context as quoted data. The floor keeps an unrelated question
+    # from dragging the knowledge base into every prompt.
+    grounding_k: int = 4
+    # Measured on MiniLM: relevant question↔chunk cosines land ~0.24-0.46 even
+    # with heavy chunk dilution; unrelated ones sit near (or below) zero. 0.15
+    # separates the two with margin on both sides.
+    grounding_floor: float = 0.15
+    grounding_chunk_chars: int = 1_200
+    # Tests set True so ingestion completes within the upload request.
+    documents_ingest_inline: bool = False
+
     # --- Deep Reasoning (Ouroboros) power feature ---
     # Always runs on Groq (its own provider enum — never the chat `llm_provider`,
     # which may be `stub`). Uses `groq_api_key` above.

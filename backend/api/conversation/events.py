@@ -89,6 +89,20 @@ class RunQueued:
 
 
 @dataclass
+class Grounding:
+    """Documents this turn was grounded on (file RAG citations).
+
+    Emitted before the reply's tokens when workspace documents cleared the
+    relevance gate. Each item: {document_id, filename, chunk_index, score,
+    excerpt} — enough for the UI to render "grounded on: spec.pdf §3" and
+    link to the document.
+    """
+
+    items: list[dict[str, Any]] = field(default_factory=list)
+    kind: str = field(default="grounding", init=False)
+
+
+@dataclass
 class Step:
     """One reasoning transition (reason / reflect / synthesize / ...)."""
 
@@ -129,7 +143,8 @@ class Complete:
 
 Event = (
     UserNode | Token | AssistantNode | Done
-    | DeepRunRegistered | RunQueued | Step | Budget | Waiting | Complete
+    | DeepRunRegistered | RunQueued | Grounding
+    | Step | Budget | Waiting | Complete
 )
 
 
