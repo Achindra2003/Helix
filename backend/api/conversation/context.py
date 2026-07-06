@@ -107,14 +107,41 @@ def _token_window(
     return kept, history[: len(history) - len(kept)]
 
 
+def render_recall_lines(nodes: list[Node], *, max_chars: int = 400) -> str:
+    """Compact chronological rendering of recalled turns (shared by the inline
+    fallback below and the persisted-substrate recall in `embeddings.py`)."""
+    lines = []
+    for node in nodes:
+        who = node.author_id or node.role
+        body = node.content[:max_chars] + ("…" if len(node.content) > max_chars else "")
+        lines.append(f"{who} ({node.role}): {body}")
+    return "\n".join(lines)
+
+
+def plan_recall(
+    history: list[Node],
+    *,
+    max_turns: int = DEFAULT_MAX_TURNS,
+    token_budget: int = DEFAULT_TOKEN_BUDGET,
+) -> tuple[list[Node], str]:
+    """What the recall path needs: the turns the window will drop, and the
+    current question — computed with exactly `build_messages`' windowing, so a
+    precomputed recall block quotes precisely the turns that won't be shown."""
+    _, elided = _token_window(history, max_turns, token_budget)
+    query = next((n.content for n in reversed(history) if n.role == "user"), "")
+    return elided, query
+
+
 def _recall_elided(
     elided: list[Node], query: str, *, k: int = 4, max_chars: int = 400
 ) -> str:
-    """Semantic recall over turns the window dropped: the top-``k`` elided turns
-    most similar to the current question, rendered compactly in chronological
-    order. Uses the engine's shared embedder (neural when installed, lexical
-    fallback otherwise); on any failure, falls back to the most recent elided
-    turns so long threads degrade to recency, never to silence.
+    """Inline semantic recall — the *fallback* path for direct callers.
+
+    The production send path precomputes recall against persisted node vectors
+    (`EmbeddingIndex.recall_block`) and passes it into `build_messages`; this
+    inline version embeds on the fly (synchronously) and exists so direct
+    calls keep working without the substrate. On any failure it degrades to
+    the most recent elided turns — recency, never silence.
     """
     if not elided or not query.strip():
         return ""
@@ -132,13 +159,7 @@ def _recall_elided(
         picks = sorted(i for score, i in scored[:k] if score > 0.1)
     except Exception:
         picks = list(range(max(0, len(elided) - k), len(elided)))
-    lines = []
-    for i in picks:
-        node = elided[i]
-        who = node.author_id or node.role
-        body = node.content[:max_chars] + ("…" if len(node.content) > max_chars else "")
-        lines.append(f"{who} ({node.role}): {body}")
-    return "\n".join(lines)
+    return render_recall_lines([elided[i] for i in picks], max_chars=max_chars)
 
 
 def _sanitize_title(title: str) -> str:
@@ -205,6 +226,7 @@ def build_messages(
     max_turns: int = DEFAULT_MAX_TURNS,
     token_budget: int = DEFAULT_TOKEN_BUDGET,
     references: list[ReferenceBlock] | None = None,
+    recalled: str | None = None,
 ) -> list[Message]:
     """Render branch history (root -> head) into role-structured chat messages.
 
@@ -215,6 +237,10 @@ def build_messages(
     months-old thread still answers from its own early decisions. Authorship is
     annotated inline for user turns. Linked conversations (`references`) are
     folded into a second system message inside a quoted-data boundary.
+
+    ``recalled`` is the recall block precomputed against persisted node vectors
+    (the production path — see `EmbeddingIndex.recall_block`); ``None`` falls
+    back to inline on-the-fly embedding for direct callers.
     """
     turns, elided = _token_window(history, max_turns, token_budget)
 
@@ -226,10 +252,11 @@ def build_messages(
         if block:
             messages.append({"role": "system", "content": block})
     if elided:
-        query = next(
-            (n.content for n in reversed(history) if n.role == "user"), ""
-        )
-        recalled = _recall_elided(elided, query)
+        if recalled is None:
+            query = next(
+                (n.content for n in reversed(history) if n.role == "user"), ""
+            )
+            recalled = _recall_elided(elided, query)
         note = (
             f"[Context window: {len(elided)} earlier turn(s) of this thread are "
             f"not shown below.]"
