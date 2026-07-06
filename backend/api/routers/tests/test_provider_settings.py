@@ -158,7 +158,9 @@ def test_test_connection_reports_rather_than_raises(make_workspace, monkeypatch)
 
         # With the provider swapped for the stub, the round-trip succeeds.
         client.put(url, json={"provider": "groq", "api_key": "gsk_k"}, headers=headers)
-        monkeypatch.setattr(workspaces_mod, "build_chat_provider", lambda _r: StubProvider())
+        monkeypatch.setattr(
+            workspaces_mod, "build_chat_provider", lambda _r, **_kw: StubProvider()
+        )
         res = client.post(f"{url}/test", headers=headers).json()
         assert res["ok"] is True, res
 
@@ -211,13 +213,15 @@ def test_send_streams_when_workspace_inherits_server_default(make_workspace):
 
 
 def test_chat_provider_construction_uses_workspace_values():
+    # The bare provider carries the resolved values verbatim…
     from api.provider_settings import build_chat_provider
 
     groq = build_chat_provider(
         ResolvedProvider(
             provider="groq", api_key="k", base_url="", chat_model="m",
             deep_model="", source="workspace",
-        )
+        ),
+        resilient=False,
     )
     assert groq.name == "groq" and groq._model == "m" and groq._api_key == "k"
 
@@ -225,7 +229,8 @@ def test_chat_provider_construction_uses_workspace_values():
         ResolvedProvider(
             provider="openai_compatible", api_key="", base_url="http://vllm.local/v1",
             chat_model="qwen", deep_model="", source="workspace",
-        )
+        ),
+        resilient=False,
     )
     assert compat.name == "openai_compatible"
     assert compat._url == "http://vllm.local/v1/chat/completions"
@@ -234,6 +239,23 @@ def test_chat_provider_construction_uses_workspace_values():
         ResolvedProvider(
             provider="stub", api_key="", base_url="", chat_model="",
             deep_model="", source="server",
-        )
+        ),
+        resilient=False,
     )
     assert stub.name == "stub"
+
+
+def test_chat_provider_defaults_to_resilient_wrapper():
+    # …while the default path wraps it in retry/breaker/fallback, reporting the
+    # primary's name so it stays a drop-in provider.
+    from api.provider_settings import build_chat_provider
+    from api.providers.resilient import ResilientProvider
+
+    wrapped = build_chat_provider(
+        ResolvedProvider(
+            provider="groq", api_key="k", base_url="", chat_model="m",
+            deep_model="", source="workspace",
+        )
+    )
+    assert isinstance(wrapped, ResilientProvider)
+    assert wrapped.name == "groq"

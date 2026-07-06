@@ -123,8 +123,8 @@ def resolve(row: WorkspaceSettings | None) -> ResolvedProvider:
     )
 
 
-def build_chat_provider(resolved: ResolvedProvider):
-    """Construct the streaming chat provider for a resolved configuration.
+def _build_bare_provider(resolved: ResolvedProvider):
+    """The raw streaming provider for a resolved configuration, no resilience.
 
     Mirrors `providers.get_provider()` but from explicit values instead of
     ambient settings — the multi-tenant path.
@@ -150,3 +150,45 @@ def build_chat_provider(resolved: ResolvedProvider):
     from .providers.stub import StubProvider
 
     return StubProvider()
+
+
+def _server_fallback_provider(resolved: ResolvedProvider):
+    """The server-wide provider, to fall back to when a *workspace* provider fails.
+
+    Returns None (no fallback) when the primary already *is* the server default,
+    or when the server has nothing usable to fall back to — critically, a hosted
+    BYO-key instance ships with no server key, so this no-ops there and a
+    workspace can never accidentally spend the operator's key."""
+    if not settings.llm_enable_server_fallback or resolved.source != "workspace":
+        return None
+    server = settings.llm_provider.lower()
+    if server == "groq" and settings.groq_api_key:
+        from .providers.groq import GroqProvider
+
+        return GroqProvider()  # server-wide key + model
+    if server == "ollama":
+        from .providers.ollama import OllamaProvider
+
+        return OllamaProvider()  # local, no key needed
+    return None  # stub or keyless server: nothing safe to fall back to
+
+
+def build_chat_provider(resolved: ResolvedProvider, *, resilient: bool = True):
+    """The chat provider a workspace's calls actually use.
+
+    By default wraps the resolved provider in retry + circuit-breaker + a safe
+    server fallback (`ResilientProvider`). Pass ``resilient=False`` for the
+    connection-test path, which must surface the raw provider's exact error
+    (and skip retry backoff) so the owner sees what really happened.
+    """
+    primary = _build_bare_provider(resolved)
+    if not resilient:
+        return primary
+    from .providers.resilient import ResilientProvider
+
+    return ResilientProvider(
+        [primary, _server_fallback_provider(resolved)],
+        attempts=settings.llm_max_attempts,
+        breaker_threshold=settings.llm_breaker_threshold,
+        breaker_cooldown=settings.llm_breaker_cooldown_s,
+    )

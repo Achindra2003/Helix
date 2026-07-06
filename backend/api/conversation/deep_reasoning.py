@@ -20,6 +20,7 @@ Two layers, deliberately split:
 """
 from __future__ import annotations
 
+import time
 from typing import Any, AsyncIterator, Callable
 
 from .context import render_seed
@@ -71,6 +72,7 @@ class DeepReasoningProducer:
         make_inputs: Callable[[str], dict[str, Any]] = _default_make_inputs,
         seed_builder: Callable[[list], str] = render_seed,
         should_stop: Callable[[], bool] | None = None,
+        deadline_s: float | None = None,
     ) -> None:
         self._graph = graph
         self._graph_config = graph_config
@@ -79,6 +81,7 @@ class DeepReasoningProducer:
         self._make_inputs = make_inputs
         self._seed_builder = seed_builder
         self._should_stop = should_stop
+        self._deadline_s = deadline_s
         self._state: dict[str, Any] = {}
         self._idx = 0
         self._answered = False
@@ -134,10 +137,22 @@ class DeepReasoningProducer:
 
     async def _drive(self, inputs) -> AsyncIterator[Event]:
         """Map one `astream` pass (fresh run or checkpoint resume) onto events."""
+        deadline = time.monotonic() + self._deadline_s if self._deadline_s else None
         try:
             async for mode, data in self._graph.astream(
                 inputs, config=self._graph_config, stream_mode=["updates", "messages"]
             ):
+                # Wall-clock safety cap: a rate-limited run can stretch for minutes
+                # under backoff retries. Halt cleanly with whatever surfaced so far,
+                # rather than holding the connection open indefinitely.
+                if deadline is not None and time.monotonic() > deadline:
+                    if not self._answered:
+                        partial = self._state.get("synthesis") or self._state.get("thought") or ""
+                        if partial:
+                            yield Token(text=partial)
+                    yield Complete(stop_reason="deadline", status="done")
+                    return
+
                 # Cooperative kill: stop the run between events (RBAC-gated at the
                 # endpoint). Persists whatever answer surfaced so far.
                 if self._should_stop is not None and self._should_stop():
