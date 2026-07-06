@@ -386,7 +386,36 @@ production-grade:
   70B model already answers well, extra refinement dilutes more than it
   deepens. So the defensible claim is narrower and better: *if you iterate,
   converge — don't count*; the next experiment is a question set hard enough
-  that single-pass actually fails.
+  that single-pass actually fails (`evals/questions-hard.json` is that set,
+  authored and waiting for its run).
+
+### The production layer (July 6)
+
+The AI lane was then completed for scale and robustness — five commits, each
+one tested (`351137c` → `bd0b95e`, 177 tests). The full integration contract
+for the frontend and DB lanes is **`AI-LANE-CONTRACTS.md`** (repo root); the
+one-paragraph version:
+
+- **Provider resilience**: retry/backoff before the first token, per-endpoint
+  circuit breakers, safe fallback to the server provider (never onto a hosted
+  operator's key), a model-capability registry, and a wall-clock deadline per
+  deep-run segment.
+- **Durable deep runs**: runs execute server-side in background tasks — a
+  dropped connection no longer kills a three-minute run; reconnect
+  (`GET /deep/runs/{id}/stream?after=N`), status, kill, and a visible
+  per-workspace queue protect BYO-key rate limits.
+- **A persisted retrieval substrate**: every node embedded once
+  (version-stamped rows; embedder upgrades re-embed lazily); semantic recall
+  reads stored vectors instead of re-embedding threads per send.
+- **File grounding (the market validation's #1 gap)**: a workspace knowledge
+  base — upload → chunk → embed; chat turns ground on relevant chunks inside
+  the same quoted-data boundaries, with `grounding` citation events for the
+  UI. Retrieval is dense-vector on the shared embedder, a decision argued in
+  `api/documents/service.py`'s docstring.
+- **Provenance + rituals**: every run stamps model/thresholds/embedder; an
+  adversarial injection regression corpus runs on every commit (it already
+  caught and fixed a real gap in the recall path); calibration readout in
+  `evals/calibration.py`.
 
 ### Known rough edges (be honest in Q&A)
 
@@ -401,8 +430,9 @@ production-grade:
 - **Self-reported confidence.** *Mitigated, not eliminated.* Unreported ratings
   are flagged and can't satisfy the convergence gate, and perturb-on-stall stops
   a stuck loop from shipping on stability alone — but calibration (does 0.9 mean
-  right 90% of the time?) is unmeasured; the run records now accumulate the data
-  to measure it.
+  right 90% of the time?) is not yet *measured*; the instrument now exists
+  (`python -m evals.calibration --judge` over the accumulating run records) and
+  just needs data volume.
 - **Energy/mood are telemetry theater** — interpretable meters from the
   engine's introspection origins, not measured signals. Say so if asked.
 - **FR-14** is a server-side policy flag today, not a per-role allowlist UI.
