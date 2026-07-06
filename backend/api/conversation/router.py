@@ -576,6 +576,7 @@ async def escalate_deep_reasoning(
         make_inputs=make_inputs,
         usage_reader=usage_reader,
         token_budget=settings.deep_reasoning_token_budget,
+        deadline_s=settings.deep_reasoning_deadline_s,
     )
     # Every deep run leaves a durable record (question, signals, outcome, compact
     # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.

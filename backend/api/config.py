@@ -26,6 +26,19 @@ class Settings(BaseSettings):
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
 
+    # --- Provider resilience (chat seam) ---
+    # Retry transient (429/5xx/network) failures that occur before the first
+    # token, with exponential backoff; a per-endpoint circuit breaker trips after
+    # `threshold` consecutive failures and half-opens after the cooldown.
+    llm_max_attempts: int = 3
+    llm_breaker_threshold: int = 4
+    llm_breaker_cooldown_s: float = 30.0
+    # When a *workspace* provider fails, fall back to the server-wide provider —
+    # but only if the server has a usable key (self-host). A hosted BYO-key
+    # instance ships with no fallback key, so this silently no-ops there (each
+    # workspace burns its own key; no accidental spend on the operator's key).
+    llm_enable_server_fallback: bool = True
+
     # --- Deep Reasoning (Ouroboros) power feature ---
     # Always runs on Groq (its own provider enum — never the chat `llm_provider`,
     # which may be `stub`). Uses `groq_api_key` above.
@@ -42,6 +55,11 @@ class Settings(BaseSettings):
     deep_reasoning_adaptive: bool = True
     deep_reasoning_compute_budget: int = 4
     deep_reasoning_token_budget: int = 200_000
+    # Wall-clock safety cap per deep-run segment, alongside the compute/token
+    # budgets. Backoff retries on a rate-limited provider can otherwise stretch a
+    # run indefinitely; this halts it cleanly (stop_reason="deadline") with
+    # whatever answer has surfaced so far. The normal halt is still convergence.
+    deep_reasoning_deadline_s: float = 300.0
     # Convergence thresholds. `None` = auto-calibrate to the active embedder at
     # graph-build time (neural MiniLM cosines run much hotter than the lexical
     # fallback's, so one fixed number can't serve both): ~0.90 neural / 0.78

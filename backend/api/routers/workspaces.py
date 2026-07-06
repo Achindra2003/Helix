@@ -238,7 +238,9 @@ async def test_provider_settings(
     resolved = resolve(row)
     if resolved.missing_key:
         return {"ok": False, "detail": "No API key configured for this provider."}
-    provider = build_chat_provider(resolved)
+    # Bare provider: the owner wants the real, immediate error, not retried or
+    # masked by a server fallback.
+    provider = build_chat_provider(resolved, resilient=False)
     try:
         first = ""
         async for chunk in provider.stream_messages(
