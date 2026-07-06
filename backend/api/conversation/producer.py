@@ -13,11 +13,14 @@ orchestrator never needs to know which producer is running.
 """
 from __future__ import annotations
 
-from typing import AsyncIterator, Protocol
+from typing import AsyncIterator, Awaitable, Callable, Protocol
 
 from ..providers import LLMProvider
 from .context import ReferenceBlock, build_messages
 from .events import Event, Node, Token
+
+# Precomputes the semantic-recall block for a send (persisted-vector path).
+Recaller = Callable[[list[Node]], Awaitable[str]]
 
 
 class Producer(Protocol):
@@ -43,12 +46,22 @@ class ChatProducer:
     """
 
     def __init__(
-        self, provider: LLMProvider, references: list[ReferenceBlock] | None = None
+        self,
+        provider: LLMProvider,
+        references: list[ReferenceBlock] | None = None,
+        recaller: Recaller | None = None,
     ) -> None:
         self._provider = provider
         self._references = references
+        self._recaller = recaller
 
     async def run(self, history: list[Node]) -> AsyncIterator[Event]:
-        messages = build_messages(history, references=self._references)
+        # Recall runs against persisted node vectors (and in a worker thread)
+        # when a recaller is wired; without one, build_messages falls back to
+        # its inline embedding path.
+        recalled = await self._recaller(history) if self._recaller else None
+        messages = build_messages(
+            history, references=self._references, recalled=recalled
+        )
         async for chunk in self._provider.stream_messages(messages):
             yield Token(text=chunk)

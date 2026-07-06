@@ -36,6 +36,7 @@ from ..models import WorkspaceSettings
 from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
+from .embeddings import EmbeddingIndex
 from .events import DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
 from .run_log import DeepRunRecorder
@@ -45,9 +46,14 @@ from .store import DbStore
 
 router = APIRouter(prefix="/conversations", tags=["conversations"])
 
+# The retrieval substrate: every persisted node gets an embedding row (written
+# fire-and-forget off the hot path; backfilled lazily on first retrieval), and
+# semantic recall reads those instead of re-embedding a thread per send.
+_embeddings = EmbeddingIndex(SessionLocal)
+
 # Durable persistence: conversations/branches/nodes survive restarts. The engine
 # is unchanged by this swap — it only ever sees the `ConversationStore` Protocol.
-_store = DbStore(SessionLocal)
+_store = DbStore(SessionLocal, on_node=_embeddings.ensure_soon)
 _prompts = PromptStore(SessionLocal)
 
 
@@ -471,7 +477,11 @@ async def send_message(
 
     resolved = await _workspace_provider(conv.workspace_id, session)
     references = await _resolve_reference_blocks(branch.conversation_id)
-    producer = ChatProducer(build_chat_provider(resolved), references=references)
+    producer = ChatProducer(
+        build_chat_provider(resolved),
+        references=references,
+        recaller=_embeddings.recall_block,
+    )
 
     gen = engine.send(
         store=_store,
@@ -502,7 +512,11 @@ async def send_from_prompt(
 
     resolved = await _workspace_provider(conv.workspace_id, session)
     references = await _resolve_reference_blocks(branch.conversation_id)
-    producer = ChatProducer(build_chat_provider(resolved), references=references)
+    producer = ChatProducer(
+        build_chat_provider(resolved),
+        references=references,
+        recaller=_embeddings.recall_block,
+    )
 
     gen = engine.send(
         store=_store,

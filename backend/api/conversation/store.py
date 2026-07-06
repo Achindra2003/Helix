@@ -255,8 +255,12 @@ class DbStore:
     since a fresh fork's head *is* the fork node.
     """
 
-    def __init__(self, session_factory) -> None:
+    def __init__(self, session_factory, on_node=None) -> None:
         self._sf = session_factory
+        # Post-persist hook (e.g. fire-and-forget node embedding). It must be
+        # non-blocking and never raise — nodes are the product, anything hooked
+        # onto their persistence is an overlay.
+        self._on_node = on_node
 
     @staticmethod
     def _to_node(row) -> Node:
@@ -407,7 +411,10 @@ class DbStore:
             s.add(row)
             branch.head_node_id = row.id
             await s.commit()
-            return self._to_node(row)
+            node = self._to_node(row)
+            if self._on_node is not None:
+                self._on_node(node)
+            return node
 
     async def get_history(self, branch_id: str) -> list[Node]:
         from .models import BranchRow, NodeRow
