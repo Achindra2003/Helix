@@ -13,7 +13,6 @@ reported as 404 so tenants can't probe for each other's resources.
 from __future__ import annotations
 
 import json
-import time
 from dataclasses import asdict
 from datetime import date
 
@@ -40,6 +39,7 @@ from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .events import DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
 from .run_log import DeepRunRecorder
+from .runs import RunHandle, RunManager
 from .producer import ChatProducer
 from .store import DbStore
 
@@ -514,16 +514,39 @@ async def send_from_prompt(
     return _streamed_run(conv, branch_id, user, gen)
 
 
-# Paused steerable runs awaiting guidance: run_id -> handle. In-process, like
-# the realtime rooms; entries expire so an abandoned pause can't leak forever.
-_DEEP_RUN_TTL_S = 30 * 60
-_deep_runs: dict[str, dict] = {}
+# Deep runs execute server-side in background tasks (they survive a dropped
+# client); the manager owns launch/subscribe/steer/kill and the workspace
+# concurrency queue. In-process, like the realtime rooms.
+_runs = RunManager(
+    per_workspace=settings.deep_runs_per_workspace,
+    retention_s=settings.deep_run_retention_s,
+)
 
 
-def _prune_deep_runs() -> None:
-    cutoff = time.time() - _DEEP_RUN_TTL_S
-    for rid in [r for r, e in _deep_runs.items() if e["ts"] < cutoff]:
-        _deep_runs.pop(rid, None)
+def _subscription(handle, *, after: int = 0) -> StreamingResponse:
+    """SSE that replays the run's log from `after`, then follows live.
+
+    Unlike the old in-request streaming, cancelling this response detaches the
+    subscriber only — the driver task keeps running (the WS relay to teammates
+    happens there too, not here).
+    """
+
+    async def stream():
+        async for event in _runs.stream(handle, after=after):
+            yield to_sse(event)
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+async def _require_run(
+    run_id: str, user: User, session: AsyncSession, min_role: str | None = None
+):
+    """The live run handle, once the caller may act on its conversation."""
+    handle = _runs.get(run_id)
+    if handle is None:
+        raise api_error(404, "not_found", "deep run not found (finished or expired)")
+    await _require_conversation(handle.conversation_id, user, session, min_role)
+    return handle
 
 
 @router.post("/{branch_id}/deep")
@@ -537,14 +560,18 @@ async def escalate_deep_reasoning(
 
     Same engine, same branch, same event contract as `messages` — only the
     producer differs ("one mount, two producers"). Emits the richer trace:
-    user_node -> (step | budget)* -> token (final answer) -> complete ->
-    assistant_node -> [DONE].
+    deep_run (the run_id handle) -> user_node -> (step | budget)* -> token
+    (final answer) -> complete -> assistant_node -> [DONE].
+
+    The run itself executes server-side: closing this stream does not stop it
+    (reconnect via GET /conversations/deep/runs/{run_id}/stream; stop it for
+    real via POST .../kill). At most `deep_runs_per_workspace` run at once —
+    a `queued` frame says the run is waiting for a slot.
 
     With `steerable: true` the run is *guided*: it pauses at a steer
     checkpoint between refinement cycles (`waiting` ends the stream, no
     assistant node yet) and resumes via POST /conversations/deep/runs/
-    {run_id}/steer — as many times as it pauses. The first frame carries the
-    `run_id` handle.
+    {run_id}/steer — as many times as it pauses.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
     # Deep Reasoning runs on Groq: the workspace's own Groq key wins, the
@@ -557,6 +584,9 @@ async def escalate_deep_reasoning(
             "Deep Reasoning needs a Groq API key — the workspace owner can add "
             "one under workspace settings → Provider.",
         )
+
+    run_id = uuid4().hex
+    handle_box: list = []  # producer's should_stop closes over the handle
 
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
         thread_id=uuid4().hex,
@@ -577,10 +607,10 @@ async def escalate_deep_reasoning(
         usage_reader=usage_reader,
         token_budget=settings.deep_reasoning_token_budget,
         deadline_s=settings.deep_reasoning_deadline_s,
+        should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
     )
     # Every deep run leaves a durable record (question, signals, outcome, compact
     # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.
-    run_id = uuid4().hex
     recorder = DeepRunRecorder(
         run_id=run_id,
         workspace_id=conv.workspace_id,
@@ -589,37 +619,26 @@ async def escalate_deep_reasoning(
         author_id=user.id,
         session_factory=SessionLocal,
     )
-
-    if not body.steerable:
-        gen = engine.send(
-            store=_store,
-            producer=producer,
-            branch_id=branch_id,
-            prompt=body.prompt,
-            author_id=user.id,
-        )
-        # Relaying deep runs means a teammate watching the same shared branch
-        # sees the live reasoning trace (steps/budget), not just the answer.
-        return _streamed_run(conv, branch_id, user, recorder.wrap(gen))
-
-    _prune_deep_runs()
+    # ResumableRun serves both kinds: a non-steerable graph simply never pauses.
     run = engine.ResumableRun(store=_store, producer=producer, branch_id=branch_id)
-    _deep_runs[run_id] = {
-        "run": run,
-        "recorder": recorder,
-        "conversation_id": conv.id,
-        "branch_id": branch_id,
-        "ts": time.time(),
-    }
+    handle = RunHandle(
+        run_id=run_id,
+        workspace_id=conv.workspace_id,
+        conversation_id=conv.id,
+        branch_id=branch_id,
+        author_id=user.id,
+        shared=conv.visibility == "shared",
+        run=run,
+        recorder=recorder,
+    )
+    handle_box.append(handle)
+    handle.events.append(DeepRunRegistered(run_id=run_id))
 
-    async def gen():
-        yield DeepRunRegistered(run_id=run_id)
-        async for event in run.start(prompt=body.prompt, author_id=user.id):
-            yield event
-        if not run.paused:  # finished (or errored) in one segment
-            _deep_runs.pop(run_id, None)
+    def start():
+        return run.start(prompt=body.prompt, author_id=user.id)
 
-    return _streamed_run(conv, branch_id, user, recorder.wrap(gen()))
+    _runs.launch(handle=handle, start=start)
+    return _subscription(handle)
 
 
 @router.post("/deep/runs/{run_id}/steer")
@@ -636,26 +655,62 @@ async def steer_deep_run(
     continuation with the same event contract; pauses again at the next
     checkpoint unless the run converges or exhausts its budget.
     """
-    _prune_deep_runs()
-    entry = _deep_runs.get(run_id)
-    if entry is None:
-        raise api_error(404, "not_found", "deep run not found (finished or expired)")
-    conv = await _require_conversation(
-        entry["conversation_id"], user, session, ROLE_COLLABORATOR
-    )
-    run = entry["run"]
-    if not run.paused:
+    handle = await _require_run(run_id, user, session, ROLE_COLLABORATOR)
+    run = handle.run
+    if handle.status != "paused" or not run.paused:
         raise api_error(409, "conflict", "run is not paused for steer")
-    recorder: DeepRunRecorder = entry["recorder"]
-    recorder.note_steer(body.guidance)
+    handle.recorder.note_steer(body.guidance)
 
-    async def gen():
-        async for event in run.steer(body.guidance):
-            yield event
-        if not run.paused:
-            _deep_runs.pop(run_id, None)
+    resume_from = handle.seq  # stream only the continuation, like the old segments
+    _runs.steer(handle, lambda: run.steer(body.guidance))
+    return _subscription(handle, after=resume_from)
 
-    return _streamed_run(conv, entry["branch_id"], user, recorder.wrap(gen()))
+
+@router.get("/deep/runs/{run_id}/stream")
+async def reconnect_deep_run(
+    run_id: str,
+    after: int = 0,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """(Re)attach to a live run's stream: replay events from `after`, follow live.
+
+    The recovery path the background model buys: a dropped connection, a page
+    reload, or a second device can pick the run back up mid-flight. Any member
+    who can read the conversation may watch.
+    """
+    handle = await _require_run(run_id, user, session)
+    return _subscription(handle, after=max(0, after))
+
+
+@router.get("/deep/runs/{run_id}/status")
+async def deep_run_status(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Cheap poll: where is this run right now (without opening a stream)?"""
+    handle = await _require_run(run_id, user, session)
+    return {
+        "run_id": handle.run_id,
+        "status": handle.status,
+        "seq": handle.seq,
+        "queue_position": _runs.queue_position(handle),
+    }
+
+
+@router.post("/deep/runs/{run_id}/kill")
+async def kill_deep_run(
+    run_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Stop a run for real (closing the stream no longer does): cooperative
+    between events when running, immediate when queued or paused. Collaborator+,
+    same as starting one — a runaway run burns the workspace's own key."""
+    handle = await _require_run(run_id, user, session, ROLE_COLLABORATOR)
+    _runs.kill(handle)
+    return {"run_id": handle.run_id, "status": handle.status}
 
 
 @router.get("/{conversation_id}/deep/runs")

@@ -240,7 +240,10 @@ def test_escalate_deep_reasoning_streams_trace(monkeypatch, make_workspace):
         assert payloads[-1] == "[DONE]"
         kinds = [json.loads(p)["kind"] for p in payloads if p != "[DONE]"]
         assert "step" in kinds and "budget" in kinds and "complete" in kinds
-        assert kinds[0] == "user_node" and kinds[-1] == "assistant_node"
+        # Every deep run now opens with its run_id handle (reconnect/kill),
+        # then the usual user_node ... assistant_node envelope.
+        assert kinds[0] == "deep_run" and kinds[1] == "user_node"
+        assert kinds[-1] == "assistant_node"
 
 
 def test_escalate_without_groq_key_is_503(monkeypatch, make_workspace):
@@ -505,13 +508,14 @@ def test_steerable_deep_run_pauses_then_resumes_with_guidance(monkeypatch, make_
         assert [n["role"] for n in hist] == ["user", "assistant"]
         assert hist[-1]["content"] == "Steered answer."
 
-        # The run is finished: its handle is gone.
+        # The run is finished. Its handle is *retained* now (reconnect surface),
+        # so steering it is a clear conflict rather than a vanished 404.
         gone = client.post(
             f"/conversations/deep/runs/{run_id}/steer",
             json={"guidance": "again"},
             headers=headers,
         )
-        assert gone.status_code == 404
+        assert gone.status_code == 409
 
 
 def test_steer_requires_workspace_membership(monkeypatch, make_workspace, make_user):
@@ -539,3 +543,69 @@ def test_steer_requires_workspace_membership(monkeypatch, make_workspace, make_u
             headers=outsider,
         )
         assert denied.status_code == 404  # not even existence is leaked
+
+
+def test_deep_run_reconnect_status_and_kill_endpoints(monkeypatch, make_workspace, make_user):
+    """The background-run surface: status poll, stream reattach, kill, RBAC."""
+    monkeypatch.setattr(router_mod.settings, "groq_api_key", "test-key")
+    monkeypatch.setattr(
+        router_mod,
+        "build_ouroboros_graph",
+        lambda **kw: (_FakeGraph(), {}, lambda seed: {"seed": seed}, lambda: 1234),
+    )
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, headers, wid, title="deep")["branch_id"]
+        resp = client.post(
+            f"/conversations/{branch_id}/deep",
+            json={"prompt": "hard question"},
+            headers=headers,
+        )
+        first = json.loads(_parse_sse(resp.text)[0])
+        assert first["kind"] == "deep_run"
+        run_id = first["run_id"]
+
+        # Status: the run finished server-side; seq counts the whole log.
+        st = client.get(
+            f"/conversations/deep/runs/{run_id}/status", headers=headers
+        ).json()
+        assert st["status"] == "done"
+        assert st["seq"] > 3
+        assert st["queue_position"] is None
+
+        # Reconnect: full replay, well-formed, ends with [DONE].
+        replay = client.get(
+            f"/conversations/deep/runs/{run_id}/stream", headers=headers
+        )
+        payloads = _parse_sse(replay.text)
+        assert payloads[-1] == "[DONE]"
+        kinds = [json.loads(p)["kind"] for p in payloads if p != "[DONE]"]
+        assert kinds[0] == "deep_run" and "assistant_node" in kinds
+
+        # Reconnect from the end: nothing left to replay, stream ends clean.
+        tail = client.get(
+            f"/conversations/deep/runs/{run_id}/stream?after={st['seq']}",
+            headers=headers,
+        )
+        assert _parse_sse(tail.text) == []
+
+        # Kill on a finished run is a no-op that reports the settled status.
+        killed = client.post(
+            f"/conversations/deep/runs/{run_id}/kill", headers=headers
+        ).json()
+        assert killed["status"] == "done"
+
+        # RBAC: an outsider can't even learn the run exists.
+        outsider, _ = make_user(client)
+        assert (
+            client.get(
+                f"/conversations/deep/runs/{run_id}/status", headers=outsider
+            ).status_code
+            == 404
+        )
+        assert (
+            client.post(
+                f"/conversations/deep/runs/{run_id}/kill", headers=outsider
+            ).status_code
+            == 404
+        )
