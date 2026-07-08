@@ -9,6 +9,7 @@ import { WorkspacePicker } from "@/routes/WorkspacePicker";
 import { WorkspaceLayout } from "@/routes/WorkspaceLayout";
 import { ChatView } from "@/routes/ChatView";
 import { LibraryView } from "@/routes/LibraryView";
+import { DocsView } from "@/routes/DocsView";
 import { MembersView } from "@/routes/MembersView";
 import { MapView } from "@/routes/MapView";
 
@@ -81,6 +82,7 @@ export function App() {
           <Route index element={<ChatView />} />
           <Route path="map" element={<MapView />} />
           <Route path="library" element={<LibraryView />} />
+          <Route path="docs" element={<DocsView />} />
           <Route path="members" element={<MembersView />} />
         </Route>
         <Route path="*" element={<Navigate to={user ? "/workspaces" : "/auth"} replace />} />
