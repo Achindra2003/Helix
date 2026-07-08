@@ -7,7 +7,7 @@ import {
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
-import type { Branch, Conversation, ConversationRef, Node } from "@/lib/types";
+import type { Branch, Conversation, ConversationRef, GroundingItem, Node } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
@@ -35,6 +35,11 @@ interface SavedDeepRun {
   runId: string; conversationId: string; branchId: string; question: string; guided: boolean;
 }
 
+// Grounding citations live only in the stream (nodes don't persist them), but
+// history reloads happen after every turn — remember which sources each
+// assistant node cited so the chips survive the round-trip for this session.
+const groundingByNode: Record<string, GroundingItem[]> = {};
+
 function nodeToMsg(
   n: Node,
   meId: string | undefined,
@@ -53,6 +58,7 @@ function nodeToMsg(
     tokens: n.token_count ? `${n.token_count} tokens` : undefined,
     forkPoint: !!forkNodeId && n.id === forkNodeId,
     forkChildren: forkMap?.[n.id],
+    grounding: groundingByNode[n.id],
   };
 }
 
@@ -266,6 +272,7 @@ export function ChatView() {
         } else if (ev.kind === "assistant_node") {
           asstMsg.id = ev.node.id; asstMsg.typing = false;
           asstMsg.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ☁ ${provider}` : undefined;
+          if (asstMsg.grounding) groundingByNode[ev.node.id] = asstMsg.grounding;
         }
       });
       await h.done;
@@ -551,6 +558,7 @@ export function ChatView() {
           run.asst.typing = false;
           run.asst.body = e.node.content || run.acc;
           run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ☁ ${provider}` : undefined;
+          if (run.asst.grounding) groundingByNode[e.node.id] = run.asst.grounding;
           setMessages((m) => [...m]);
         } else if (e.kind === "done") {
           remoteRuns.current.delete(key);
