@@ -3,7 +3,7 @@
 import { getToken } from "@/lib/auth";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
-  MapConversation,
+  MapConversation, WorkspaceDocument, DocumentSearchHit,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -160,6 +160,43 @@ export const removeReference = (cid: string, referencedConversationId: string) =
     `/conversations/${cid}/references/${referencedConversationId}`,
     { method: "DELETE" },
   );
+
+// --- workspace documents: the knowledge base (AI-LANE-CONTRACTS §2.3) ---
+// Upload is multipart (the one non-JSON call): the browser sets the boundary
+// header itself, so this bypasses request() and its forced Content-Type.
+export const uploadDocument = async (wid: string, file: File): Promise<WorkspaceDocument> => {
+  const token = getToken();
+  const form = new FormData();
+  form.append("file", file);
+  let res: Response;
+  try {
+    res = await fetch(`${API_BASE}/api/workspaces/${wid}/documents`, {
+      method: "POST",
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+      body: form,
+    });
+  } catch {
+    throw new ApiError(0, "network", "Cannot reach the Helix API. Is the backend running on :8000?");
+  }
+  const text = await res.text();
+  const data = text ? JSON.parse(text) : undefined;
+  if (!res.ok) {
+    const err = data?.error ?? {};
+    throw new ApiError(res.status, err.code ?? "error", err.message ?? `HTTP ${res.status}`);
+  }
+  return data as WorkspaceDocument;
+};
+export const listDocuments = (wid: string) =>
+  request<{ items: WorkspaceDocument[] }>(`/api/workspaces/${wid}/documents`);
+export const getDocument = (wid: string, id: string) =>
+  request<WorkspaceDocument>(`/api/workspaces/${wid}/documents/${id}`);
+export const deleteDocument = (wid: string, id: string) =>
+  request<{ ok: boolean }>(`/api/workspaces/${wid}/documents/${id}`, { method: "DELETE" });
+export const searchDocuments = (wid: string, query: string, k = 6) =>
+  request<{ items: DocumentSearchHit[] }>(`/api/workspaces/${wid}/documents/search`, {
+    method: "POST",
+    body: JSON.stringify({ query, k }),
+  });
 
 // --- prompts (contract §8) ---
 export const listPrompts = (wid: string, q?: string, tag?: string) => {

@@ -102,6 +102,29 @@ export interface MapConversation {
   references: string[]; // conversation ids this one draws live context from
 }
 
+// --- workspace documents (the knowledge base; AI-LANE-CONTRACTS §2.3) ---
+export interface WorkspaceDocument {
+  id: string;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+  status: "processing" | "ready" | "error";
+  error: string | null;
+  text_chars: number;
+  chunk_count: number;
+  author_id: string;
+  created_at: string;
+}
+
+// A ranked chunk from POST /documents/search — the same scoring chat grounding uses.
+export interface DocumentSearchHit {
+  document_id: string;
+  filename: string;
+  chunk_index: number;
+  score: number;
+  content: string;
+}
+
 export interface Health {
   status: string;
   db_time: string;

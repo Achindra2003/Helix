@@ -12,6 +12,12 @@ export const nowTime = () => {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 };
 
+export function formatBytes(n: number): string {
+  if (n < 1024) return `${n} B`;
+  if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
+  return `${(n / (1024 * 1024)).toFixed(1)} MB`;
+}
+
 // deterministic accent colour per id/name, drawn from the manuscript palette
 const PALETTE = ["#9a7a2c", "#46624c", "#6e5aa8", "#9a6b4b", "#8c2b1e", "#c5752a"];
 export function colorFor(seed: string): string {
