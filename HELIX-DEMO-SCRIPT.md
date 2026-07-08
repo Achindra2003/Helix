@@ -169,6 +169,36 @@ team knowledge — with a reasoning mode you can actually trust and control. Tha
 
 ---
 
+## NEW BEAT (added July 8, `ui-standout`) — Cited knowledge base: upload → grounded answer
+*Slot it after the fork segment. Speaker: **R** · ~90s · proves the RAG lane (P1+P2)*
+
+**Say:**
+> "One more thing no competitor shows in one product: give the workspace a memory.
+> I upload our spec once — for the whole team, no per-chat attach — and from then on,
+> any question that touches it gets an answer *grounded on the document, with
+> citations*. And because conversations are shared, my teammate watches those
+> citations appear live in their browser."
+
+**Show / click:**
+1. Rail → **DOCS**: drag a small `.md` spec in → chip flips *⟳ processing* →
+   *✓ ready* with a chunk count ("ingested: chunked and embedded, server-side").
+2. Try the **knowledge-base search box** with a phrase from the doc — ranked
+   chunks with relevance scores. "This is the exact ranking chat grounding uses."
+3. Back to **CHAT**: ask a question that shares real terms with the doc → the
+   reply streams in wearing **⌘ file.md §n** chips; hover one — the tooltip is
+   the grounded excerpt. In the **second browser**, the same chips appear on the
+   watcher's copy of the turn.
+4. Ask something unrelated → **no chips**. Say why out loud: *"an unrelated
+   question must not drag the knowledge base into every prompt — that's the
+   relevance gate, not a bug."*
+
+**Also worth flashing (P3, if time):** start a Deep Reasoning run, **reload the
+page mid-run** — the monitor reattaches and the answer still lands ("the run
+lives on the server now; closing the tab doesn't kill it — the **Stop** button
+does").
+
+---
+
 ## Q&A — likely questions & who answers
 
 - **"Is the AI real or scripted?"** (A) — fully live Groq; show the streaming again, or the network tab.
