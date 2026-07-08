@@ -148,6 +148,7 @@ export type RunEvent =
   | { kind: "token"; text: string }
   | { kind: "assistant_node"; node: Node }
   | { kind: "deep_run"; run_id: string }
+  | { kind: "queued"; position: number }
   | { kind: "step"; idx: number; node: string; depth: number; energy: number; payload: Record<string, unknown> }
   | { kind: "budget"; tokens_used: number; tokens_budget: number; pct: number }
   | { kind: "waiting"; reason: string }

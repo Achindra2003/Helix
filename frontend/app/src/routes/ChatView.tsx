@@ -3,9 +3,9 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference, listMembers, getProviderSettings,
+  listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
 } from "@/lib/api";
-import { streamSSE } from "@/lib/sse";
+import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
 import type { Branch, Conversation, ConversationRef, Node } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
@@ -27,6 +27,13 @@ import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
 import s from "@/components/chat/chat.module.css";
+
+// Deep runs execute server-side and outlive the tab: remember the in-flight
+// run so a reload can reattach to its stream instead of showing a dead monitor.
+const deepKey = (wid: string) => `helix:deeprun:${wid}`;
+interface SavedDeepRun {
+  runId: string; conversationId: string; branchId: string; question: string; guided: boolean;
+}
 
 function nodeToMsg(
   n: Node,
@@ -75,6 +82,10 @@ export function ChatView() {
   const [replay, setReplay] = useState<number | null>(null);
   const [linkDlg, setLinkDlg] = useState(false);
   const canvasRef = useRef<HTMLDivElement>(null);
+  // Which branch is on screen *now* — deep runs finish asynchronously (maybe
+  // after a branch switch or a reload), so history refreshes check this first.
+  const activeBranchRef = useRef<string | null>(null);
+  useEffect(() => { activeBranchRef.current = activeBranchId; }, [activeBranchId]);
 
   // Deep link from the Map: /w/:wid?conv=…&branch=… lands directly in that
   // thread at that branch. Consumed once, then removed from the URL.
@@ -307,6 +318,16 @@ export function ChatView() {
     if (!run) return;
     if (ev.kind === "deep_run") {
       monitor.patch({ runId: ev.run_id });
+      if (wid) {
+        const saved: SavedDeepRun = {
+          runId: ev.run_id, conversationId: run.conversationId ?? "", branchId: run.branchId ?? "",
+          question: run.question, guided: !!run.onSteer,
+        };
+        sessionStorage.setItem(deepKey(wid), JSON.stringify(saved));
+      }
+    } else if (ev.kind === "queued") {
+      // Waiting behind the workspace's concurrency cap — say so instead of stalling.
+      monitor.patch({ status: "queued", queuePosition: ev.position });
     } else if (ev.kind === "step") {
       const p = ev.payload ?? {};
       const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
@@ -323,6 +344,8 @@ export function ChatView() {
         ...(stabNow !== null && stabNow !== run.stabilityHistory[run.stabilityHistory.length - 1]
           ? { stabilityHistory: [...run.stabilityHistory, stabNow] } : {}),
         ...(thr !== undefined ? { threshold: thr } : {}),
+        // A queued run has started; a replayed pause has been steered past.
+        ...(run.status === "queued" || run.status === "waiting" ? { status: "live" as const } : {}),
       });
       const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
       monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
@@ -335,6 +358,7 @@ export function ChatView() {
       monitor.patch({ status: "waiting" });
     } else if (ev.kind === "complete") {
       monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
+      if (wid) sessionStorage.removeItem(deepKey(wid));
     } else if (ev.kind === "assistant_node") {
       const cur = useMonitor.getState().run;
       if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
@@ -353,7 +377,12 @@ export function ChatView() {
       const cur = useMonitor.getState().run;
       if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
     }
-    if (useMonitor.getState().run?.status !== "waiting") {
+    const status = useMonitor.getState().run?.status;
+    if (status !== "waiting" && status !== "live" && status !== "queued" && wid) {
+      // Terminal on this client — a reload should not reattach to it.
+      sessionStorage.removeItem(deepKey(wid));
+    }
+    if (status !== "waiting" && activeBranchRef.current === branchId) {
       getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)))).catch(() => {});
     }
   }
@@ -377,10 +406,50 @@ export function ChatView() {
       stabilityHistory: [],
       budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
       abort: h.abort, conversationId: activeConvId, branchId,
+      canControl: can(role, "run.control"),
       onSteer: guided ? (g) => { steerRun(g); } : undefined,
     });
     await finishDeepSegment(h.done, branchId);
   }
+
+  // Reconnect-on-load (AI-LANE-CONTRACTS §2.2): if this workspace has an
+  // in-flight deep run from a previous page load, reattach to its stream —
+  // replaying the event log from 0 rebuilds the whole monitor (gauges, trace,
+  // sparkline), then follows live. A finished/expired run just clears itself.
+  useEffect(() => {
+    if (!wid) return;
+    const raw = sessionStorage.getItem(deepKey(wid));
+    if (!raw) return;
+    let saved: SavedDeepRun;
+    try { saved = JSON.parse(raw); } catch { sessionStorage.removeItem(deepKey(wid)); return; }
+    if (!saved?.runId) { sessionStorage.removeItem(deepKey(wid)); return; }
+    (async () => {
+      try {
+        const st = await getDeepRunStatus(saved.runId);
+        if (st.status === "done" || st.status === "error" || st.status === "killed") {
+          sessionStorage.removeItem(deepKey(wid));
+          return;
+        }
+        monitor.start({
+          status: st.status === "queued" ? "queued" : "live",
+          question: saved.question, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
+          stabilityHistory: [], budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
+          conversationId: saved.conversationId, branchId: saved.branchId, runId: saved.runId,
+          queuePosition: st.queue_position ?? undefined,
+          canControl: can(role, "run.control"),
+          onSteer: saved.guided ? (g) => { steerRun(g); } : undefined,
+        });
+        const h = attachSSE(`/conversations/deep/runs/${saved.runId}/stream?after=0`, handleDeepEvent);
+        monitor.patch({ abort: h.abort });
+        await finishDeepSegment(h.done, saved.branchId);
+      } catch {
+        // 404: the run finished and its live handle expired — the assistant
+        // node is already in history, nothing to reattach to.
+        sessionStorage.removeItem(deepKey(wid));
+      }
+    })();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [wid]);
 
   // --- Live fan-out (FR-5): teammates' activity arrives over the workspace
   // room. A turn streaming on the branch I'm viewing renders in place,
@@ -450,6 +519,7 @@ export function ChatView() {
               stabilityHistory: [],
               budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
               abort: () => {}, conversationId: ev.conversation_id, branchId: ev.branch_id,
+              canControl: false, // their run, not mine
             });
           }
           if (run.watching) {

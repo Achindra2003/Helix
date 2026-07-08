@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useMonitor, type TraceStep } from "@/store/monitor";
+import { killDeepRun } from "@/lib/api";
 import { Button } from "@/components/common/Button";
 import s from "./monitor.module.css";
 
@@ -130,6 +131,17 @@ export function DeepReasoningMonitor() {
   const threshold = run?.threshold ?? 0.9;
   const holding = run?.status === "waiting";
 
+  /** Stop the run for real: the run lives server-side, so aborting the local
+   *  stream is not enough — POST /kill, then let the `complete` frame land. */
+  async function stopRun() {
+    const cur = useMonitor.getState().run;
+    if (!cur) return;
+    if (cur.runId) {
+      try { await killDeepRun(cur.runId); return; } catch { /* fall back to abort */ }
+    }
+    cur.abort?.();
+  }
+
   return (
     <div className={`${s.pane} ${holding ? s.holding : ""} monitor-pane`}>
       <div className={s.head}>
@@ -175,6 +187,14 @@ export function DeepReasoningMonitor() {
             </div>
           </div>
 
+          {run.status === "queued" && (
+            <div className={s.queued}>
+              ⌗ Queued behind a teammate's run
+              {typeof run.queuePosition === "number" && run.queuePosition > 0 ? ` — position ${run.queuePosition}` : ""}.
+              It starts automatically when a slot frees up.
+            </div>
+          )}
+
           <Topology steps={run.steps} />
           <div className={s.readings}>
             <span className={s.reading}>loop-guard <b>{run.loopGuard}</b></span>
@@ -207,17 +227,19 @@ export function DeepReasoningMonitor() {
           {run.status === "waiting" && run.onSteer && <SteerBox onSteer={run.onSteer} />}
 
           <div className={s.controls}>
-            {run.status === "live" ? (
+            {run.status === "live" || run.status === "queued" || run.status === "waiting" ? (
               <>
-                {run.onSteer && (
+                {run.status === "live" && run.onSteer && (
                   <button className={s.steer} title="Guided run — it will pause for you at the next reasoning checkpoint" disabled>
                     ⟂ pausing at next checkpoint…
                   </button>
                 )}
-                <button className={s.kill} onClick={() => run.abort?.()}>◼ Kill switch</button>
+                {run.canControl !== false && (
+                  <button className={s.kill} onClick={stopRun} title="Stops the run server-side — closing the tab no longer does">
+                    ◼ Stop run
+                  </button>
+                )}
               </>
-            ) : run.status === "waiting" ? (
-              <button className={s.kill} onClick={() => run.abort?.()}>◼ Kill switch</button>
             ) : (
               <Button className={s.dismiss} onClick={clear}>Dismiss</Button>
             )}
@@ -261,5 +283,5 @@ function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
 }
 
 function statusLabel(s: string) {
-  return ({ live: "● running", waiting: "⟂ holding for you", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
+  return ({ queued: "⌗ queued", live: "● running", waiting: "⟂ holding for you", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
 }
