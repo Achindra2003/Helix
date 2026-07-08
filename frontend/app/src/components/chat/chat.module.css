@@ -105,3 +105,12 @@
   .grid { grid-template-columns: 1fr; }
   .left, :global(.monitor-pane) { display: none; }
 }
+
+/* small-screen pass (LAUNCH-PLAN): the stage header wraps instead of clipping,
+   and the canvas/composer breathe with tighter gutters */
+@media (max-width: 760px) {
+  .stageHead { flex-wrap: wrap; padding: 12px 14px 10px; gap: 9px; }
+  .canvas { padding: 16px 14px 10px; }
+  .composerWrap { padding: 10px 14px 14px; }
+  .stageTitle { font-size: 20px; }
+}
