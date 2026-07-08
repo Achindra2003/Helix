@@ -690,7 +690,7 @@ export function ChatView() {
       </div>
 
       {/* RIGHT: monitor */}
-      <DeepReasoningMonitor />
+      <DeepReasoningMonitor conversationId={activeConvId} />
 
       {forkDlg && (
         <ForkDialog onClose={() => setForkDlg(null)} onConfirm={(name) => { doFork(forkDlg.nodeId, name); setForkDlg(null); }} />

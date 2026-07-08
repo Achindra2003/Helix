@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useMonitor, type TraceStep } from "@/store/monitor";
 import { killDeepRun } from "@/lib/api";
 import { Button } from "@/components/common/Button";
+import { RunHistory } from "./RunHistory";
 import s from "./monitor.module.css";
 
 const KIND_COLOR: Record<string, string> = {
@@ -101,7 +102,7 @@ function Topology({ steps }: { steps: TraceStep[] }) {
   );
 }
 
-function Step({ step }: { step: TraceStep }) {
+export function Step({ step }: { step: TraceStep }) {
   const c = KIND_COLOR[step.kind] ?? "var(--ink-3)";
   return (
     <div className={s.step}>
@@ -120,9 +121,12 @@ function Step({ step }: { step: TraceStep }) {
   );
 }
 
-export function DeepReasoningMonitor() {
+export function DeepReasoningMonitor({ conversationId }: { conversationId?: string | null }) {
   const { run, clear } = useMonitor();
   const traceRef = useRef<HTMLDivElement>(null);
+  // The reasoning archive (P4): past runs of the open conversation.
+  const [showRuns, setShowRuns] = useState(false);
+  useEffect(() => { setShowRuns(false); }, [conversationId]);
 
   useEffect(() => {
     if (traceRef.current) traceRef.current.scrollTop = traceRef.current.scrollHeight;
@@ -147,12 +151,20 @@ export function DeepReasoningMonitor() {
       <div className={s.head}>
         <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⟳</span>
         <span className="eyebrow" style={{ flex: 1, letterSpacing: "0.14em" }}>Deep Reasoning</span>
+        {conversationId && (
+          <button className={showRuns ? s.runsBtnOn : s.runsBtn} onClick={() => setShowRuns((v) => !v)}
+            title="The team's reasoning archive — every recorded run of this conversation">
+            ☷ runs
+          </button>
+        )}
         <span className={`${s.status} ${run?.status === "live" ? s.statusLive : run?.status === "done" ? s.statusDone : holding ? s.statusHold : ""}`}>
           {run ? statusLabel(run.status) : "idle"}
         </span>
       </div>
 
-      {!run ? (
+      {showRuns && conversationId ? (
+        <RunHistory conversationId={conversationId} />
+      ) : !run ? (
         <div className={s.idle}>
           <svg viewBox="0 0 120 120" width={92} height={92} style={{ opacity: 0.5 }} aria-hidden>
             <circle cx="60" cy="60" r="46" fill="none" stroke="var(--rule)" strokeWidth="1" />
