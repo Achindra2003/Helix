@@ -1,5 +1,6 @@
 import { initialOf } from "@/lib/format";
 import { Markdown } from "@/components/common/Markdown";
+import type { GroundingItem } from "@/lib/types";
 import s from "./chat.module.css";
 
 export interface ChatMessage {
@@ -17,6 +18,8 @@ export interface ChatMessage {
   forkPoint?: boolean;
   // Names of branches forked *from* this message (always-visible margin glyph).
   forkChildren?: string[];
+  // Knowledge-base sources this reply grounded on (the `grounding` SSE frame).
+  grounding?: GroundingItem[];
 }
 
 function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void }) {
@@ -60,6 +63,17 @@ function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean;
             </>
           )}
         </div>
+        {m.grounding && m.grounding.length > 0 && (
+          <div className={s.groundRow}>
+            <span className={s.groundLabel}>grounded on</span>
+            {m.grounding.map((g, i) => (
+              <span key={`${g.document_id}-${g.chunk_index}-${i}`} className={s.groundChip}
+                title={`relevance ${g.score.toFixed(2)} — “${g.excerpt}”`}>
+                ⌘ {g.filename} §{g.chunk_index + 1}
+              </span>
+            ))}
+          </div>
+        )}
         {m.tokens && <div className={s.colophon}>❧ {m.tokens} ❧</div>}
       </div>
     </div>

@@ -64,6 +64,15 @@
   border-radius: 4px;
   padding: 1px 6px;
 }
+/* grounding citations: which knowledge-base chunks this reply drew on */
+.groundRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+.groundLabel { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-faint); }
+.groundChip {
+  font-family: var(--font-mono); font-size: 11px; color: var(--gilt-1);
+  border: 1px solid rgba(154, 122, 44, 0.45); border-radius: 5px; padding: 1px 7px;
+  background: rgba(154, 122, 44, 0.06); cursor: help;
+}
+
 /* token/provider line as a small centered colophon */
 .colophon {
   font-family: var(--font-mono);

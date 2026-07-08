@@ -116,6 +116,16 @@ export interface WorkspaceDocument {
   created_at: string;
 }
 
+// One grounded source behind a reply — arrives as a `grounding` frame before
+// the reply's tokens (SSE and the WS run_event relay alike).
+export interface GroundingItem {
+  document_id: string;
+  filename: string;
+  chunk_index: number;
+  score: number;
+  excerpt: string;
+}
+
 // A ranked chunk from POST /documents/search — the same scoring chat grounding uses.
 export interface DocumentSearchHit {
   document_id: string;
@@ -134,6 +144,7 @@ export interface Health {
 // --- SSE event frames (the engine's run contract; `kind` tags the type) ---
 export type RunEvent =
   | { kind: "user_node"; node: Node }
+  | { kind: "grounding"; items: GroundingItem[] }
   | { kind: "token"; text: string }
   | { kind: "assistant_node"; node: Node }
   | { kind: "deep_run"; run_id: string }

@@ -245,6 +245,11 @@ export function ChatView() {
         if (ev.kind === "user_node") {
           userMsg.id = ev.node.id; userMsg.body = ev.node.content;
           setMessages((m) => [...m]);
+        } else if (ev.kind === "grounding") {
+          // Emitted before the reply's tokens when workspace documents cleared
+          // the relevance gate — pin the source chips on the incoming reply.
+          asstMsg.grounding = ev.items;
+          setMessages((m) => [...m]);
         } else if (ev.kind === "token") {
           acc += ev.text; asstMsg.body = acc; setMessages((m) => [...m]); scrollDown();
         } else if (ev.kind === "assistant_node") {
@@ -419,6 +424,10 @@ export function ChatView() {
           remoteRuns.current.set(key, run);
           setMessages((m) => [...m, userMsg, asst]);
           scrollDown();
+        } else if (e.kind === "grounding" && run) {
+          // Watchers get the same citation chips the author sees.
+          run.asst.grounding = e.items;
+          setMessages((m) => [...m]);
         } else if (e.kind === "token" && run) {
           run.acc += e.text;
           run.asst.body = run.acc;
