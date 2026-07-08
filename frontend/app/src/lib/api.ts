@@ -143,6 +143,19 @@ export const downloadExport = async (cid: string, branchId: string, format: "md"
   URL.revokeObjectURL(url);
 };
 
+// --- deep-run control (AI-LANE-CONTRACTS §2.2): the run outlives the tab ---
+export type DeepRunStatus = {
+  run_id: string;
+  status: "queued" | "running" | "paused" | "done" | "error" | "killed";
+  seq: number;
+  queue_position: number | null;
+};
+export const getDeepRunStatus = (runId: string) =>
+  request<DeepRunStatus>(`/conversations/deep/runs/${runId}/status`);
+// Closing the SSE no longer stops a run — this does (cooperative).
+export const killDeepRun = (runId: string) =>
+  request<{ run_id: string; status: string }>(`/conversations/deep/runs/${runId}/kill`, { method: "POST" });
+
 // --- workspace map (the whole reasoning graph in one read) ---
 export const getWorkspaceMap = (wid: string) =>
   request<{ conversations: MapConversation[] }>(`/workspaces/${wid}/map`);

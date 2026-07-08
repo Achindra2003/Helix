@@ -7,7 +7,7 @@ export interface TraceStep {
   text: string;
 }
 
-export type RunStatus = "idle" | "live" | "waiting" | "done" | "killed" | "error";
+export type RunStatus = "idle" | "queued" | "live" | "waiting" | "done" | "killed" | "error";
 
 export interface RunState {
   status: RunStatus;
@@ -33,6 +33,10 @@ export interface RunState {
   // monitor invokes to resume a paused run with (optional) human guidance.
   runId?: string;
   onSteer?: (guidance: string) => void;
+  // Waiting behind the workspace's concurrency cap (the `queued` frame).
+  queuePosition?: number;
+  // False on watch-only runs (a teammate's) — hides the Stop control.
+  canControl?: boolean;
 }
 
 interface MonitorStore {
