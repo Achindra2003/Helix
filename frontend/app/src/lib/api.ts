@@ -3,7 +3,7 @@
 import { getToken } from "@/lib/auth";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
-  MapConversation, WorkspaceDocument, DocumentSearchHit,
+  MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -155,6 +155,12 @@ export const getDeepRunStatus = (runId: string) =>
 // Closing the SSE no longer stops a run — this does (cooperative).
 export const killDeepRun = (runId: string) =>
   request<{ run_id: string; status: string }>(`/conversations/deep/runs/${runId}/kill`, { method: "POST" });
+
+// --- the team's reasoning archive: persisted deep-run records ---
+export const listDeepRuns = (cid: string) =>
+  request<{ items: DeepRunSummary[] }>(`/conversations/${cid}/deep/runs`);
+export const getDeepRunRecord = (runId: string) =>
+  request<DeepRunRecord>(`/conversations/deep/runs/${runId}/record`);
 
 // --- workspace map (the whole reasoning graph in one read) ---
 export const getWorkspaceMap = (wid: string) =>

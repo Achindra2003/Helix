@@ -135,6 +135,45 @@ export interface DocumentSearchHit {
   content: string;
 }
 
+// --- deep-run archive (endpoints live since July 4; P4 gives them a face) ---
+export interface DeepRunSummary {
+  id: string;
+  question: string;
+  status: string; // done | killed | error
+  stop_reason: string;
+  depth: number;
+  stability: number;
+  confidence: number;
+  tokens_used: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+// One persisted trace entry (compact excerpts, not archival replay).
+export interface DeepRunTraceStep {
+  idx: number;
+  node: string;
+  depth: number;
+  stability?: number;
+  confidence?: number;
+  thought?: string;
+  synthesis?: string;
+  surfaced_insight?: string;
+  challenge?: string;
+  [k: string]: unknown;
+}
+
+export interface DeepRunRecord extends DeepRunSummary {
+  conversation_id: string;
+  branch_id: string;
+  author_id: string;
+  answer: string;
+  trace: { steps: DeepRunTraceStep[]; stability_history: number[]; steers: string[] };
+  // The trust story: what produced this run (model, thresholds, embedder, key source).
+  model: string;
+  provenance: Record<string, unknown>;
+}
+
 export interface Health {
   status: string;
   db_time: string;
