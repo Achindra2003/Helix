@@ -577,7 +577,7 @@ export function ChatView() {
   );
 
   return (
-    <div className={s.grid}>
+    <div className={`${s.grid} folio`}>
       {/* LEFT */}
       <div className={s.left}>
         <div className={s.scrollList}>
@@ -600,8 +600,14 @@ export function ChatView() {
       <div className={s.stage}>
         <div className={s.stageGeo}><Frontispiece size={560} animate={false} /></div>
         {!activeConv ? (
-          <EmptyState title="No conversation selected">
-            {canSend ? "Create a conversation to begin a shared thread." : "Ask an Owner or Collaborator to start a thread."}
+          <EmptyState title="An unopened volume"
+            icon={<div style={{ opacity: 0.45 }}><Frontispiece size={130} animate={false} /></div>}>
+            {canSend ? (
+              <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
+                <span>Every thread here is shared with the whole workspace — and any reply can be forked into its own branch.</span>
+                <Button variant="primary" onClick={() => { setDraftTitle(""); setNewDlg(true); }}>✒ Begin a conversation</Button>
+              </div>
+            ) : "Ask an Owner or Collaborator to start a thread."}
           </EmptyState>
         ) : (
           <>

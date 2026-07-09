@@ -40,6 +40,19 @@ a { color: var(--oxblood); }
   color: var(--ink-3); font-weight: 600;
 }
 
+/* every route enters like a page being turned — one shared beat, one easing */
+.folio { animation: hx-rise var(--dur-3) var(--ease-quill) both; }
+
+/* chapter ornament: a hairline rule meeting a fleuron, under page titles */
+.chapter-rule {
+  display: flex; align-items: center; gap: 14px;
+  margin: 18px 0 6px; color: var(--gilt-1); font-size: 13px; line-height: 1;
+  user-select: none;
+}
+.chapter-rule::before, .chapter-rule::after { content: ""; flex: 1; height: 1px; }
+.chapter-rule::before { background: linear-gradient(90deg, transparent, var(--rule)); }
+.chapter-rule::after { background: linear-gradient(90deg, var(--rule), transparent); }
+
 /* keyframes */
 @keyframes hx-grain { 0%,100%{transform:translate(0,0);}20%{transform:translate(-3%,2%);}40%{transform:translate(2%,-2%);}60%{transform:translate(-2%,1%);}80%{transform:translate(1%,3%);} }
 @keyframes hx-spin { to { transform: rotate(360deg); } }

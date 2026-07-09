@@ -41,7 +41,7 @@ export function ConversationList({
         ))}
         {conversations.length === 0 && (
           <div style={{ padding: "8px 10px", color: "var(--ink-faint)", fontStyle: "italic", fontSize: 13 }}>
-            No conversations yet.
+            Nothing is written yet.
           </div>
         )}
       </div>

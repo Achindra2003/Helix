@@ -95,6 +95,20 @@
   .presenceDot { animation: none; }
 }
 
+/* zoom controls — discoverable pan/zoom for anyone who doesn't reach for the wheel */
+.zoomCtl {
+  position: absolute; right: 16px; bottom: 16px; z-index: 10;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.zoomCtl button {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--paper); border: 1px solid var(--rule); color: var(--ink-2);
+  font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(36, 27, 18, 0.12);
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.zoomCtl button:hover { border-color: var(--gilt); background: var(--paper-3); }
+
 /* floating parchment excerpt card (screen-space, above the canvas) */
 .hoverCard {
   position: fixed;

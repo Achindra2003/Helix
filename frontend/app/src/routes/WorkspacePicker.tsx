@@ -61,15 +61,16 @@ export function WorkspacePicker() {
         </div>
       </div>
 
-      <div className={s.body}>
+      <div className={`${s.body} folio`}>
         <div className={s.title}>
           <div className="serif-d" style={{ fontSize: 32 }}>Your workspaces</div>
           <div style={{ color: "var(--ink-3)", marginTop: 6 }}>A workspace is a tenant — its conversations, prompts and members are sealed from every other.</div>
+          <div className="chapter-rule" aria-hidden>❦</div>
         </div>
 
         <div className={s.grid}>
-          {workspaces.map((w) => (
-            <button key={w.id} className={s.card} onClick={() => enter(w.id)}>
+          {workspaces.map((w, i) => (
+            <button key={w.id} className={s.card} style={{ animationDelay: `${Math.min(i, 8) * 55}ms` }} onClick={() => enter(w.id)}>
               <div className={s.cardMark}>{w.name.charAt(0).toUpperCase()}</div>
               <div className={s.cardName}>{w.name}</div>
               <div className={`mono ${s.cardRole}`}>{ROLE_META[w.role].sigil} {w.role}</div>

@@ -16,12 +16,12 @@ const RING_C = 2 * Math.PI * 40; // circumference of the r=40 arc
 /** The ring *closes* as the answer converges: the gap is driven by stability
  *  against the run's halting threshold, and the head meets the tail on
  *  convergence. A killed/errored run freezes mid-gap — honestly incomplete. */
-function OuroborosRing({ depth, spin, progress, closed }: {
-  depth: number; spin: boolean; progress: number; closed: boolean;
+function OuroborosRing({ depth, spin, progress, closed, holding }: {
+  depth: number; spin: boolean; progress: number; closed: boolean; holding?: boolean;
 }) {
   const gap = closed ? 0 : 8 + (1 - Math.min(Math.max(progress, 0), 1)) * 56;
   return (
-    <div className={s.ring}>
+    <div className={`${s.ring} ${closed ? s.ringClosed : ""} ${holding ? s.ringHolding : ""}`}>
       <svg viewBox="0 0 100 100" width={78} height={78} className={spin ? s.ringSpin : ""} aria-hidden>
         <circle
           className={s.ringArc}
@@ -166,11 +166,15 @@ export function DeepReasoningMonitor({ conversationId }: { conversationId?: stri
         <RunHistory conversationId={conversationId} />
       ) : !run ? (
         <div className={s.idle}>
-          <svg viewBox="0 0 120 120" width={92} height={92} style={{ opacity: 0.5 }} aria-hidden>
+          {/* An astrolabe at rest: the outer body precesses very slowly — the
+              instrument is alive even when no run is. */}
+          <svg viewBox="0 0 120 120" width={92} height={92} style={{ opacity: 0.55 }} aria-hidden>
             <circle cx="60" cy="60" r="46" fill="none" stroke="var(--rule)" strokeWidth="1" />
-            <circle cx="60" cy="60" r="33" fill="none" stroke="var(--rule-soft)" strokeWidth="1" strokeDasharray="2 5" />
+            <g className={s.idlePrecess} style={{ transformOrigin: "60px 60px" }}>
+              <circle cx="60" cy="60" r="33" fill="none" stroke="var(--rule-soft)" strokeWidth="1" strokeDasharray="2 5" />
+              <circle cx="14" cy="60" r="3" fill="var(--gilt)" />
+            </g>
             <circle cx="60" cy="60" r="20" fill="none" stroke="var(--rule-soft)" strokeWidth="1" />
-            <circle cx="14" cy="60" r="3" fill="var(--gilt)" />
           </svg>
           <div className={s.idleTitle}>The monitor is quiet</div>
           <div className={s.idleText}>
@@ -186,6 +190,7 @@ export function DeepReasoningMonitor({ conversationId }: { conversationId?: stri
               spin={run.status === "live"}
               progress={threshold ? run.stability / threshold : 0}
               closed={run.status === "done"}
+              holding={run.status === "waiting" || run.status === "queued"}
             />
             <div className={s.meters}>
               <div>

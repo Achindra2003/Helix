@@ -92,7 +92,7 @@ export function LibraryView() {
   }
 
   return (
-    <div className={s.scroll}>
+    <div className={`${s.scroll} folio`}>
       <div className={s.inner}>
         <div className={s.head}>
           <div style={{ flex: 1 }}>
@@ -103,6 +103,7 @@ export function LibraryView() {
           </div>
           {canWrite && <Button variant="primary" onClick={() => setDlg(true)}>+ Save prompt</Button>}
         </div>
+        <div className="chapter-rule" aria-hidden>❦</div>
 
         <div className={s.search}>
           <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⌕</span>
@@ -115,7 +116,7 @@ export function LibraryView() {
         ) : (
           <div className={s.grid}>
             {filtered.map((p, i) => (
-              <div key={p.id} className={s.card}>
+              <div key={p.id} className={s.card} style={{ animationDelay: `${Math.min(i, 10) * 45}ms` }}>
                 <div className={s.cardHead}>
                   <span className={s.sigil}>{ORNAMENTS[i % ORNAMENTS.length]}</span>
                   <div className={s.cardTitle}>{p.title}</div>
