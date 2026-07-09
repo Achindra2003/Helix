@@ -153,7 +153,7 @@ export function DocsView() {
                   <span className={s.hitScoreBar} title={`relevance ${h.score.toFixed(2)}`}>
                     <span className={s.hitScoreFill} style={{ display: "block", width: `${Math.min(100, Math.round(h.score * 100))}%` }} />
                   </span>
-                  <span className="mono" style={{ fontSize: 11, color: "var(--ink-faint)" }}>{h.score.toFixed(2)}</span>
+                  <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{h.score.toFixed(2)}</span>
                 </div>
                 <div className={s.hitBody}>{h.content}</div>
               </div>

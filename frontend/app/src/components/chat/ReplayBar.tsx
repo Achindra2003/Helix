@@ -26,7 +26,7 @@ export function ReplayBar({
             onChange={(e) => onChange(Number(e.target.value))}
             style={{ width: 90 }}
           />
-          <span className="mono" style={{ fontSize: 10, color: "var(--ink-faint)" }}>{shown}/{total}</span>
+          <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)" }}>{shown}/{total}</span>
         </>
       )}
     </div>

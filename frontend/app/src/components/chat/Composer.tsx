@@ -54,11 +54,11 @@ export function Composer({
         </label>
         <div style={{ flex: 1 }} />
         {text.trim() && (
-          <span className="mono" style={{ fontSize: 10, color: "var(--ink-faint)", letterSpacing: "0.04em" }}>
+          <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
             ↵ send · ⇧↵ new line
           </span>
         )}
-        <span className="mono" style={{ fontSize: 11, color: "var(--ink-faint)" }}>☁ {provider}</span>
+        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>☁ {provider}</span>
         <button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)">↑</button>
       </div>
     </div>

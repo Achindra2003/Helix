@@ -12,6 +12,6 @@
 .cardBody { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
 .cardFoot { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
 .tag { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); border: 1px solid var(--rule-soft); border-radius: 5px; padding: 2px 8px; }
-.author { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+.author { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 
 @media (max-width: 760px) { .grid { grid-template-columns: 1fr; } }

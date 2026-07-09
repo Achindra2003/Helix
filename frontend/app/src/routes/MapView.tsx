@@ -341,7 +341,7 @@ export function MapView() {
     <div className={`${s.wrap} folio`}>
       <div className={s.toolbar}>
         <div className={s.title}>The Map</div>
-        <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-faint)" }}>
+        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
           drag to pan · scroll to zoom · click a node to enter
         </span>
         <div className={s.legend}>

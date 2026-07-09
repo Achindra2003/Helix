@@ -15,7 +15,7 @@
 .matrixHead { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
 .tag { font-size: 11px; color: var(--oxblood); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 8px; }
 .matrix { background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 12px; overflow: hidden; overflow-x: auto; }
-.mrow { display: grid; grid-template-columns: 1fr 90px 110px 90px; padding: 11px 18px; align-items: center; min-width: 480px; }
+.mrow { display: grid; grid-template-columns: 1fr 88px 100px 110px; padding: 11px 18px; align-items: center; min-width: 500px; white-space: nowrap; }
 .mhead { background: var(--paper-3); border-bottom: 1px solid var(--rule); }
 
 @media (max-width: 760px) {

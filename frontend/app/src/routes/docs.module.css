@@ -11,7 +11,7 @@
 }
 .drop:hover, .dropActive { border-color: var(--gilt); background: var(--paper-3); }
 .dropGlyph { font-size: 22px; color: var(--gilt-1); }
-.dropHint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+.dropHint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 
 /* knowledge-base search (same ranking chat grounding uses) */
 .search {

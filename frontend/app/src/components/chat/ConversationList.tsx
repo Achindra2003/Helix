@@ -40,7 +40,7 @@ export function ConversationList({
           </div>
         ))}
         {conversations.length === 0 && (
-          <div style={{ padding: "8px 10px", color: "var(--ink-faint)", fontStyle: "italic", fontSize: 13 }}>
+          <div style={{ padding: "8px 10px", color: "var(--ink-3)", fontStyle: "italic", fontSize: 13 }}>
             Nothing is written yet.
           </div>
         )}
