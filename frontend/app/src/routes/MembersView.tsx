@@ -45,7 +45,7 @@ export function MembersView() {
   }
 
   return (
-    <div className={s.scroll}>
+    <div className={`${s.scroll} folio`}>
       <div className={s.inner}>
         <div className={s.headRow}>
           <div>
@@ -56,6 +56,7 @@ export function MembersView() {
           </div>
           {canManage && <Button variant="primary" onClick={doInvite}>+ Invite</Button>}
         </div>
+        <div className="chapter-rule" aria-hidden>❦</div>
 
         {isLoading ? <Spinner /> : (
           <div className={s.list}>

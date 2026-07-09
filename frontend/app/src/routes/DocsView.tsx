@@ -82,7 +82,7 @@ export function DocsView() {
   }
 
   return (
-    <div className={s.scroll}>
+    <div className={`${s.scroll} folio`}>
       <div className={s.inner}>
         <div className={s.headRow}>
           <div>
@@ -96,6 +96,7 @@ export function DocsView() {
             <Button variant="primary" onClick={() => fileInput.current?.click()}>+ Upload</Button>
           )}
         </div>
+        <div className="chapter-rule" aria-hidden>❦</div>
 
         {canWrite && (
           <>

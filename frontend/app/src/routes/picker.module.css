@@ -12,9 +12,10 @@
 .card {
   background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 13px;
   padding: 22px; display: flex; flex-direction: column; gap: 12px; text-align: left; cursor: pointer;
-  transition: border-color 0.15s, transform 0.15s; min-height: 150px;
+  transition: border-color var(--dur-1), transform var(--dur-1), box-shadow var(--dur-1); min-height: 150px;
+  animation: hx-rise 0.5s var(--ease-quill) both;
 }
-.card:hover { border-color: var(--gilt); transform: translateY(-2px); }
+.card:hover { border-color: var(--gilt); transform: translateY(-2px); box-shadow: 0 6px 20px rgba(36, 27, 18, 0.12); }
 .cardMark {
   width: 46px; height: 46px; border-radius: 11px; font-family: var(--font-display); font-weight: 600; font-size: 20px;
   background: linear-gradient(135deg, var(--gilt-2), var(--gilt)); color: #1a1404;

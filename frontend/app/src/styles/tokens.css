@@ -58,6 +58,13 @@
   --radius: 9px;
   --radius-lg: 13px;
 
+  /* motion — one easing voice ("the quill lands, then settles") and three beats.
+     Long ambient motions (ring precession, grain) define their own durations. */
+  --ease-quill: cubic-bezier(0.22, 0.61, 0.21, 1);
+  --dur-1: 140ms; /* hover/press */
+  --dur-2: 260ms; /* element enter */
+  --dur-3: 480ms; /* page turn */
+
   /* golden-ratio 3-pane widths (chat) */
   --pane-left: 248px;
   --pane-right: 360px;

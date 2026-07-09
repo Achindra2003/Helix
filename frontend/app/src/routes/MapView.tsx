@@ -244,9 +244,8 @@ export function MapView() {
   const fitted = useRef(false);
   const drag = useRef<{ px: number; py: number; vx: number; vy: number } | null>(null);
 
-  useEffect(() => {
-    // Fit-and-center once when real content first arrives.
-    if (fitted.current || !layout.convs.length || !canvasRef.current) return;
+  function fit() {
+    if (!layout.convs.length || !canvasRef.current) return;
     const box = canvasRef.current.getBoundingClientRect();
     const k = Math.min(
       1,
@@ -259,18 +258,31 @@ export function MapView() {
       y: 90 * k + Math.max(0, (box.height - (layout.height + 90) * k) / 2),
       k: Math.max(k, 0.35),
     });
+  }
+
+  useEffect(() => {
+    // Fit-and-center once when real content first arrives.
+    if (fitted.current || !layout.convs.length || !canvasRef.current) return;
+    fit();
     fitted.current = true;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [layout]);
 
-  function onWheel(e: React.WheelEvent) {
-    const box = canvasRef.current!.getBoundingClientRect();
-    const mx = e.clientX - box.left;
-    const my = e.clientY - box.top;
+  /** Zoom around a screen point (cursor, or the canvas center for buttons). */
+  function zoomAt(mx: number, my: number, factor: number) {
     setView((v) => {
-      const k = Math.min(2.5, Math.max(0.35, v.k * Math.exp(-e.deltaY * 0.0012)));
+      const k = Math.min(2.5, Math.max(0.35, v.k * factor));
       // keep the point under the cursor fixed while scaling
       return { k, x: mx - ((mx - v.x) / v.k) * k, y: my - ((my - v.y) / v.k) * k };
     });
+  }
+  function onWheel(e: React.WheelEvent) {
+    const box = canvasRef.current!.getBoundingClientRect();
+    zoomAt(e.clientX - box.left, e.clientY - box.top, Math.exp(-e.deltaY * 0.0012));
+  }
+  function zoomCenter(factor: number) {
+    const box = canvasRef.current?.getBoundingClientRect();
+    if (box) zoomAt(box.width / 2, box.height / 2, factor);
   }
   function onPointerDown(e: React.PointerEvent) {
     (e.target as Element).setPointerCapture?.(e.pointerId);
@@ -326,9 +338,12 @@ export function MapView() {
   const isEmpty = conversations.length === 0;
 
   return (
-    <div className={s.wrap}>
+    <div className={`${s.wrap} folio`}>
       <div className={s.toolbar}>
         <div className={s.title}>The Map</div>
+        <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-faint)" }}>
+          drag to pan · scroll to zoom · click a node to enter
+        </span>
         <div className={s.legend}>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--ink-2)" /></svg> you ask</span>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--paper)" stroke="var(--ink-2)" strokeWidth="1.5" /></svg> Helix answers</span>
@@ -438,6 +453,12 @@ export function MapView() {
               ))}
             </g>
           </svg>
+
+          <div className={s.zoomCtl}>
+            <button onClick={() => zoomCenter(1.3)} title="Zoom in">＋</button>
+            <button onClick={() => zoomCenter(1 / 1.3)} title="Zoom out">−</button>
+            <button onClick={fit} title="Fit the whole map">◱</button>
+          </div>
 
           {hover && (
             <div className={s.hoverCard} style={{ left: hover.sx, top: hover.sy }}>
