@@ -3,6 +3,7 @@ import { usePresence } from "@/hooks/usePresence";
 import { ROLE_META } from "@/lib/rbac";
 import { initialOf, colorFor } from "@/lib/format";
 import type { Role } from "@/lib/types";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
 import s from "./shell.module.css";
 
 const ROLES: Role[] = ["owner", "collaborator", "observer"];
@@ -35,6 +36,7 @@ export function TopBar({ viewLabel }: { viewLabel: string }) {
       </div>
       <div className={s.sep} />
       <div style={{ display: "flex", alignItems: "center", gap: 9 }}>
+        <ThemeToggle />
         <div className={s.badge}><span>{ROLE_META[role].sigil}</span><span style={{ fontWeight: 600 }}>{ROLE_META[role].label}</span></div>
         <div className={s.roleSw} title="Preview the workspace as each role">
           {ROLES.map((r) => (

@@ -1,6 +1,6 @@
 .wrap {
   height: 100%; display: flex; align-items: stretch;
-  background: radial-gradient(130% 110% at 50% 0%, #ece2c8 0%, #ded2b4 50%, #cdbc95 100%);
+  background: radial-gradient(130% 110% at 50% 0%, var(--grad-hi) 0%, var(--paper-2) 50%, var(--grad-lo) 100%);
 }
 .frontispiece {
   flex: 1; position: relative; display: flex; align-items: center; justify-content: center;

@@ -5,7 +5,10 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { ToastProvider } from "@/components/common/Toast";
 import { GrainOverlay } from "@/components/brand/GrainOverlay";
 import { App } from "@/App";
+import { initTheme } from "@/lib/theme";
 import "@/styles/global.css";
+
+initTheme();
 
 const qc = new QueryClient({
   defaultOptions: { queries: { retry: 1, refetchOnWindowFocus: false, staleTime: 10_000 } },

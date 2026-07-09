@@ -7,6 +7,8 @@ import { Button } from "@/components/common/Button";
 import { Input } from "@/components/common/Input";
 import { Dialog } from "@/components/common/Dialog";
 import { Logo } from "@/components/brand/Logo";
+import { Frontispiece } from "@/components/brand/Frontispiece";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { ROLE_META } from "@/lib/rbac";
 import s from "./picker.module.css";
 
@@ -53,10 +55,12 @@ export function WorkspacePicker() {
 
   return (
     <div className={s.wrap}>
+      <div className={s.bg} aria-hidden><Frontispiece size={640} animate={false} /></div>
       <div className={s.head}>
         <div className={s.brandRow}><Logo size={40} /><div className={`brand ${s.brand}`}>Helix</div></div>
         <div className={s.who}>
           <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{user?.email}</span>
+          <ThemeToggle />
           <Button variant="ghost" onClick={() => { logout(); nav("/auth"); }}>Sign out</Button>
         </div>
       </div>
@@ -71,12 +75,14 @@ export function WorkspacePicker() {
         <div className={s.grid}>
           {workspaces.map((w, i) => (
             <button key={w.id} className={s.card} style={{ animationDelay: `${Math.min(i, 8) * 55}ms` }} onClick={() => enter(w.id)}>
+              <div className={s.watermark} aria-hidden><Logo size={120} /></div>
               <div className={s.cardMark}>{w.name.charAt(0).toUpperCase()}</div>
               <div className={s.cardName}>{w.name}</div>
               <div className={`mono ${s.cardRole}`}>{ROLE_META[w.role].sigil} {w.role}</div>
+              <span className={s.cardGo}>Enter workspace ⟶</span>
             </button>
           ))}
-          <div className={s.actions}>
+          <div className={s.actions} style={{ animationDelay: `${Math.min(workspaces.length, 8) * 55}ms` }}>
             <Button variant="primary" onClick={() => { setText(""); setDialog("create"); }}>+ New workspace</Button>
             <Button variant="ghost" onClick={() => { setText(""); setDialog("invite"); }}>Join via invite</Button>
           </div>

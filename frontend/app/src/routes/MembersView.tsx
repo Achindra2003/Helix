@@ -93,7 +93,7 @@ export function MembersView() {
             <span className="eyebrow" style={{ textAlign: "center" }}>◉ Observer</span>
           </div>
           {PERMISSION_ROWS.map((r, i) => (
-            <div key={r.key} className={s.mrow} style={{ background: i % 2 ? "rgba(36,27,18,0.025)" : undefined }}>
+            <div key={r.key} className={s.mrow} style={{ background: i % 2 ? "var(--stripe)" : undefined }}>
               <span className="mono" style={{ fontSize: 13.5, color: "var(--ink-2)" }}>{r.key}</span>
               {ROLES.map((role) => (
                 <span key={role} style={{ textAlign: "center", color: can(role, r.action) ? "var(--verde)" : "var(--ink-3)" }}>
