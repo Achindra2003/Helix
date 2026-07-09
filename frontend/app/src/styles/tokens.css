@@ -72,6 +72,63 @@
   --pane-left: 248px;
   --pane-right: 360px;
 
+  /* the wax seal (primary action fill) — its own tokens so the fill can stay
+     a deep seal in BOTH themes while text-accent reds retune per theme */
+  --seal-from: var(--oxblood-2);
+  --seal-to: #8c2b1e;
+  --seal-text: #f4e9cf;
+  --seal-border: #6f2015;
+
+  /* interaction tints that must flip with the theme */
+  --hover-tint: rgba(36, 27, 18, 0.05);
+  --stripe: rgba(36, 27, 18, 0.025);
+
+  /* ambient page gradient (auth) */
+  --grad-hi: #ece2c8;
+  --grad-lo: #cdbc95;
+
   /* focus lives in the action family (violet is reserved for steer) */
   --focus: var(--cinnabar);
+}
+
+/* ── Nocturne: the same scriptorium after dark — leather, candlelight, cream
+   ink. Opt-in via the ☾ toggle; light parchment stays the default identity.
+   Every text pair below is WCAG-validated (scratchpad contrast-dark audit). */
+:root[data-theme="dark"] {
+  --paper-0: #332a1c;
+  --paper: #292217;
+  --paper-2: #211b12;
+  --paper-3: #1a1510;
+  --paper-4: #14100a;
+
+  --ink: #eee4c9;
+  --ink-2: #d3c6a4;
+  --ink-3: #ab9b78;
+  --ink-faint: #83734f;
+
+  --rule: rgba(238, 228, 201, 0.26);
+  --rule-soft: rgba(238, 228, 201, 0.14);
+
+  --oxblood: #d4705a;
+  --oxblood-2: #c05a43;
+  --cinnabar: #e0755a;
+  --gilt: #a8842f;
+  --gilt-1: #c9a53e;
+  --gilt-2: #d9b654;
+  --verde: #8fb096;
+  --violet: #a795d6;
+  --ember: #d0813e;
+  --ash: #4a3f2c;
+  --ash-2: #6b5e45;
+
+  /* the seal keeps its deep red — a wax seal on dark leather still reads */
+  --seal-from: #a8341f;
+  --seal-to: #8c2b1e;
+  --seal-border: #5e1d14;
+
+  --hover-tint: rgba(238, 228, 201, 0.06);
+  --stripe: rgba(238, 228, 201, 0.03);
+
+  --grad-hi: #2b2417;
+  --grad-lo: #120e08;
 }

@@ -75,6 +75,16 @@ a { color: var(--oxblood); }
 .tex-vig { position: fixed; inset: 0; pointer-events: none; z-index: 5; background: radial-gradient(125% 105% at 50% 38%, rgba(230,220,194,0) 52%, rgba(60,42,22,0.20) 100%); }
 .tex-warm { position: fixed; inset: 0; pointer-events: none; z-index: 4; background: radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%), radial-gradient(50% 40% at 88% 90%, rgba(140,43,30,0.05), transparent 60%); }
 
+/* nocturne texture: grain becomes faint candle-light speckle; the vignette
+   deepens toward true dark; selection & scrollbars flip to cream */
+:root[data-theme="dark"] .tex-grain { mix-blend-mode: screen; opacity: 0.045; }
+:root[data-theme="dark"] .tex-vig {
+  background: radial-gradient(125% 105% at 50% 38%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.55) 100%);
+}
+:root[data-theme="dark"] ::selection { background: rgba(212, 112, 90, 0.35); color: var(--ink); }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(238, 228, 201, 0.24); background-clip: content-box; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(238, 228, 201, 0.4); background-clip: content-box; }
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
