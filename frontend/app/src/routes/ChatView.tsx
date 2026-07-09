@@ -605,7 +605,7 @@ export function ChatView() {
             {canSend ? (
               <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 14 }}>
                 <span>Every thread here is shared with the whole workspace — and any reply can be forked into its own branch.</span>
-                <Button variant="primary" onClick={() => { setDraftTitle(""); setNewDlg(true); }}>✒ Begin a conversation</Button>
+                <Button variant="primary" onClick={() => { setDraftTitle(""); setNewDlg(true); }}>Begin a conversation</Button>
               </div>
             ) : "Ask an Owner or Collaborator to start a thread."}
           </EmptyState>
@@ -621,13 +621,13 @@ export function ChatView() {
                   <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>
                     on <span style={{ color: "var(--oxblood)" }}>{activeBranch?.name ?? "main"}</span>
                   </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-faint)" }}>{messages.length} nodes</span>
+                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messages.length} nodes</span>
                 </div>
                 {(references.length > 0 || canSend) && (
                   <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
-                    <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-faint)" }}>linked context:</span>
+                    <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
                     {references.length === 0 && (
-                      <span style={{ fontSize: 12.5, color: "var(--ink-faint)", fontStyle: "italic" }}>none</span>
+                      <span style={{ fontSize: 12.5, color: "var(--ink-3)", fontStyle: "italic" }}>none</span>
                     )}
                     {references.map((r) => (
                       <span key={r.id} className={s.chip} title="Replies here draw on this thread's live context"
@@ -635,7 +635,7 @@ export function ChatView() {
                         ⛓ {r.title}
                         {canSend && (
                           <button onClick={() => doRemoveRef(r.id)} title="Unlink"
-                            style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-faint)", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
+                            style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
                         )}
                       </span>
                     ))}
@@ -774,7 +774,7 @@ function LinkContextDialog(
         replies — and stays in sync as that thread grows. This is a reference, not a fork: nothing is copied.
       </div>
       {candidates.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--ink-faint)", fontStyle: "italic" }}>
+        <div style={{ fontSize: 13, color: "var(--ink-3)", fontStyle: "italic" }}>
           No other shared threads in this workspace to link yet.
         </div>
       ) : (

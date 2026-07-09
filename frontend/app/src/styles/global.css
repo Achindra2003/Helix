@@ -19,8 +19,13 @@ body {
 ::-webkit-scrollbar-track { background: transparent; }
 textarea::placeholder, input::placeholder { color: var(--ink-faint); font-style: italic; }
 
-button { font-family: inherit; cursor: pointer; color: inherit; }
-input, textarea { font-family: inherit; }
+/* Type discipline — two voices, never mixed:
+   READING voice (IM Fell): message bodies, prose, epigraphs — inherits from body.
+   INSTRUMENT voice (Inter): anything you operate — buttons, inputs, selects.
+   (The composer textarea opts back into the reading voice via its own class.) */
+button { font-family: var(--font-ui); cursor: pointer; color: inherit; }
+input, select { font-family: var(--font-ui); }
+textarea { font-family: var(--font-ui); }
 a { color: var(--oxblood); }
 
 :focus-visible {

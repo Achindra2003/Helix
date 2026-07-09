@@ -96,7 +96,7 @@ export function MembersView() {
             <div key={r.key} className={s.mrow} style={{ background: i % 2 ? "rgba(36,27,18,0.025)" : undefined }}>
               <span className="mono" style={{ fontSize: 13.5, color: "var(--ink-2)" }}>{r.key}</span>
               {ROLES.map((role) => (
-                <span key={role} style={{ textAlign: "center", color: can(role, r.action) ? "var(--verde)" : "var(--ink-faint)" }}>
+                <span key={role} style={{ textAlign: "center", color: can(role, r.action) ? "var(--verde)" : "var(--ink-3)" }}>
                   {can(role, r.action) ? "✓" : "·"}
                 </span>
               ))}

@@ -29,7 +29,7 @@ export function TopBar({ viewLabel }: { viewLabel: string }) {
             {initialOf(m.email)}
           </div>
         ))}
-        <span className="mono" style={{ fontSize: 11, color: live ? "var(--ink-3)" : "var(--ink-4, #a99)", marginLeft: 12 }}>
+        <span className="mono" style={{ fontSize: 11.5, color: live ? "var(--ink-3)" : "var(--ember)", marginLeft: 12 }}>
           {live ? `${members.length} online · live` : "offline"}
         </span>
       </div>

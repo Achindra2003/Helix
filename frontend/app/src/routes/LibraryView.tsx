@@ -108,7 +108,7 @@ export function LibraryView() {
         <div className={s.search}>
           <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⌕</span>
           <input className={s.searchInput} placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink-faint)" }}>{filtered.length} prompts</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{filtered.length} prompts</span>
         </div>
 
         {isLoading || seeding ? <Spinner /> : filtered.length === 0 ? (

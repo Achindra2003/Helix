@@ -36,11 +36,11 @@
 .ghost:hover:not(:disabled) { background: rgba(36, 27, 18, 0.05); border-color: var(--rule); }
 
 .input {
-  background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius);
   padding: 12px 14px; color: var(--ink); font-size: 14px; outline: none; width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
-.input:focus { border-color: var(--violet); box-shadow: 0 0 0 3px rgba(110, 90, 168, 0.18); }
+.input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(178, 58, 34, 0.16); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 
@@ -57,14 +57,12 @@
   position: relative;
   animation: hx-rise var(--dur-2) var(--ease-quill) both;
 }
-/* illuminated corner brackets, gilt as a line (never a fill) */
-.dialog::before, .dialog::after {
-  content: ""; position: absolute; width: 15px; height: 15px;
-  border: 0 solid var(--gilt); opacity: 0.6; pointer-events: none;
+/* a single gilt hairline under the title carries the illumination — corner
+   brackets fought the border radius and read as stray marks, so they're gone */
+.dialogTitle {
+  font-family: var(--font-display); font-size: var(--t-card); color: var(--ink);
+  padding-bottom: 10px; border-bottom: 1px solid rgba(154, 122, 44, 0.4);
 }
-.dialog::before { top: 7px; left: 7px; border-top-width: 1px; border-left-width: 1px; border-top-left-radius: 7px; }
-.dialog::after { bottom: 7px; right: 7px; border-bottom-width: 1px; border-right-width: 1px; border-bottom-right-radius: 7px; }
-.dialogTitle { font-family: var(--font-display); font-size: var(--t-card); color: var(--ink); }
 .dialogRow { display: flex; justify-content: flex-end; gap: 10px; }
 
 /* orbital spinner */

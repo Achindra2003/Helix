@@ -1,30 +1,33 @@
 /* Helix design tokens — "alchemical manuscript" (parchment grimoire).
    Ported from Helix.dc.html; palette WCAG-validated in design_critique.md. */
 :root {
-  /* surfaces */
+  /* surfaces — paper-0 is the bright input well; the rest darken outward */
+  --paper-0: #efe8d4;
   --paper: #e6dcc2;
   --paper-2: #ded2b4;
   --paper-3: #d3c5a2;
   --paper-4: #c8b68f;
-  /* ink */
+  /* ink — WCAG-tuned (scratchpad contrast audit, Jul 2026):
+     ink-3 ≥4.5 on paper..paper-3 (all small text); ink-faint ≥3.0 and is
+     DECORATIVE-ONLY — never information-bearing text. */
   --ink: #241b12;
   --ink-2: #4b3d2a;
-  --ink-3: #796a4f;
-  --ink-faint: #a2906e;
-  /* rules / hairlines */
-  --rule: rgba(36, 27, 18, 0.26);
-  --rule-soft: rgba(36, 27, 18, 0.13);
-  /* accents */
+  --ink-3: #5d4e36;
+  --ink-faint: #867351;
+  /* rules / hairlines — strong enough to survive the grain overlay */
+  --rule: rgba(36, 27, 18, 0.34);
+  --rule-soft: rgba(36, 27, 18, 0.2);
+  /* accents — text-bearing ones hold ≥4.5 on paper */
   --oxblood: #8c2b1e;
   --oxblood-2: #a8341f;
   --cinnabar: #b23a22;
   --gilt: #9a7a2c;
-  --gilt-1: #7e6320; /* darker brass — legible as outline-button/label text on paper */
-  --gilt-2: #c0992f;
+  --gilt-1: #6b5316; /* brass as TEXT/line — ≥4.5 on paper and paper-2 */
+  --gilt-2: #c0992f; /* bright brass — decorative marks only, never text */
   --verde: #46624c;
-  --violet: #6e5aa8;
+  --violet: #5d4796;
   --violet-bright: #8b73d6;
-  --ember: #c5752a;
+  --ember: #94500f;
   --char: #15110b;
   --ash: #c2b393;
   --ash-2: #8c7e62;
@@ -69,5 +72,6 @@
   --pane-left: 248px;
   --pane-right: 360px;
 
-  --focus: var(--violet-bright);
+  /* focus lives in the action family (violet is reserved for steer) */
+  --focus: var(--cinnabar);
 }
