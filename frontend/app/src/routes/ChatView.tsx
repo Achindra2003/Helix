@@ -20,6 +20,7 @@ import { Dialog } from "@/components/common/Dialog";
 import { Input } from "@/components/common/Input";
 import { EmptyState } from "@/components/common/Feedback";
 import { Frontispiece } from "@/components/brand/Frontispiece";
+import { PaperTexture } from "@/components/brand/PaperTexture";
 import { ConversationList } from "@/components/chat/ConversationList";
 import { BranchTree } from "@/components/chat/BranchTree";
 import { MessageList, type ChatMessage } from "@/components/chat/MessageList";
@@ -663,15 +664,18 @@ export function ChatView() {
               )}
             </div>
 
-            <div className={s.canvas} ref={canvasRef}>
-              {shownMessages.length === 0 ? (
-                <EmptyState title="A blank page">
-                  {canSend ? "Send the first message — the whole team shares this thread, and any reply can be forked into its own branch."
-                           : "This thread is empty."}
-                </EmptyState>
-              ) : (
-                <MessageList messages={shownMessages} onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined} />
-              )}
+            <div className={s.canvasWrap}>
+              <div className={s.paperTex} aria-hidden><PaperTexture /></div>
+              <div className={s.canvas} ref={canvasRef}>
+                {shownMessages.length === 0 ? (
+                  <EmptyState title="A blank page">
+                    {canSend ? "Send the first message — the whole team shares this thread, and any reply can be forked into its own branch."
+                             : "This thread is empty."}
+                  </EmptyState>
+                ) : (
+                  <MessageList messages={shownMessages} onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined} />
+                )}
+              </div>
             </div>
 
             <div className={s.composerWrap}>

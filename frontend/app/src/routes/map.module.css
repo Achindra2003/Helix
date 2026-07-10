@@ -42,10 +42,6 @@
   cursor: grab;
   touch-action: none;
   position: relative;
-  /* a chart drawn on laid paper */
-  background-image:
-    repeating-linear-gradient(0deg, var(--line-laid) 0 1px, transparent 1px 30px),
-    repeating-linear-gradient(90deg, var(--line-chain) 0 1px, transparent 1px 210px);
 }
 
 .canvas:active { cursor: grabbing; }

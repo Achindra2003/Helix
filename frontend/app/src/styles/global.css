@@ -72,15 +72,12 @@ a { color: var(--oxblood); }
    whole surface reads as aged, textured paper. pointer-events:none keeps the UI
    clickable; z-index stays below modals (scrim 50) and toasts (60). */
 .tex-grain { position: fixed; inset: -12%; width: 124%; height: 124%; pointer-events: none; opacity: .07; mix-blend-mode: multiply; z-index: 6; animation: hx-grain 9s steps(5) infinite; }
-/* crumple relief: multiply keeps the parchment light — only the creases shade */
-.tex-crumple { position: fixed; inset: 0; pointer-events: none; opacity: 0.24; mix-blend-mode: multiply; z-index: 3; }
 .tex-vig { position: fixed; inset: 0; pointer-events: none; z-index: 5; background: radial-gradient(125% 105% at 50% 38%, rgba(230,220,194,0) 52%, rgba(60,42,22,0.20) 100%); }
 .tex-warm { position: fixed; inset: 0; pointer-events: none; z-index: 4; background: radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%), radial-gradient(50% 40% at 88% 90%, rgba(140,43,30,0.05), transparent 60%); }
 
 /* nocturne texture: grain becomes faint candle-light speckle; the vignette
    deepens toward true dark; selection & scrollbars flip to cream */
 :root[data-theme="dark"] .tex-grain { mix-blend-mode: screen; opacity: 0.045; }
-:root[data-theme="dark"] .tex-crumple { mix-blend-mode: soft-light; opacity: 0.22; }
 :root[data-theme="dark"] .tex-vig {
   background: radial-gradient(125% 105% at 50% 38%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.55) 100%);
 }
