@@ -10,7 +10,7 @@
   font-family: var(--font-mono); font-size: 10.5px; padding: 2px 8px; border-radius: 5px;
   border: 1px solid var(--rule-soft); background: transparent; color: var(--ink-3); cursor: pointer;
 }
-.runsBtnOn { border-color: var(--oxblood); color: var(--oxblood); background: rgba(140, 43, 30, 0.07); }
+.runsBtnOn { border-color: var(--oxblood); color: var(--oxblood); background: rgba(143, 62, 19, 0.08); }
 .histRow {
   display: flex; gap: 10px; align-items: flex-start; text-align: left; width: 100%;
   background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 9px;
@@ -41,7 +41,7 @@
 
 .gauges { padding: 18px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid var(--rule-soft); }
 .ring { position: relative; width: 78px; height: 78px; flex: 0 0 auto; }
-.ringSpin { animation: hx-spin 9s linear infinite; filter: drop-shadow(0 0 9px rgba(178, 58, 34, 0.3)); }
+.ringSpin { animation: hx-spin 9s linear infinite; filter: drop-shadow(0 0 9px rgba(180, 95, 42, 0.34)); }
 /* the arc's gap closes as stability approaches the halting threshold */
 .ringArc { transition: stroke-dasharray 0.6s ease, stroke 0.6s ease; }
 /* convergence: the ouroboros completes and takes gilt light */
@@ -111,7 +111,7 @@
 .finish { margin-top: 10px; font-family: var(--font-mono); font-size: 11.5px; }
 
 .controls { padding: 13px 16px; border-top: 1px solid var(--rule-soft); display: flex; gap: 9px; }
-.kill { flex: 1; background: rgba(140,43,30,0.12); border: 1px solid var(--oxblood); color: var(--oxblood); border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; }
+.kill { flex: 1; background: rgba(143,62,19,0.12); border: 1px solid var(--oxblood); color: var(--oxblood); border-radius: 8px; padding: 9px; font-size: 13px; font-weight: 600; }
 .steer { flex: 1; background: var(--paper-3); border: 1px solid var(--rule-soft); color: var(--ink-faint); border-radius: 8px; padding: 9px; font-size: 13px; cursor: not-allowed; }
 .dismiss { flex: 1; }
 

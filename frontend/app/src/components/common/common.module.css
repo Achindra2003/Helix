@@ -15,7 +15,7 @@
 .primary {
   background: linear-gradient(180deg, var(--seal-from), var(--seal-to));
   color: var(--seal-text); border: 1px solid var(--seal-border); font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 240, 215, 0.16), 0 2px 9px rgba(140, 43, 30, 0.28);
+  box-shadow: inset 0 1px 0 rgba(255, 240, 215, 0.16), 0 2px 9px rgba(143, 62, 19, 0.3);
 }
 .primary:hover:not(:disabled) { filter: brightness(1.12); }
 .primary:active:not(:disabled) { box-shadow: inset 0 2px 5px rgba(80, 20, 12, 0.4); }
@@ -29,9 +29,9 @@
 .gilt:hover:not(:disabled) { background: rgba(154, 122, 44, 0.1); border-color: var(--gilt-2); }
 
 .oxblood {
-  background: rgba(140, 43, 30, 0.1); border: 1px solid var(--oxblood); color: var(--oxblood); font-weight: 600;
+  background: rgba(143, 62, 19, 0.1); border: 1px solid var(--oxblood); color: var(--oxblood); font-weight: 600;
 }
-.oxblood:hover:not(:disabled) { background: rgba(140, 43, 30, 0.16); }
+.oxblood:hover:not(:disabled) { background: rgba(143, 62, 19, 0.16); }
 .ghost { background: transparent; border-color: var(--rule-soft); color: var(--ink-2); }
 .ghost:hover:not(:disabled) { background: var(--hover-tint); border-color: var(--rule); }
 
@@ -50,7 +50,7 @@
   padding: 12px 14px; color: var(--ink); font-size: 14px; outline: none; width: 100%;
   transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
-.input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(178, 58, 34, 0.16); }
+.input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 

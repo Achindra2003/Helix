@@ -31,7 +31,7 @@ export function BranchTree({
             <span className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", width: depth * 14, display: "inline-block", textAlign: "right" }}>
               {depth ? "└" : ""}
             </span>
-            <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(140,43,30,0.14)" : "none" }} />
+            <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(143,62,19,0.16)" : "none" }} />
             <span className={s.branchName} style={{ color: on ? "var(--ink)" : "var(--ink-3)" }}>{b.name}</span>
           </div>
         );
