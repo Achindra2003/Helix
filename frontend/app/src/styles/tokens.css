@@ -18,9 +18,9 @@
   --rule: rgba(36, 27, 18, 0.34);
   --rule-soft: rgba(36, 27, 18, 0.2);
   /* accents — text-bearing ones hold ≥4.5 on paper */
-  --oxblood: #8c2b1e;
-  --oxblood-2: #a8341f;
-  --cinnabar: #b23a22;
+  --oxblood: #8f3e13; /* russet — the seal red re-tempered into the parchment's own earth family */
+  --oxblood-2: #a95425;
+  --cinnabar: #b45f2a;
   --gilt: #9a7a2c;
   --gilt-1: #6b5316; /* brass as TEXT/line — ≥4.5 on paper and paper-2 */
   --gilt-2: #c0992f; /* bright brass — decorative marks only, never text */
@@ -75,13 +75,15 @@
   /* the wax seal (primary action fill) — its own tokens so the fill can stay
      a deep seal in BOTH themes while text-accent reds retune per theme */
   --seal-from: var(--oxblood-2);
-  --seal-to: #8c2b1e;
+  --seal-to: #8f3e13;
   --seal-text: #f4e9cf;
-  --seal-border: #6f2015;
+  --seal-border: #6e2f0d;
 
   /* interaction tints that must flip with the theme */
   --hover-tint: rgba(36, 27, 18, 0.05);
   --stripe: rgba(36, 27, 18, 0.025);
+  /* warm amber wash for the selected/active state — lit, not painted */
+  --accent-tint: rgba(154, 122, 44, 0.16);
 
   /* ambient page gradient (auth) */
   --grad-hi: #ece2c8;
@@ -109,9 +111,9 @@
   --rule: rgba(238, 228, 201, 0.26);
   --rule-soft: rgba(238, 228, 201, 0.14);
 
-  --oxblood: #d4705a;
-  --oxblood-2: #c05a43;
-  --cinnabar: #e0755a;
+  --oxblood: #dd8a50;
+  --oxblood-2: #c9712f;
+  --cinnabar: #e08a53;
   --gilt: #a8842f;
   --gilt-1: #c9a53e;
   --gilt-2: #d9b654;
@@ -121,13 +123,14 @@
   --ash: #4a3f2c;
   --ash-2: #6b5e45;
 
-  /* the seal keeps its deep red — a wax seal on dark leather still reads */
-  --seal-from: #a8341f;
-  --seal-to: #8c2b1e;
-  --seal-border: #5e1d14;
+  /* the seal keeps its deep russet — wax on dark leather still reads */
+  --seal-from: #a3511f;
+  --seal-to: #8a3d12;
+  --seal-border: #5f2a0b;
 
   --hover-tint: rgba(238, 228, 201, 0.06);
   --stripe: rgba(238, 228, 201, 0.03);
+  --accent-tint: rgba(217, 182, 84, 0.12);
 
   --grad-hi: #2b2417;
   --grad-lo: #120e08;

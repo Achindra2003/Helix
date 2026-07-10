@@ -10,7 +10,7 @@
   display: flex; flex-direction: column; align-items: center; gap: 3px; width: 48px; padding: 8px 0;
   border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--ink-3);
 }
-.navOn { border-color: var(--rule); background: var(--paper); color: var(--oxblood); }
+.navOn { border-color: var(--rule); background: var(--accent-tint); color: var(--oxblood); }
 .navGlyph { font-size: 18px; line-height: 1; }
 .navLabel { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; }
 .navBtn:hover { color: var(--ink-2); background: rgba(36, 27, 18, 0.05); }
