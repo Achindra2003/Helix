@@ -12,6 +12,13 @@ import { Dialog } from "@/components/common/Dialog";
 import { Spinner, EmptyState } from "@/components/common/Feedback";
 import s from "./docs.module.css";
 
+// The plate shows the file's kind at a glance ("md", "pdf", "py") — a shelf
+// you can scan. Falls back to the knowledge-base mark for odd names.
+function extOf(filename: string): string {
+  const ext = filename.includes(".") ? filename.split(".").pop()! : "";
+  return ext && ext.length <= 4 ? ext : "⌘";
+}
+
 /** The workspace knowledge base (AI-LANE-CONTRACTS §2.3). Documents uploaded
  * here ground chat replies automatically — with citation chips — whenever a
  * question clears the relevance gate. There is no per-conversation attach. */
@@ -172,7 +179,7 @@ export function DocsView() {
             {docs.map((d) => (
               <div key={d.id} className={s.row}>
                 <div className={s.docGlyph} style={{ color: d.status === "error" ? "var(--oxblood)" : "var(--gilt-1)" }}>
-                  {d.status === "error" ? "✕" : "⌘"}
+                  {d.status === "error" ? "✕" : extOf(d.filename)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div className={s.docName}>{d.filename}</div>
