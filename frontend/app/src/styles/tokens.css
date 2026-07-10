@@ -87,11 +87,6 @@
   --grad-hi: #ece2c8;
   --grad-lo: #cdbc95;
 
-  /* laid-paper texture: the fine parallel lines of a papermaking screen and
-     its sparse perpendicular chain lines — tooth, not ruling */
-  --line-laid: rgba(36, 27, 18, 0.05);
-  --line-chain: rgba(36, 27, 18, 0.03);
-
   /* focus lives in the action family (violet is reserved for steer) */
   --focus: var(--cinnabar);
 }
@@ -136,7 +131,4 @@
 
   --grad-hi: #2b2417;
   --grad-lo: #120e08;
-
-  --line-laid: rgba(238, 228, 201, 0.05);
-  --line-chain: rgba(238, 228, 201, 0.03);
 }
