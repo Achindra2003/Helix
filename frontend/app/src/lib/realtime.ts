@@ -34,6 +34,7 @@ export type RoomEvent =
     }
   | { kind: "conversation.created"; workspace_id: string; conversation_id: string; title: string }
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
+  | { kind: "messages.deleted"; workspace_id: string; conversation_id: string; branch_id: string; node_ids: string[] }
   | { kind: "references.updated"; workspace_id: string; conversation_id: string }
   | { kind: "prompt.saved"; workspace_id: string; prompt: Record<string, any> }
   | { kind: "pong" };

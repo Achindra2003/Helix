@@ -4,6 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
+  deleteLastMessage,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
@@ -12,6 +13,7 @@ import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
+import { useNotifications } from "@/store/notifications";
 import { can } from "@/lib/rbac";
 import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
@@ -87,24 +89,35 @@ export function ChatView() {
   const [draftVis, setDraftVis] = useState<"shared" | "private">("shared");
   const [replay, setReplay] = useState<number | null>(null);
   const [linkDlg, setLinkDlg] = useState(false);
+  // "Edit last message" hand-off: the removed message's text, waiting in the
+  // composer for the author to revise and resend.
+  const [composerDraft, setComposerDraft] = useState<string | null>(null);
   const canvasRef = useRef<HTMLDivElement>(null);
   // Which branch is on screen *now* — deep runs finish asynchronously (maybe
   // after a branch switch or a reload), so history refreshes check this first.
   const activeBranchRef = useRef<string | null>(null);
   useEffect(() => { activeBranchRef.current = activeBranchId; }, [activeBranchId]);
 
-  // Deep link from the Map: /w/:wid?conv=…&branch=… lands directly in that
-  // thread at that branch. Consumed once, then removed from the URL.
+  // Deep link from the Map, the search overlay, or the notification bell:
+  // /w/:wid?conv=…&branch=… lands directly in that thread at that branch.
+  // Watches param *changes* (not just mount) so navigating from search/bell
+  // works while this view is already open. Consumed, then removed from the URL.
   const [searchParams, setSearchParams] = useSearchParams();
   const wantedBranchRef = useRef<string | null>(searchParams.get("branch"));
   useEffect(() => {
     const conv = searchParams.get("conv");
-    if (conv) {
+    if (!conv) return;
+    const branch = searchParams.get("branch");
+    if (conv === activeConvId) {
+      // Same conversation: the branch-loading effect won't rerun — switch directly.
+      if (branch) setActiveBranchId(branch);
+    } else {
+      wantedBranchRef.current = branch;
       setActiveConvId(conv);
-      setSearchParams({}, { replace: true });
     }
+    setSearchParams({}, { replace: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [searchParams]);
 
   // Presence: tell the room which branch we're reading (Map dots, row dots).
   useEffect(() => { sendViewing(activeBranchId, activeConvId); }, [activeBranchId, activeConvId]);
@@ -309,6 +322,42 @@ export function ChatView() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingPrompt, activeBranchId]);
 
+  // Delete/edit is offered only on the branch's trailing turn, only to its
+  // author, and only outside replay — the server independently enforces the
+  // author gate and refuses once anything has forked from the turn.
+  const lastTurn = useMemo(() => {
+    if (replay !== null || busy || messages.length === 0 || !canSend) return undefined;
+    const tail = messages[messages.length - 1];
+    const userMsg = tail.role === "user" ? tail
+      : tail.role === "assistant" ? messages[messages.length - 2] : undefined;
+    if (!userMsg || userMsg.role !== "user" || userMsg.authorName !== "You") return undefined;
+    if (tail.typing || userMsg.typing || userMsg.id.startsWith("tmp-")) return undefined;
+    return userMsg;
+  }, [messages, replay, busy, canSend]);
+
+  async function removeLastTurn(): Promise<boolean> {
+    if (!activeBranchId) return false;
+    try {
+      await deleteLastMessage(activeBranchId);
+      const r = await getHistory(activeBranchId);
+      setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)));
+      listBranches(activeConvId!).then((b) => setBranches(b.items)).catch(() => {});
+      return true;
+    } catch (e: any) {
+      push(e?.message ?? "Delete failed", "error");
+      return false;
+    }
+  }
+
+  async function onDeleteLast() {
+    if (await removeLastTurn()) push("Last exchange removed");
+  }
+
+  async function onEditLast() {
+    const text = lastTurn?.body ?? "";
+    if (await removeLastTurn()) setComposerDraft(text);
+  }
+
   async function doFork(nodeId: string, name: string) {
     if (!activeConvId) return;
     try {
@@ -366,6 +415,19 @@ export function ChatView() {
     } else if (ev.kind === "complete") {
       monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
       if (wid) sessionStorage.removeItem(deepKey(wid));
+      // Your own run finished while you weren't looking (backgrounded tab):
+      // a bell notice, plus a browser notification if permission was granted.
+      if (document.hidden) {
+        useNotifications.getState().add({
+          text: `Your deep run ${ev.status === "done" ? "finished" : ev.status} (${ev.stop_reason})`,
+          conversationId: run.conversationId,
+        });
+        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
+          try {
+            new Notification("Helix — deep run finished", { body: run.question.slice(0, 120) });
+          } catch { /* notification is an enhancement, never an error */ }
+        }
+      }
     } else if (ev.kind === "assistant_node") {
       const cur = useMonitor.getState().run;
       if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
@@ -407,6 +469,11 @@ export function ChatView() {
   async function onDeep(text: string, guided: boolean) {
     const branchId = await ensureConversation();
     if (!branchId || !activeConvId) return;
+    // Deep runs take minutes and survive the tab — ask (once, lazily) to be
+    // allowed to notify when one finishes in the background. Denial is fine.
+    if (typeof Notification !== "undefined" && Notification.permission === "default") {
+      Notification.requestPermission().catch(() => {});
+    }
     const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
     monitor.start({
       status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
@@ -477,6 +544,14 @@ export function ChatView() {
       } else if (ev.kind === "references.updated") {
         if (ev.conversation_id === activeConvId) {
           qc.invalidateQueries({ queryKey: ["references", activeConvId] });
+        }
+      } else if (ev.kind === "messages.deleted") {
+        // A teammate removed their trailing turn on the branch I'm reading —
+        // reload so I'm not looking at messages that no longer exist.
+        if (ev.branch_id === activeBranchId) {
+          getHistory(ev.branch_id)
+            .then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap))))
+            .catch(() => {});
         }
       } else if (ev.kind === "run_event") {
         if (ev.branch_id !== activeBranchId) return;
@@ -670,7 +745,9 @@ export function ChatView() {
                            : "This thread is empty."}
                 </EmptyState>
               ) : (
-                <MessageList messages={shownMessages} onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined} />
+                <MessageList messages={shownMessages}
+                  onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined}
+                  lastTurn={lastTurn ? { userMsgId: lastTurn.id, onDelete: onDeleteLast, onEdit: onEditLast } : undefined} />
               )}
             </div>
 
@@ -691,7 +768,9 @@ export function ChatView() {
                 </div>
               )}
               {canSend ? (
-                <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep} onLibrary={() => nav(`/w/${wid}/library`)} />
+                <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
+                  onLibrary={() => nav(`/w/${wid}/library`)}
+                  draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
               ) : (
                 <div className={s.readonly}>
                   <span style={{ fontSize: 16 }}>◉</span>

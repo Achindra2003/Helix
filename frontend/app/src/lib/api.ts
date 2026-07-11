@@ -4,6 +4,7 @@ import { getToken } from "@/lib/auth";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
+  WorkspaceSearchHit, WorkspaceUsage,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -55,12 +56,38 @@ export const register = (email: string, password: string) =>
 export const login = (email: string, password: string) =>
   request<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 export const me = () => request<User>("/api/me");
+export const changePassword = (currentPassword: string, newPassword: string) =>
+  request<void>("/api/me/password", {
+    method: "PATCH",
+    body: JSON.stringify({ current_password: currentPassword, new_password: newPassword }),
+  });
+// 409 (owns_workspaces) if the caller still owns a workspace — the server
+// refuses to let one account's deletion take a team's workspace with it.
+export const deleteAccount = () => request<void>("/api/me", { method: "DELETE" });
 
 // --- workspaces (contract §5) ---
 export const listWorkspaces = () => request<Workspace[]>("/api/workspaces");
 export const createWorkspace = (name: string) =>
   request<Workspace>("/api/workspaces", { method: "POST", body: JSON.stringify({ name }) });
 export const getWorkspace = (wid: string) => request<Workspace>(`/api/workspaces/${wid}`);
+export const renameWorkspace = (wid: string, name: string) =>
+  request<Workspace>(`/api/workspaces/${wid}`, { method: "PATCH", body: JSON.stringify({ name }) });
+// Owner-only; cascades everything in the workspace (conversations, documents,
+// runs, invites, settings, memberships) server-side.
+export const deleteWorkspace = (wid: string) =>
+  request<void>(`/api/workspaces/${wid}`, { method: "DELETE" });
+// Any member except the canonical owner (they delete instead).
+export const leaveWorkspace = (wid: string) =>
+  request<void>(`/api/workspaces/${wid}/leave`, { method: "POST" });
+// Semantic search across the workspace's conversation history (server-side
+// visibility: shared threads + the caller's own private ones).
+export const searchWorkspace = (wid: string, query: string, k = 10) =>
+  request<{ items: WorkspaceSearchHit[] }>(`/api/workspaces/${wid}/search`, {
+    method: "POST",
+    body: JSON.stringify({ query, k }),
+  });
+export const getWorkspaceUsage = (wid: string) =>
+  request<WorkspaceUsage>(`/api/workspaces/${wid}/usage`);
 export const listMembers = (wid: string) => request<Member[]>(`/api/workspaces/${wid}/members`);
 export const setMemberRole = (wid: string, uid: string, role: string) =>
   request<Member>(`/api/workspaces/${wid}/members/${uid}`, { method: "PATCH", body: JSON.stringify({ role }) });
@@ -118,6 +145,11 @@ export const listBranches = (cid: string) =>
   request<{ items: Branch[] }>(`/conversations/${cid}/branches`);
 export const getHistory = (branchId: string) =>
   request<{ branch_id: string; nodes: Node[] }>(`/conversations/branches/${branchId}/history`);
+// Remove the branch's trailing turn you authored (user message + its reply, if
+// one landed). 403 if you're not the author; 409 once a branch has forked from
+// it — append-only history stays intact for anyone who already branched off.
+export const deleteLastMessage = (branchId: string) =>
+  request<{ removed_ids: string[] }>(`/conversations/${branchId}/messages/last`, { method: "DELETE" });
 export const forkBranch = (cid: string, fromNodeId: string, name: string) =>
   request<{ branch_id: string; fork_node_id: string; name: string }>(`/conversations/${cid}/fork`, {
     method: "POST",

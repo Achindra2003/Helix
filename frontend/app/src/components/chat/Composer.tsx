@@ -1,20 +1,32 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Button } from "@/components/common/Button";
 import s from "./chat.module.css";
 
 export function Composer({
-  provider, busy, onSend, onDeep, onLibrary,
+  provider, busy, onSend, onDeep, onLibrary, draft, onDraftConsumed,
 }: {
   provider: string;
   busy: boolean;
   onSend: (text: string) => void;
   onDeep: (text: string, guided: boolean) => void;
   onLibrary: () => void;
+  // "Edit last message" hand-off: the deleted message's text lands here for
+  // the author to revise and resend (edit = delete + resend, by design).
+  draft?: string | null;
+  onDraftConsumed?: () => void;
 }) {
   const [text, setText] = useState("");
   // Guided mode (FR-11): the deep run pauses between refinement cycles so you
   // can steer it mid-flight from the monitor. Off = classic self-halting run.
   const [guided, setGuided] = useState(false);
+
+  useEffect(() => {
+    if (draft) {
+      setText(draft);
+      onDraftConsumed?.();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft]);
 
   function send() {
     const t = text.trim();

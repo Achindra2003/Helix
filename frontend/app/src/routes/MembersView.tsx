@@ -1,12 +1,16 @@
-import { useState } from "react";
-import { useParams } from "react-router-dom";
+import { useEffect, useState } from "react";
+import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listMembers, createInvite, setMemberRole } from "@/lib/api";
+import {
+  listMembers, createInvite, setMemberRole,
+  renameWorkspace, deleteWorkspace, listWorkspaces,
+} from "@/lib/api";
 import { can, PERMISSION_ROWS, ROLE_META } from "@/lib/rbac";
-import { useEffectiveRole } from "@/store/session";
+import { useEffectiveRole, useActiveWorkspace, useSession } from "@/store/session";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
+import { Input } from "@/components/common/Input";
 import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
 import type { Role } from "@/lib/types";
@@ -17,11 +21,19 @@ const ROLES: Role[] = ["owner", "collaborator", "observer"];
 
 export function MembersView() {
   const { wid } = useParams();
+  const nav = useNavigate();
   const qc = useQueryClient();
   const { push } = useToast();
   const role = useEffectiveRole();
+  const ws = useActiveWorkspace();
+  const setWorkspaces = useSession((st) => st.setWorkspaces);
   const canManage = can(role, "member.manage");
+  const canManageWs = can(role, "workspace.manage");
   const [invite, setInvite] = useState<{ token: string; url: string } | null>(null);
+  const [wsName, setWsName] = useState("");
+  const [wsBusy, setWsBusy] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  useEffect(() => { setWsName(ws?.name ?? ""); }, [ws?.name]);
 
   const { data: members, isLoading } = useQuery({
     queryKey: ["members", wid],
@@ -42,6 +54,34 @@ export function MembersView() {
       qc.invalidateQueries({ queryKey: ["members", wid] });
       push("Role updated");
     } catch (e: any) { push(e?.message ?? "Update failed", "error"); }
+  }
+
+  async function doRename() {
+    const name = wsName.trim();
+    if (!wid || !name || name === ws?.name) return;
+    setWsBusy(true);
+    try {
+      await renameWorkspace(wid, name);
+      // The name lives in the session's workspace list (TopBar, picker) —
+      // refresh it so the whole shell updates, not just this page.
+      setWorkspaces(await listWorkspaces());
+      push("Workspace renamed");
+    } catch (e: any) { push(e?.message ?? "Rename failed", "error"); }
+    finally { setWsBusy(false); }
+  }
+
+  async function doDeleteWorkspace() {
+    if (!wid) return;
+    setWsBusy(true);
+    try {
+      await deleteWorkspace(wid);
+      setWorkspaces(await listWorkspaces());
+      nav("/workspaces");
+      push("Workspace deleted");
+    } catch (e: any) {
+      push(e?.message ?? "Delete failed", "error");
+      setConfirmDelete(false);
+    } finally { setWsBusy(false); }
   }
 
   return (
@@ -81,6 +121,32 @@ export function MembersView() {
 
         {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
 
+        {canManageWs && (
+          <>
+            <div className={s.matrixHead} style={{ marginTop: 38 }}>
+              <span className="serif-d" style={{ fontSize: 22 }}>Workspace</span>
+              <span className={`mono ${s.tag}`}>owner only</span>
+            </div>
+            <div className={s.row} style={{ flexDirection: "column", alignItems: "stretch", gap: 14 }}>
+              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+                <Input value={wsName} onChange={(e) => setWsName(e.target.value)}
+                  onKeyDown={(e) => e.key === "Enter" && doRename()}
+                  style={{ maxWidth: 320 }} placeholder="Workspace name" />
+                <Button variant="primary" disabled={wsBusy || !wsName.trim() || wsName.trim() === ws?.name}
+                  onClick={doRename}>Rename</Button>
+                <div style={{ flex: 1 }} />
+                <Button variant="oxblood" disabled={wsBusy} onClick={() => setConfirmDelete(true)}>
+                  Delete workspace
+                </Button>
+              </div>
+              <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+                Deleting removes every conversation, branch, document, run record and invite in
+                this workspace, for every member — there is no undo.
+              </div>
+            </div>
+          </>
+        )}
+
         <div className={s.matrixHead} style={{ marginTop: 38 }}>
           <span className="serif-d" style={{ fontSize: 22 }}>Permission Matrix</span>
           <span className={`mono ${s.tag}`}>policy as data</span>
@@ -105,6 +171,18 @@ export function MembersView() {
         </div>
       </div>
 
+      {confirmDelete && (
+        <Dialog title={`Delete ${ws?.name ?? "this workspace"}?`} onClose={() => setConfirmDelete(false)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <Button variant="oxblood" disabled={wsBusy} onClick={doDeleteWorkspace}>Delete forever</Button>
+          </>}>
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+            Every conversation, branch, document, run record and invite in this workspace is
+            deleted — for every member. This cannot be undone.
+          </div>
+        </Dialog>
+      )}
       {invite && (
         <Dialog title="Invite link" onClose={() => setInvite(null)}
           footer={<Button variant="primary" onClick={() => { navigator.clipboard?.writeText(invite.token); push("Token copied"); }}>Copy token</Button>}>

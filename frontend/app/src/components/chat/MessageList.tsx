@@ -22,8 +22,19 @@ export interface ChatMessage {
   grounding?: GroundingItem[];
 }
 
-function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void }) {
+// Delete/edit is only ever offered on the branch's *trailing* turn you wrote
+// (edit = delete + resend; history stays append-only underneath).
+export interface LastTurnActions {
+  userMsgId: string;
+  onDelete: () => void;
+  onEdit: () => void;
+}
+
+function Bubble({ m, dropCap, onForkHere, lastTurn }: {
+  m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void; lastTurn?: LastTurnActions;
+}) {
   const asst = m.role === "assistant";
+  const mine = lastTurn?.userMsgId === m.id;
   return (
     <div
       className={`${s.msg} ${s.msgQuill}`}
@@ -48,6 +59,18 @@ function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean;
             <button className={s.forkHere} title="Fork a new branch from here" onClick={() => onForkHere(m.id)}>
               ⌇ fork here
             </button>
+          )}
+          {mine && !m.typing && (
+            <>
+              <button className={s.forkHere} title="Edit and resend — removes this message (and its reply) and puts the text back in the composer"
+                onClick={lastTurn!.onEdit}>
+                ✎ edit
+              </button>
+              <button className={s.forkHere} style={{ color: "var(--oxblood)" }}
+                title="Delete this message and its reply" onClick={lastTurn!.onDelete}>
+                ✕ delete
+              </button>
+            </>
           )}
         </div>
         <div className={`${s.msgBody} ${asst && dropCap && !m.typing ? s.dropCap : ""}`}>
@@ -80,14 +103,16 @@ function Bubble({ m, dropCap, onForkHere }: { m: ChatMessage; dropCap?: boolean;
   );
 }
 
-export function MessageList({ messages, onForkHere }: { messages: ChatMessage[]; onForkHere?: (id: string) => void }) {
+export function MessageList({ messages, onForkHere, lastTurn }: {
+  messages: ChatMessage[]; onForkHere?: (id: string) => void; lastTurn?: LastTurnActions;
+}) {
   // The thread's first assistant reply opens with a drop cap, like the first
   // page of a chapter.
   const firstAsst = messages.findIndex((m) => m.role === "assistant");
   return (
     <>
       {messages.map((m, i) => (
-        <Bubble key={m.id} m={m} dropCap={i === firstAsst} onForkHere={onForkHere} />
+        <Bubble key={m.id} m={m} dropCap={i === firstAsst} onForkHere={onForkHere} lastTurn={lastTurn} />
       ))}
     </>
   );

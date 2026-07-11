@@ -6,6 +6,7 @@ import { useSession } from "@/store/session";
 import { Spinner } from "@/components/common/Feedback";
 import { AuthPage } from "@/routes/AuthPage";
 import { WorkspacePicker } from "@/routes/WorkspacePicker";
+import { AccountView } from "@/routes/AccountView";
 import { WorkspaceLayout } from "@/routes/WorkspaceLayout";
 import { ChatView } from "@/routes/ChatView";
 import { LibraryView } from "@/routes/LibraryView";
@@ -78,6 +79,7 @@ export function App() {
       <Routes>
         <Route path="/auth" element={user ? <Navigate to="/workspaces" replace /> : <AuthPage />} />
         <Route path="/workspaces" element={<RequireAuth><WorkspacePicker /></RequireAuth>} />
+        <Route path="/account" element={<RequireAuth><AccountView /></RequireAuth>} />
         <Route path="/w/:wid" element={<RequireAuth><WorkspaceLayout /></RequireAuth>}>
           <Route index element={<ChatView />} />
           <Route path="map" element={<MapView />} />

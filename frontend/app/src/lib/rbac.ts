@@ -11,6 +11,7 @@ export type Action =
   | "run.escalate"
   | "run.control" // steer / kill
   | "member.manage"
+  | "workspace.manage" // rename / delete the workspace itself
   | "permission.edit";
 
 const MATRIX: Record<Action, Record<Role, boolean>> = {
@@ -22,6 +23,7 @@ const MATRIX: Record<Action, Record<Role, boolean>> = {
   "run.escalate": { owner: true, collaborator: true, observer: false },
   "run.control": { owner: true, collaborator: true, observer: false },
   "member.manage": { owner: true, collaborator: false, observer: false },
+  "workspace.manage": { owner: true, collaborator: false, observer: false },
   "permission.edit": { owner: true, collaborator: false, observer: false },
 };
 
@@ -38,6 +40,7 @@ export const PERMISSION_ROWS: { key: string; action: Action }[] = [
   { key: "run.escalate", action: "run.escalate" },
   { key: "run.steer / run.kill", action: "run.control" },
   { key: "member.invite / role", action: "member.manage" },
+  { key: "workspace.rename / delete", action: "workspace.manage" },
   { key: "permission.edit", action: "permission.edit" },
 ];
 

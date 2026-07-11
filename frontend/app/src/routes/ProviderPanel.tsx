@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  getProviderSettings, putProviderSettings, testProviderSettings,
+  getProviderSettings, putProviderSettings, testProviderSettings, getWorkspaceUsage,
 } from "@/lib/api";
 import { Button } from "@/components/common/Button";
 import { Field, Input } from "@/components/common/Input";
@@ -24,6 +24,12 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
   const { data, isLoading } = useQuery({
     queryKey: ["provider-settings", wid],
     queryFn: () => getProviderSettings(wid),
+  });
+  // Lifetime spend on this workspace's own key. Chat is an approximation
+  // (streamed chunk count); deep-run tokens are the measured number.
+  const { data: usage } = useQuery({
+    queryKey: ["workspace-usage", wid],
+    queryFn: () => getWorkspaceUsage(wid),
   });
 
   const [provider, setProvider] = useState("");
@@ -87,6 +93,12 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
       <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
         {data.source === "workspace" ? "workspace settings" : "server default"}
       </span>
+      {usage && (
+        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}
+          title="Lifetime spend on this workspace's key. Chat is approximate (streamed chunk count); deep-run tokens are measured.">
+          spend: ~{usage.chat_tokens_approx.toLocaleString()} chat · {usage.deep_run_tokens.toLocaleString()} deep
+        </span>
+      )}
     </div>
   );
 

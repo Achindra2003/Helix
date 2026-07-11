@@ -60,6 +60,15 @@
 }
 .card:hover .cardGo, .card:focus-visible .cardGo { opacity: 1; transform: none; }
 
+/* quiet leave affordance — visible only when the plate is touched, like cardGo */
+.cardLeave {
+  border: 1px solid var(--rule-soft); background: transparent; border-radius: 5px;
+  font-size: 10.5px; color: var(--ink-3); padding: 2px 8px; cursor: pointer;
+  opacity: 0; transition: opacity var(--dur-2), color var(--dur-1), border-color var(--dur-1);
+}
+.card:hover .cardLeave, .card:focus-visible .cardLeave { opacity: 1; }
+.cardLeave:hover { color: var(--oxblood); border-color: var(--oxblood); }
+
 .actions {
   border: 1.5px dashed var(--rule); border-radius: 14px; display: flex; flex-direction: column;
   gap: 10px; align-items: center; justify-content: center; padding: 22px; min-height: 176px;

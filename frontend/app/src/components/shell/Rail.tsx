@@ -12,7 +12,7 @@ const NAV = [
   { key: "members", glyph: "♔", label: "TEAM" },
 ];
 
-export function Rail({ active }: { active: string }) {
+export function Rail({ active, onSearch }: { active: string; onSearch: () => void }) {
   const nav = useNavigate();
   const { wid } = useParams();
   const user = useSession((st) => st.user);
@@ -31,8 +31,15 @@ export function Rail({ active }: { active: string }) {
           </button>
         );
       })}
+      <button className={s.navBtn} title="Search every conversation (Ctrl+K)" onClick={onSearch}>
+        <span className={s.navGlyph}>⌕</span>
+        <span className={s.navLabel}>FIND</span>
+      </button>
       <div className={s.spacer} />
-      <div className={s.avatar} title={user?.email}>{initialOf(user?.email)}</div>
+      <button className={s.avatar} title={`${user?.email} — account settings`}
+        style={{ padding: 0 }} onClick={() => nav("/account")}>
+        {initialOf(user?.email)}
+      </button>
     </div>
   );
 }

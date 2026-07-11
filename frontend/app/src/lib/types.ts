@@ -174,6 +174,29 @@ export interface DeepRunRecord extends DeepRunSummary {
   provenance: Record<string, unknown>;
 }
 
+// --- cross-conversation search (POST /api/workspaces/{wid}/search) ---
+// Semantic hits over the workspace's conversation history — shared threads
+// plus the caller's own private ones (the server enforces visibility).
+export interface WorkspaceSearchHit {
+  node_id: string;
+  conversation_id: string;
+  conversation_title: string;
+  branch_id: string;
+  role: "user" | "assistant" | "system";
+  excerpt: string;
+  score: number;
+  author_id: string | null;
+  created_at: string;
+}
+
+// --- workspace usage (GET /api/workspaces/{wid}/usage) ---
+// chat_tokens_approx is a streamed chunk count, not a real tokenizer count —
+// label it as approximate wherever it renders. deep_run_tokens is measured.
+export interface WorkspaceUsage {
+  chat_tokens_approx: number;
+  deep_run_tokens: number;
+}
+
 export interface Health {
   status: string;
   db_time: string;
