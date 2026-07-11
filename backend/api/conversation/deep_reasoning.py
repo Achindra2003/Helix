@@ -24,7 +24,8 @@ import time
 from typing import Any, AsyncIterator, Callable
 
 from .context import render_seed
-from .events import Budget, Complete, Event, Step, Token, Waiting
+from .events import Budget, Complete, Event, Grounding, Step, Token, Waiting
+from .producer import Grounder
 
 # Fields worth surfacing to the monitor from a node's state delta / running state.
 _STEP_KEYS = (
@@ -73,6 +74,7 @@ class DeepReasoningProducer:
         seed_builder: Callable[[list], str] = render_seed,
         should_stop: Callable[[], bool] | None = None,
         deadline_s: float | None = None,
+        grounder: Grounder | None = None,
     ) -> None:
         self._graph = graph
         self._graph_config = graph_config
@@ -82,6 +84,7 @@ class DeepReasoningProducer:
         self._seed_builder = seed_builder
         self._should_stop = should_stop
         self._deadline_s = deadline_s
+        self._grounder = grounder
         self._state: dict[str, Any] = {}
         self._idx = 0
         self._answered = False
@@ -115,7 +118,18 @@ class DeepReasoningProducer:
     async def run(self, history: list) -> AsyncIterator[Event]:
         # Seed over the whole thread (recent context + the question), not just the
         # last line, so the engine reasons with the shared, branchable context.
+        # Same file grounding chat gets: relevant workspace-document chunks are
+        # folded into the seed and cited to the client before the run starts —
+        # a hard question escalated to Deep Reasoning should reason over the
+        # knowledge base too, not just the thread.
+        grounding_text = ""
+        if self._grounder is not None:
+            grounding_text, citations = await self._grounder(history)
+            if citations:
+                yield Grounding(items=citations)
         seed = self._seed_builder(history)
+        if grounding_text:
+            seed = f"{grounding_text}\n\n{seed}"
         self._idx = 0
         self._answered = False
         async for event in self._drive(self._make_inputs(seed)):

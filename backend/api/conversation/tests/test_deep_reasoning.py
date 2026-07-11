@@ -15,6 +15,7 @@ from api.conversation.events import (
     Budget,
     Complete,
     Done,
+    Grounding,
     Step,
     Token,
     UserNode,
@@ -223,6 +224,48 @@ async def test_seeds_over_thread_context_not_just_last_line():
 
     assert "which fits a single instance?" in captured["seed"]  # the question
     assert "choosing a cache layer" in captured["seed"]  # prior context carried in
+
+
+async def test_grounds_the_seed_and_emits_citations_when_relevant():
+    """Deep runs should get the same file grounding chat turns do (P4 gap)."""
+    _, _, history = await _node()
+
+    async def fake_grounder(hist):
+        return (
+            '<quoted-context source="document: spec.md">doc text</quoted-context>',
+            [{"document_id": "d1", "filename": "spec.md", "chunk_index": 0,
+              "score": 0.42, "excerpt": "doc text"}],
+        )
+
+    captured = {}
+
+    def capturing_make_inputs(seed):
+        captured["seed"] = seed
+        return {"seed": seed, "thought": seed}
+
+    events = [
+        e async for e in _producer(
+            _RUN_EVENTS, make_inputs=capturing_make_inputs, grounder=fake_grounder,
+        ).run(history)
+    ]
+
+    groundings = [e for e in events if isinstance(e, Grounding)]
+    assert groundings and groundings[0].items[0]["filename"] == "spec.md"
+    assert "doc text" in captured["seed"]  # folded into the seed the engine reasons over
+    # Grounding is the run's first content signal — before any reasoning step.
+    first_step_idx = next(i for i, e in enumerate(events) if isinstance(e, Step))
+    assert events.index(groundings[0]) < first_step_idx
+
+
+async def test_no_grounding_frame_when_nothing_clears_the_relevance_floor():
+    """An unrelated question must not drag the knowledge base into every run."""
+    _, _, history = await _node()
+
+    async def empty_grounder(hist):
+        return "", []
+
+    events = [e async for e in _producer(_RUN_EVENTS, grounder=empty_grounder).run(history)]
+    assert not any(isinstance(e, Grounding) for e in events)
 
 
 async def test_runs_through_engine_send_and_persists_final_answer():

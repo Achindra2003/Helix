@@ -153,8 +153,11 @@ documents_ingest_inline=false            # true only in tests
   builds a `ChatGroq` client); chat is fully provider-agnostic. Widening the
   deep path to any OpenAI-compatible endpoint is a contained change in
   `build_ouroboros_graph`.
-- Grounding covers **chat turns**; deep-reasoning seeds don't retrieve from
-  documents yet (`render_seed` is the place, `DocumentIndex.search` is the
-  tool — a labeled future task).
+- Grounding now covers **both chat turns and deep runs**: `DeepReasoningProducer`
+  takes the same `Grounder` chat uses, folds the relevance-gated block into the
+  seed, and emits the same `grounding` frame before the trace starts
+  (`api/conversation/deep_reasoning.py`, wired in `router.py`'s
+  `escalate_deep_reasoning`). No frontend changes were needed — `ChatView`
+  already handled `grounding` generically on both the author and watcher paths.
 - The eval verdict stands: *if you iterate, converge — don't count.* The
   quality-win claim for refinement awaits the hard-set run.

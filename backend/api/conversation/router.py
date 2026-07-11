@@ -637,6 +637,7 @@ async def escalate_deep_reasoning(
         token_budget=settings.deep_reasoning_token_budget,
         deadline_s=settings.deep_reasoning_deadline_s,
         should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
+        grounder=_grounder_for(conv.workspace_id),
     )
     # Every deep run leaves a durable record (question, signals, outcome, compact
     # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.
