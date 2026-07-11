@@ -46,3 +46,4 @@ helix.db
 # and stay tracked; only the raw .txt session transcripts are ignored.
 baton*.txt
 dump*.txt
+*-dump.txt

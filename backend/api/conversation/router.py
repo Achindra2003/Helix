@@ -478,6 +478,44 @@ async def _workspace_provider(workspace_id: str, session: AsyncSession) -> Resol
     return resolved
 
 
+@router.delete("/{branch_id}/messages/last")
+async def delete_last_message(
+    branch_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete (or, from the UI, "edit and resend") the trailing message you
+    authored — and its assistant reply, if one landed. Safe only when nothing
+    has forked from either node; append-only history stays intact for anyone
+    who already branched off it (§3 of the completion plan)."""
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    try:
+        removed_ids = await _store.delete_last_turn(branch_id=branch_id, user_id=user.id)
+    except KeyError:
+        raise api_error(404, "not_found", "nothing to delete on this branch")
+    except PermissionError:
+        raise api_error(403, "forbidden", "only the author may remove their message")
+    except ValueError:
+        raise api_error(
+            409, "conflict",
+            "can't remove this message — a branch has already forked from it",
+        )
+    await _embeddings.drop(removed_ids)
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "messages.deleted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "node_ids": removed_ids,
+            },
+            exclude_user=user.id,
+        )
+    return {"removed_ids": removed_ids}
+
+
 @router.post("/{branch_id}/messages")
 async def send_message(
     branch_id: str,

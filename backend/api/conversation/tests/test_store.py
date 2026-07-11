@@ -85,3 +85,65 @@ async def test_fork_is_o1_and_history_crosses_branch_boundary(store):
 
 async def test_store_satisfies_the_protocol(store):
     assert isinstance(store, ConversationStore)
+
+
+async def test_delete_last_turn_removes_reply_and_user_message(store):
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    n1 = await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+    n2 = await store.add_node(branch_id=b, role="assistant", content="B", author_id=None)
+
+    removed = await store.delete_last_turn(branch_id=b, user_id="u1")
+    assert set(removed) == {n1.id, n2.id}
+    assert await store.get_history(b) == []
+    branch = await store.get_branch(b)
+    assert branch.head_node_id is None
+
+
+async def test_delete_last_turn_removes_only_the_dangling_user_message(store):
+    """A user turn with no reply yet (e.g. the send failed) — delete just it."""
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    n1 = await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+
+    removed = await store.delete_last_turn(branch_id=b, user_id="u1")
+    assert removed == [n1.id]
+    assert await store.get_history(b) == []
+
+
+async def test_delete_last_turn_rejects_a_non_author(store):
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+    await store.add_node(branch_id=b, role="assistant", content="B", author_id=None)
+
+    with pytest.raises(PermissionError):
+        await store.delete_last_turn(branch_id=b, user_id="someone-else")
+
+
+async def test_delete_last_turn_rejects_an_empty_branch(store):
+    conv = await _conv(store)
+    with pytest.raises(KeyError):
+        await store.delete_last_turn(branch_id=conv.default_branch_id, user_id="u1")
+
+
+async def test_delete_last_turn_blocked_once_something_has_forked_from_it(store):
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    n1 = await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+    n2 = await store.add_node(branch_id=b, role="assistant", content="B", author_id=None)
+    await store.create_branch(conversation_id=conv.id, from_node_id=n2.id, name="alt")
+
+    with pytest.raises(ValueError):
+        await store.delete_last_turn(branch_id=b, user_id="u1")
+
+    # Untouched — the fork's history is still intact.
+    assert [n.content for n in await store.get_history(b)] == ["A", "B"]
+
+    # A fork from an earlier ancestor also blocks deleting that ancestor even
+    # after the trailing turn (the direct fork target) is gone — but the
+    # trailing turn itself, once safely removed, doesn't block on ancestors.
+    n3 = await store.add_node(branch_id=b, role="user", content="C", author_id="u1")
+    n4 = await store.add_node(branch_id=b, role="assistant", content="D", author_id=None)
+    removed = await store.delete_last_turn(branch_id=b, user_id="u1")
+    assert set(removed) == {n3.id, n4.id}

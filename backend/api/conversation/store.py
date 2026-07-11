@@ -110,6 +110,19 @@ class ConversationStore(Protocol):
         """Referenced conversation ids for `conversation_id`, in link order."""
         ...
 
+    async def delete_last_turn(self, *, branch_id: str, user_id: str) -> list[str]:
+        """Remove the branch's trailing user message, and its assistant reply
+        if one landed — the "delete/edit my last message" operation. Safe only
+        when nothing has forked from either node, so the tree stays intact for
+        anyone who already branched off it. Returns the removed node ids
+        (reply first, then the user message, when both are removed).
+
+        Raises ``KeyError`` if the branch is empty, ``PermissionError`` if the
+        caller didn't author the trailing user turn, ``ValueError`` if a
+        branch has forked from either node.
+        """
+        ...
+
 
 class InMemoryStore:
     """Reference `ConversationStore` for the engine's tests (no database)."""
@@ -240,6 +253,29 @@ class InMemoryStore:
 
     async def list_reference_ids(self, conversation_id: str) -> list[str]:
         return list(self.references.get(conversation_id, []))
+
+    async def delete_last_turn(self, *, branch_id: str, user_id: str) -> list[str]:
+        branch = self.branches.get(branch_id)
+        if branch is None or branch.head_node_id is None:
+            raise KeyError(branch_id)
+        head = self.nodes[branch.head_node_id]
+        if head.role == "assistant":
+            user_node = self.nodes.get(head.parent_id) if head.parent_id else None
+            if user_node is None or user_node.role != "user":
+                raise ValueError("trailing pair is not a user/assistant turn")
+            reply = head
+        else:
+            reply, user_node = None, head
+        if user_node.role != "user" or user_node.author_id != user_id:
+            raise PermissionError("only the author may remove their message")
+        to_remove = [n for n in (reply, user_node) if n is not None]
+        for n in to_remove:
+            if any(b.fork_node_id == n.id for b in self.branches.values()):
+                raise ValueError("a branch has forked from this message")
+        branch.head_node_id = user_node.parent_id
+        for n in to_remove:
+            del self.nodes[n.id]
+        return [n.id for n in to_remove]
 
 
 class DbStore:
@@ -511,3 +547,36 @@ class DbStore:
                 )
             ).scalars().all()
             return [r.referenced_conversation_id for r in rows]
+
+    async def delete_last_turn(self, *, branch_id: str, user_id: str) -> list[str]:
+        from sqlalchemy import select
+
+        from .models import BranchRow, NodeRow
+
+        async with self._sf() as s:
+            branch = await s.get(BranchRow, branch_id)
+            if branch is None or branch.head_node_id is None:
+                raise KeyError(branch_id)
+            head = await s.get(NodeRow, branch.head_node_id)
+            if head.role == "assistant":
+                user_row = await s.get(NodeRow, head.parent_id) if head.parent_id else None
+                if user_row is None or user_row.role != "user":
+                    raise ValueError("trailing pair is not a user/assistant turn")
+                reply, user_node = head, user_row
+            else:
+                reply, user_node = None, head
+            if user_node.role != "user" or user_node.author_id != user_id:
+                raise PermissionError("only the author may remove their message")
+            to_remove = [n for n in (reply, user_node) if n is not None]
+            for n in to_remove:
+                forked = await s.scalar(
+                    select(BranchRow.id).where(BranchRow.fork_node_id == n.id)
+                )
+                if forked is not None:
+                    raise ValueError("a branch has forked from this message")
+            branch.head_node_id = user_node.parent_id
+            ids = [n.id for n in to_remove]
+            for n in to_remove:
+                await s.delete(n)
+            await s.commit()
+            return ids

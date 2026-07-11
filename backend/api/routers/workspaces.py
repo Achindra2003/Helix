@@ -2,12 +2,21 @@ import secrets
 
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..config import settings
-from ..db import get_session
+from ..conversation.embeddings import EmbeddingIndex, NodeEmbeddingRow
+from ..conversation.models import (
+    BranchRow,
+    ConversationReferenceRow,
+    ConversationRow,
+    DeepRunRow,
+    NodeRow,
+)
+from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership, require_role
+from ..documents.models import DocumentChunkRow, DocumentRow
 from ..errors import api_error
 from ..models import (
     ROLE_COLLABORATOR,
@@ -34,9 +43,14 @@ from ..schemas import (
     RolePatch,
     WorkspaceCreate,
     WorkspaceOut,
+    WorkspaceRename,
 )
 
 router = APIRouter(prefix="/api", tags=["workspaces"])
+
+# Cross-conversation semantic search — shares the persisted node_embeddings
+# substrate with chat's semantic recall (api/conversation/embeddings.py).
+_search_index = EmbeddingIndex(SessionLocal)
 
 
 def _ws_out(ws: Workspace, role: str) -> WorkspaceOut:
@@ -143,6 +157,122 @@ async def update_member_role(
         user_id=target.user_id, email=u.email,
         role=target.role, joined_at=target.joined_at,
     )
+
+
+@router.patch("/workspaces/{workspace_id}", response_model=WorkspaceOut)
+async def rename_workspace(
+    workspace_id: str,
+    body: WorkspaceRename,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    ws = await session.get(Workspace, workspace_id)
+    ws.name = body.name
+    await session.commit()
+    await session.refresh(ws)
+    return _ws_out(ws, ROLE_OWNER)
+
+
+@router.delete("/workspaces/{workspace_id}", status_code=204)
+async def delete_workspace(
+    workspace_id: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Owner-only, cascading. No DB-level FK cascades exist (see api/models.py's
+    docstring) — every dependent table is cleared explicitly, in dependency
+    order, before the workspace row itself (whose Membership rows the ORM
+    relationship cascades via `session.delete`)."""
+    ws = await session.get(Workspace, workspace_id)
+    conv_ids = select(ConversationRow.id).where(ConversationRow.workspace_id == workspace_id)
+    branch_ids = select(BranchRow.id).where(BranchRow.conversation_id.in_(conv_ids))
+    node_ids = select(NodeRow.id).where(NodeRow.branch_id.in_(branch_ids))
+
+    await session.execute(delete(NodeEmbeddingRow).where(NodeEmbeddingRow.node_id.in_(node_ids)))
+    await session.execute(delete(NodeRow).where(NodeRow.branch_id.in_(branch_ids)))
+    await session.execute(delete(BranchRow).where(BranchRow.conversation_id.in_(conv_ids)))
+    await session.execute(
+        delete(ConversationReferenceRow).where(
+            ConversationReferenceRow.conversation_id.in_(conv_ids)
+            | ConversationReferenceRow.referenced_conversation_id.in_(conv_ids)
+        )
+    )
+    await session.execute(delete(ConversationRow).where(ConversationRow.workspace_id == workspace_id))
+    await session.execute(delete(DeepRunRow).where(DeepRunRow.workspace_id == workspace_id))
+    await session.execute(delete(DocumentChunkRow).where(DocumentChunkRow.workspace_id == workspace_id))
+    await session.execute(delete(DocumentRow).where(DocumentRow.workspace_id == workspace_id))
+    await session.execute(delete(Invite).where(Invite.workspace_id == workspace_id))
+    await session.execute(delete(WorkspaceSettings).where(WorkspaceSettings.workspace_id == workspace_id))
+    await session.delete(ws)  # ORM-cascades this workspace's Membership rows
+    await session.commit()
+
+
+@router.post("/workspaces/{workspace_id}/leave", status_code=204)
+async def leave_workspace(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Any member may leave except the canonical owner (`Workspace.owner_id`) —
+    they delete the workspace instead; transferring ownership is out of scope."""
+    membership = await get_membership(workspace_id, user, session)
+    ws = await session.get(Workspace, workspace_id)
+    if user.id == ws.owner_id:
+        raise api_error(
+            409, "conflict",
+            "The workspace owner can't leave — delete the workspace instead.",
+        )
+    await session.delete(membership)
+    await session.commit()
+
+
+@router.get("/workspaces/{workspace_id}/usage")
+async def get_workspace_usage(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Lifetime token usage for this workspace's own BYO key. Chat tokens are
+    an approximation — `NodeRow.token_count` is a streamed chunk count, not a
+    real tokenizer count (see `api/conversation/engine.py`). Deep-run tokens
+    are the real, measured number the engine's usage handler reports."""
+    await get_membership(workspace_id, user, session)
+    chat_tokens = await session.scalar(
+        select(func.coalesce(func.sum(NodeRow.token_count), 0))
+        .select_from(NodeRow)
+        .join(BranchRow, BranchRow.id == NodeRow.branch_id)
+        .join(ConversationRow, ConversationRow.id == BranchRow.conversation_id)
+        .where(ConversationRow.workspace_id == workspace_id, NodeRow.role == "assistant")
+    )
+    deep_tokens = await session.scalar(
+        select(func.coalesce(func.sum(DeepRunRow.tokens_used), 0))
+        .where(DeepRunRow.workspace_id == workspace_id)
+    )
+    return {
+        "chat_tokens_approx": int(chat_tokens or 0),
+        "deep_run_tokens": int(deep_tokens or 0),
+    }
+
+
+class SearchQuery(BaseModel):
+    query: str
+    k: int = 10
+
+
+@router.post("/workspaces/{workspace_id}/search")
+async def search_workspace(
+    workspace_id: str,
+    body: SearchQuery,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Semantic search across the workspace's conversation history — any
+    member's shared threads, plus the caller's own private ones."""
+    await get_membership(workspace_id, user, session)
+    items = await _search_index.search_workspace(
+        workspace_id, user.id, body.query, k=body.k
+    )
+    return {"items": items}
 
 
 # --- Provider settings (BYO key) ---

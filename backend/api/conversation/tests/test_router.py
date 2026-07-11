@@ -609,3 +609,57 @@ def test_deep_run_reconnect_status_and_kill_endpoints(monkeypatch, make_workspac
             ).status_code
             == 404
         )
+
+
+def test_delete_last_message_removes_the_trailing_turn(make_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        branch_id = _create_conv(client, headers, wid)["branch_id"]
+        client.post(
+            f"/conversations/{branch_id}/messages", json={"prompt": "hi"}, headers=headers
+        )
+
+        deleted = client.delete(f"/conversations/{branch_id}/messages/last", headers=headers)
+        assert deleted.status_code == 200, deleted.text
+        assert len(deleted.json()["removed_ids"]) == 2  # user + assistant
+
+        hist = client.get(f"/conversations/branches/{branch_id}/history", headers=headers)
+        assert hist.json()["nodes"] == []
+
+
+def test_delete_last_message_is_author_gated(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        member_headers, _mid = join_workspace(client, headers, wid)
+        branch_id = _create_conv(client, headers, wid)["branch_id"]
+        client.post(
+            f"/conversations/{branch_id}/messages", json={"prompt": "hi"}, headers=headers
+        )
+
+        denied = client.delete(
+            f"/conversations/{branch_id}/messages/last", headers=member_headers
+        )
+        assert denied.status_code == 403
+
+
+def test_delete_last_message_blocked_after_a_fork(make_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        conv = _create_conv(client, headers, wid)
+        branch_id, conversation_id = conv["branch_id"], conv["conversation_id"]
+        client.post(
+            f"/conversations/{branch_id}/messages", json={"prompt": "hi"}, headers=headers
+        )
+        head_node_id = client.get(
+            f"/conversations/branches/{branch_id}/history", headers=headers
+        ).json()["nodes"][-1]["id"]
+
+        fork = client.post(
+            f"/conversations/{conversation_id}/fork",
+            json={"from_node_id": head_node_id, "name": "alt"},
+            headers=headers,
+        )
+        assert fork.status_code == 200, fork.text
+
+        blocked = client.delete(f"/conversations/{branch_id}/messages/last", headers=headers)
+        assert blocked.status_code == 409

@@ -133,6 +133,20 @@ class EmbeddingIndex:
         except RuntimeError:  # no loop (sync test context) — backfill covers it
             pass
 
+    async def drop(self, node_ids: list[str]) -> None:
+        """Remove persisted vectors for nodes that no longer exist (e.g. the
+        "delete my last message" path) — otherwise they'd sit as orphaned
+        rows keyed to a node_id nothing points to."""
+        if not node_ids:
+            return
+        from sqlalchemy import delete
+
+        async with self._sf() as session:
+            await session.execute(
+                delete(NodeEmbeddingRow).where(NodeEmbeddingRow.node_id.in_(node_ids))
+            )
+            await session.commit()
+
     async def vectors(self, node_ids: list[str]) -> dict[str, list[float]]:
         """Current-version vectors for `node_ids` (missing/stale ids omitted)."""
         if not node_ids:
@@ -170,6 +184,80 @@ class EmbeddingIndex:
         )
         picks = sorted(i for score, i in scored[:k] if score > floor)
         return [nodes[i] for i in picks]
+
+    async def search_workspace(
+        self, workspace_id: str, viewer_id: str, query: str, *,
+        k: int = 10, floor: float = 0.15,
+    ) -> list[dict]:
+        """Semantic search across every node the caller can see in a
+        workspace — shared conversations, plus their own private ones.
+
+        Mirrors `DocumentIndex.search`'s shape but over conversation nodes
+        instead of document chunks. `node_embeddings` carries no
+        `workspace_id` of its own, so this joins through
+        `NodeRow -> BranchRow -> ConversationRow` and reuses the exact
+        visibility clause `DbStore.list_conversations` applies, so a search
+        can never surface a private thread that isn't the caller's own.
+        """
+        if not query.strip():
+            return []
+        from sqlalchemy import or_, select
+
+        from .models import BranchRow, ConversationRow, NodeRow
+
+        async with self._sf() as session:
+            rows = (
+                await session.execute(
+                    select(NodeRow, BranchRow.conversation_id, ConversationRow.title)
+                    .join(BranchRow, BranchRow.id == NodeRow.branch_id)
+                    .join(ConversationRow, ConversationRow.id == BranchRow.conversation_id)
+                    .where(
+                        ConversationRow.workspace_id == workspace_id,
+                        NodeRow.content != "",
+                        or_(
+                            ConversationRow.visibility != "private",
+                            ConversationRow.author_id == viewer_id,
+                        ),
+                    )
+                )
+            ).all()
+        if not rows:
+            return []
+
+        nodes = [
+            Node(
+                id=r.id, branch_id=r.branch_id, parent_id=r.parent_id, seq=r.seq,
+                role=r.role, content=r.content, author_id=r.author_id,
+                token_count=r.token_count,
+            )
+            for r, _cid, _title in rows
+        ]
+        meta = {r.id: (cid, title, r.created_at) for r, cid, title in rows}
+
+        await self.ensure(nodes)
+        vecs = await self.vectors([n.id for n in nodes])
+        query_vec = (await self._embed([query[:2000]]))[0]
+        cosine = self._mem().cosine_similarity
+        scored = sorted(
+            ((cosine(query_vec, vecs[n.id]), n) for n in nodes if n.id in vecs),
+            key=lambda pair: pair[0],
+            reverse=True,
+        )
+        picked = [(score, n) for score, n in scored[:k] if score > floor]
+        return [
+            {
+                "node_id": n.id,
+                "conversation_id": meta[n.id][0],
+                "conversation_title": meta[n.id][1],
+                "branch_id": n.branch_id,
+                "role": n.role,
+                "excerpt": n.content[:240],
+                "score": round(float(score), 4),
+                "author_id": n.author_id,
+                "created_at": meta[n.id][2].isoformat(),
+            }
+            for score, n in picked
+        ]
 
     async def recall_block(self, history: list[Node]) -> str:
         """The rendered recall block for a send: elided turns most relevant to
