@@ -215,22 +215,31 @@ class DocumentIndex:
     ) -> list[dict]:
         """Top-`k` chunks relevant to `query`, with scores and identity —
         the shape both the grounding path and the search endpoint return."""
+        from ..telemetry import tracer
+
         if not query.strip():
             return []
         k = k or settings.grounding_k
         floor = settings.grounding_floor if floor is None else floor
-        chunks = await self._workspace_chunks(workspace_id)
-        if not chunks:
-            return []
-        vecs = await self._current_vectors(chunks)
-        query_vec = (await self._embed([query[:2000]]))[0]
-        cosine = self._mem().cosine_similarity
-        scored = sorted(
-            ((cosine(query_vec, vecs[c.id]), c) for c in chunks),
-            key=lambda pair: pair[0],
-            reverse=True,
-        )
-        picked = [(s, c) for s, c in scored[:k] if s > floor]
+        with tracer().start_as_current_span("retrieval.documents") as span:
+            span.set_attribute("retrieval.k", k)
+            span.set_attribute("retrieval.floor", floor)
+            chunks = await self._workspace_chunks(workspace_id)
+            span.set_attribute("retrieval.candidates", len(chunks))
+            if not chunks:
+                return []
+            vecs = await self._current_vectors(chunks)
+            query_vec = (await self._embed([query[:2000]]))[0]
+            cosine = self._mem().cosine_similarity
+            scored = sorted(
+                ((cosine(query_vec, vecs[c.id]), c) for c in chunks),
+                key=lambda pair: pair[0],
+                reverse=True,
+            )
+            picked = [(s, c) for s, c in scored[:k] if s > floor]
+            span.set_attribute("retrieval.hits", len(picked))
+            if picked:
+                span.set_attribute("retrieval.top_score", round(float(picked[0][0]), 4))
         if not picked:
             return []
         # Filenames for citations, one read.

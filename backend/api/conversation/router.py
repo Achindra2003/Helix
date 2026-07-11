@@ -33,6 +33,7 @@ from .. import realtime
 from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
 from ..models import WorkspaceSettings
+from ..telemetry import make_llm_span_callback, record_llm_call
 from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
@@ -63,6 +64,19 @@ def _grounder_for(workspace_id: str):
         return await _documents.grounding_block(workspace_id, history)
 
     return grounder
+
+
+def _usage_sink_for(workspace_id: str, provider_name: str):
+    """A UsageSink bound to one workspace: each chat call lands in the usage
+    ledger (real tokens where the provider reports them)."""
+
+    def sink(model: str, usage: dict | None, latency_ms: int) -> None:
+        record_llm_call(
+            workspace_id=workspace_id, kind="chat", provider=provider_name,
+            model=model, usage=usage, latency_ms=latency_ms,
+        )
+
+    return sink
 
 # Durable persistence: conversations/branches/nodes survive restarts. The engine
 # is unchanged by this swap — it only ever sees the `ConversationStore` Protocol.
@@ -664,6 +678,7 @@ async def send_message(
         references=references,
         recaller=_embeddings.recall_block,
         grounder=_grounder_for(conv.workspace_id),
+        usage_sink=_usage_sink_for(conv.workspace_id, resolved.provider),
     )
 
     gen = engine.send(
@@ -700,6 +715,7 @@ async def send_from_prompt(
         references=references,
         recaller=_embeddings.recall_block,
         grounder=_grounder_for(conv.workspace_id),
+        usage_sink=_usage_sink_for(conv.workspace_id, resolved.provider),
     )
 
     gen = engine.send(
@@ -797,6 +813,14 @@ async def escalate_deep_reasoning(
         confidence_threshold=settings.deep_reasoning_confidence_threshold,
         adaptive_steer=body.steerable,
         allow_research=settings.deep_reasoning_allow_research,
+        # Every reasoning-cycle LLM call becomes a GenAI span + ledger row,
+        # grouped by this run_id (see telemetry.LlmSpanHandler).
+        extra_callbacks=[
+            make_llm_span_callback(
+                workspace_id=conv.workspace_id, run_id=run_id,
+                provider="groq", model=resolved.resolved_deep_model,
+            )
+        ],
     )
     producer = DeepReasoningProducer(
         graph=graph,

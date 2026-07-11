@@ -113,6 +113,10 @@ class ResilientProvider:
         self._base_delay = base_delay
         self._bt = breaker_threshold
         self._bc = breaker_cooldown
+        # Accounting passthrough: usage/model of whichever inner provider
+        # actually served the last stream (the primary, unless it fell back).
+        self.last_usage: dict | None = None
+        self._model = getattr(self._providers[0], "_model", "")
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
         async for chunk in self._run("stream", prompt):
@@ -124,6 +128,7 @@ class ResilientProvider:
 
     async def _run(self, method: str, arg) -> AsyncIterator[str]:
         errors: list[str] = []
+        self.last_usage = None
         for provider in self._providers:
             breaker = _breaker_for(
                 _provider_key(provider), threshold=self._bt, cooldown=self._bc
@@ -138,6 +143,8 @@ class ResilientProvider:
                         produced = True
                         yield chunk
                     breaker.record_success()
+                    self.last_usage = getattr(provider, "last_usage", None)
+                    self._model = getattr(provider, "_model", self._model)
                     return
                 except Exception as exc:
                     if produced:

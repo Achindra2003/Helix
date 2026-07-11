@@ -168,22 +168,28 @@ class EmbeddingIndex:
         Node vectors come from the persisted substrate (backfilled on demand);
         only the query is embedded per call.
         """
+        from ..telemetry import tracer
+
         if not nodes or not query.strip():
             return []
-        await self.ensure(nodes)
-        vecs = await self.vectors([n.id for n in nodes])
-        query_vec = (await self._embed([query[:2000]]))[0]
-        cosine = self._mem().cosine_similarity
-        scored = sorted(
-            (
-                (cosine(query_vec, vecs[n.id]), i)
-                for i, n in enumerate(nodes)
-                if n.id in vecs
-            ),
-            reverse=True,
-        )
-        picks = sorted(i for score, i in scored[:k] if score > floor)
-        return [nodes[i] for i in picks]
+        with tracer().start_as_current_span("retrieval.recall") as span:
+            span.set_attribute("retrieval.k", k)
+            span.set_attribute("retrieval.candidates", len(nodes))
+            await self.ensure(nodes)
+            vecs = await self.vectors([n.id for n in nodes])
+            query_vec = (await self._embed([query[:2000]]))[0]
+            cosine = self._mem().cosine_similarity
+            scored = sorted(
+                (
+                    (cosine(query_vec, vecs[n.id]), i)
+                    for i, n in enumerate(nodes)
+                    if n.id in vecs
+                ),
+                reverse=True,
+            )
+            picks = sorted(i for score, i in scored[:k] if score > floor)
+            span.set_attribute("retrieval.hits", len(picks))
+            return [nodes[i] for i in picks]
 
     async def search_workspace(
         self, workspace_id: str, viewer_id: str, query: str, *,

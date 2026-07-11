@@ -140,7 +140,10 @@ def test_usage_reports_chat_tokens_from_sent_messages(make_workspace):
 
         zero = client.get(f"/api/workspaces/{wid}/usage", headers=headers)
         assert zero.status_code == 200, zero.text
-        assert zero.json() == {"chat_tokens_approx": 0, "deep_run_tokens": 0}
+        body = zero.json()
+        assert body["chat_tokens_approx"] == 0
+        assert body["deep_run_tokens"] == 0
+        assert body["calls"] == [] and body["estimated_cost_usd"] is None
 
         conv = client.post(
             "/conversations",

@@ -19,6 +19,7 @@ class OllamaProvider:
     def __init__(self, *, base_url: str | None = None, model: str | None = None):
         self._base_url = (base_url or settings.ollama_base_url).rstrip("/")
         self._model = model or settings.ollama_model
+        self.last_usage: dict | None = None
 
     async def stream_messages(self, messages: list[Message]) -> AsyncIterator[str]:
         """No native chat-messages call here — flatten to one prompt and stream."""
@@ -29,6 +30,7 @@ class OllamaProvider:
         url = f"{self._base_url}/api/generate"
         body = {"model": self._model, "prompt": prompt, "stream": True}
 
+        self.last_usage = None
         async with httpx.AsyncClient(timeout=120) as client:
             async with client.stream("POST", url, json=body) as resp:
                 resp.raise_for_status()
@@ -39,4 +41,9 @@ class OllamaProvider:
                     if chunk.get("response"):
                         yield chunk["response"]
                     if chunk.get("done"):
+                        # Ollama reports real counts on the terminal frame.
+                        self.last_usage = {
+                            "input_tokens": chunk.get("prompt_eval_count", 0),
+                            "output_tokens": chunk.get("eval_count", 0),
+                        }
                         break

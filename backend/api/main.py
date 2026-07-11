@@ -5,7 +5,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
-from . import db
+from . import db, telemetry
 from .config import settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
@@ -17,6 +17,7 @@ from .routers import auth, workspaces
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
     yield
     await db.disconnect()

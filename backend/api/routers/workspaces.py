@@ -36,6 +36,8 @@ from ..provider_settings import (
     mask_key,
     resolve,
 )
+from ..providers.pricing import estimate_cost_usd
+from ..telemetry import LlmCallRow
 from ..schemas import (
     InviteOut,
     InvitePreview,
@@ -273,9 +275,47 @@ async def get_workspace_usage(
         select(func.coalesce(func.sum(DeepRunRow.tokens_used), 0))
         .where(DeepRunRow.workspace_id == workspace_id)
     )
+
+    # The ledger: one row per LLM call with provider-reported usage — the
+    # real numbers, aggregated per (kind, model) so pricing can apply.
+    grouped = (
+        await session.execute(
+            select(
+                LlmCallRow.kind,
+                LlmCallRow.provider,
+                LlmCallRow.model,
+                func.count(LlmCallRow.id),
+                func.coalesce(func.sum(LlmCallRow.input_tokens), 0),
+                func.coalesce(func.sum(LlmCallRow.output_tokens), 0),
+            )
+            .where(LlmCallRow.workspace_id == workspace_id)
+            .group_by(LlmCallRow.kind, LlmCallRow.provider, LlmCallRow.model)
+        )
+    ).all()
+    calls = []
+    total_cost: float | None = None
+    for kind, provider, model, count, in_tok, out_tok in grouped:
+        cost = estimate_cost_usd(model, int(in_tok), int(out_tok))
+        if cost is not None:
+            total_cost = (total_cost or 0.0) + cost
+        calls.append(
+            {
+                "kind": kind,
+                "provider": provider,
+                "model": model,
+                "calls": int(count),
+                "input_tokens": int(in_tok),
+                "output_tokens": int(out_tok),
+                "cost_usd": round(cost, 6) if cost is not None else None,
+            }
+        )
     return {
         "chat_tokens_approx": int(chat_tokens or 0),
         "deep_run_tokens": int(deep_tokens or 0),
+        # Provider-reported usage per (kind, model); cost is an estimate from
+        # a static price table (None when the model isn't listed).
+        "calls": calls,
+        "estimated_cost_usd": round(total_cost, 6) if total_cost is not None else None,
     }
 
 

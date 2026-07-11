@@ -244,6 +244,7 @@ def build_ouroboros_graph(
     adaptive_steer: bool = False,
     allow_research: bool = True,
     humanize: bool = True,
+    extra_callbacks: list | None = None,
 ):
     """Construct a real, isolated Ouroboros graph + the wiring the producer needs.
 
@@ -314,7 +315,10 @@ def build_ouroboros_graph(
     usage_handler = new_usage_handler()
     graph_config = {
         "configurable": {"thread_id": thread_id},
-        "callbacks": [usage_handler],
+        # LangGraph propagates this list into every LLM invocation the graph
+        # makes — the token-usage handler and any tracing callbacks observe
+        # each reason/reflect/synthesize call without the engine knowing.
+        "callbacks": [usage_handler, *(extra_callbacks or [])],
         # Resolved convergence target (auto-calibration applied above): the
         # producer copies it onto step payloads for the monitor's convergence viz.
         "metadata": {"stability_threshold": stability_threshold},

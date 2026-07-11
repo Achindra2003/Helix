@@ -201,9 +201,23 @@ export interface WorkspaceSearchHit {
 // --- workspace usage (GET /api/workspaces/{wid}/usage) ---
 // chat_tokens_approx is a streamed chunk count, not a real tokenizer count —
 // label it as approximate wherever it renders. deep_run_tokens is measured.
+// `calls` is the usage ledger: provider-reported tokens per (kind, model),
+// with cost estimated from a static price table (null = model not listed).
+export interface LlmCallAggregate {
+  kind: "chat" | "deep";
+  provider: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+}
+
 export interface WorkspaceUsage {
   chat_tokens_approx: number;
   deep_run_tokens: number;
+  calls?: LlmCallAggregate[];
+  estimated_cost_usd?: number | null;
 }
 
 export interface Health {

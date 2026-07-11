@@ -93,12 +93,21 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
       <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
         {data.source === "workspace" ? "workspace settings" : "server default"}
       </span>
-      {usage && (
-        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}
-          title="Lifetime spend on this workspace's key. Chat is approximate (streamed chunk count); deep-run tokens are measured.">
-          spend: ~{usage.chat_tokens_approx.toLocaleString()} chat · {usage.deep_run_tokens.toLocaleString()} deep
-        </span>
-      )}
+      {usage && (() => {
+        // Prefer the ledger (provider-reported tokens per call) when present;
+        // fall back to the legacy approximations for pre-ledger workspaces.
+        const inTok = (usage.calls ?? []).reduce((n, c) => n + c.input_tokens, 0);
+        const outTok = (usage.calls ?? []).reduce((n, c) => n + c.output_tokens, 0);
+        const cost = usage.estimated_cost_usd;
+        return (
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}
+            title="Lifetime spend on this workspace's key, as reported by the provider per call. Cost is an estimate from list prices.">
+            {inTok + outTok > 0
+              ? <>spend: {inTok.toLocaleString()} in · {outTok.toLocaleString()} out{typeof cost === "number" ? ` · ~$${cost.toFixed(4)}` : ""}</>
+              : <>spend: ~{usage.chat_tokens_approx.toLocaleString()} chat · {usage.deep_run_tokens.toLocaleString()} deep</>}
+          </span>
+        );
+      })()}
     </div>
   );
 

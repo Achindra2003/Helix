@@ -29,6 +29,9 @@ class GroqProvider:
         self._api_key = settings.groq_api_key if api_key is None else api_key
         self._model = model or settings.groq_model
         self._url = url
+        # Real token usage as reported by the provider on the last completed
+        # stream — the accounting layer reads this after draining the stream.
+        self.last_usage: dict | None = None
 
     async def stream(self, prompt: str) -> AsyncIterator[str]:
         async for chunk in self.stream_messages([{"role": "user", "content": prompt}]):
@@ -40,12 +43,19 @@ class GroqProvider:
             # Groq itself always needs a key; a custom endpoint may not (vLLM etc.).
             raise RuntimeError("Groq provider selected but no API key is configured")
 
+        self.last_usage = None
         headers = {"Authorization": f"Bearer {self._api_key}"} if self._api_key else {}
         body = {
             "model": self._model,
             "messages": messages,
             "stream": True,
         }
+        if self._url == GROQ_URL:
+            # Ask for real token usage in the final stream chunk. Groq supports
+            # this; arbitrary OpenAI-compatible endpoints may not, so it's only
+            # requested where it's known-good — elsewhere the usage field is
+            # still parsed opportunistically if the server volunteers it.
+            body["stream_options"] = {"include_usage": True}
 
         async with httpx.AsyncClient(timeout=60) as client:
             async with client.stream("POST", self._url, headers=headers, json=body) as resp:
@@ -61,6 +71,18 @@ class GroqProvider:
                     data = line[len("data: ") :]
                     if data.strip() == "[DONE]":
                         break
-                    delta = json.loads(data)["choices"][0]["delta"].get("content")
+                    chunk = json.loads(data)
+                    usage = chunk.get("usage") or (chunk.get("x_groq") or {}).get("usage")
+                    if usage:
+                        self.last_usage = {
+                            "input_tokens": usage.get("prompt_tokens", 0),
+                            "output_tokens": usage.get("completion_tokens", 0),
+                        }
+                    # With include_usage the final frame carries usage and an
+                    # EMPTY choices list — guard before indexing.
+                    choices = chunk.get("choices") or []
+                    if not choices:
+                        continue
+                    delta = choices[0].get("delta", {}).get("content")
                     if delta:
                         yield delta

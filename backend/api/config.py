@@ -89,5 +89,15 @@ class Settings(BaseSettings):
     deep_reasoning_stability_threshold: float | None = None
     deep_reasoning_confidence_threshold: float = 0.7
 
+    # --- Observability (OTel GenAI tracing; see api/telemetry.py) ---
+    # Unset (the default) = no SDK installed, no-op tracer, nothing exported —
+    # the hermetic suite and zero-infra self-host stay untouched. Point it at
+    # any OTLP/HTTP backend; for a self-hosted Langfuse:
+    #   OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:3000/api/public/otel
+    #   OTEL_EXPORTER_OTLP_HEADERS=Authorization=Basic <base64(pk:sk)>
+    otel_exporter_otlp_endpoint: str = ""
+    otel_exporter_otlp_headers: str = ""
+    otel_service_name: str = "helix-api"
+
 
 settings = Settings()

@@ -13,3 +13,8 @@ cryptography==49.0.0
 python-dotenv==1.0.1
 python-multipart==0.0.32
 pypdf==6.14.2
+# LLM observability: GenAI spans, exported only when an OTLP endpoint is
+# configured (e.g. self-hosted Langfuse); no-op otherwise (api/telemetry.py).
+opentelemetry-api==1.43.0
+opentelemetry-sdk==1.43.0
+opentelemetry-exporter-otlp-proto-http==1.43.0

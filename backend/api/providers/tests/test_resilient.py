@@ -137,3 +137,21 @@ async def test_open_breaker_skips_provider_and_uses_fallback():
     # Second request: breaker for `dead` is open, so it is skipped entirely.
     assert await _collect(wrapped) == "ok"
     assert dead.invocations == dead_calls_first  # not called again
+
+
+@pytest.mark.asyncio
+async def test_usage_passes_through_from_the_serving_provider():
+    """Accounting reads usage off the wrapper — it must reflect whichever
+    inner provider actually served, including after a fallback."""
+    dead = Scripted("dead", [[RuntimeError("429")]] * 10)
+    fallback = Scripted("fallback", [["ok"]] * 10)
+    fallback.last_usage = None
+
+    async def _serve_with_usage(messages):
+        yield "ok"
+        fallback.last_usage = {"input_tokens": 7, "output_tokens": 3}
+
+    fallback.stream_messages = _serve_with_usage
+    wrapped = ResilientProvider([dead, fallback], attempts=1, base_delay=0.0)
+    assert await _collect(wrapped) == "ok"
+    assert wrapped.last_usage == {"input_tokens": 7, "output_tokens": 3}
