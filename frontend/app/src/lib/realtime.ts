@@ -33,10 +33,15 @@ export type RoomEvent =
       event: Record<string, any>;
     }
   | { kind: "conversation.created"; workspace_id: string; conversation_id: string; title: string }
+  | { kind: "conversation.updated"; workspace_id: string; conversation_id: string; title: string }
+  | { kind: "conversation.deleted"; workspace_id: string; conversation_id: string }
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
+  | { kind: "branch.updated"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
+  | { kind: "branch.deleted"; workspace_id: string; conversation_id: string; branch_id: string }
   | { kind: "messages.deleted"; workspace_id: string; conversation_id: string; branch_id: string; node_ids: string[] }
   | { kind: "references.updated"; workspace_id: string; conversation_id: string }
   | { kind: "prompt.saved"; workspace_id: string; prompt: Record<string, any> }
+  | { kind: "prompt.deleted"; workspace_id: string; prompt_id: string }
   | { kind: "pong" };
 
 type Listener = (ev: RoomEvent) => void;

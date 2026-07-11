@@ -1,10 +1,11 @@
 // Typed REST client. Attaches the JWT (when present) and normalises the
 // backend's uniform error shape: { error: { code, message } }.
 import { getToken } from "@/lib/auth";
+import { useSession } from "@/store/session";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
-  WorkspaceSearchHit, WorkspaceUsage,
+  WorkspaceSearchHit, WorkspaceUsage, InviteSummary,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -17,6 +18,17 @@ export class ApiError extends Error {
     this.code = code;
     this.status = status;
   }
+}
+
+// Paths where a 401 is a *result* (bad login, wrong current password), not an
+// expired session — those must never nuke the session.
+const AUTH_RESULT_PATHS = ["/api/auth/", "/api/me/password"];
+
+function sessionExpired() {
+  // A hard redirect is deliberate — the app's state is stale beyond repair
+  // once the token is dead.
+  useSession.getState().logout();
+  window.location.assign("/auth");
 }
 
 async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
@@ -37,6 +49,11 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;
   if (!res.ok) {
+    // The 7-day JWT expiring mid-session: without this, every click just
+    // error-toasts until the user thinks to reload. Sign out and start over.
+    if (res.status === 401 && token && !AUTH_RESULT_PATHS.some((p) => path.startsWith(p))) {
+      sessionExpired();
+    }
     const err = data?.error ?? {};
     throw new ApiError(res.status, err.code ?? "error", err.message ?? `HTTP ${res.status}`);
   }
@@ -91,8 +108,15 @@ export const getWorkspaceUsage = (wid: string) =>
 export const listMembers = (wid: string) => request<Member[]>(`/api/workspaces/${wid}/members`);
 export const setMemberRole = (wid: string, uid: string, role: string) =>
   request<Member>(`/api/workspaces/${wid}/members/${uid}`, { method: "PATCH", body: JSON.stringify({ role }) });
+// Kick (owner-only) — the counterpart of voluntary leave.
+export const removeMember = (wid: string, uid: string) =>
+  request<void>(`/api/workspaces/${wid}/members/${uid}`, { method: "DELETE" });
 export const createInvite = (wid: string, role = "collaborator") =>
   request<Invite>(`/api/workspaces/${wid}/invites`, { method: "POST", body: JSON.stringify({ role }) });
+export const listInvites = (wid: string) =>
+  request<{ items: InviteSummary[] }>(`/api/workspaces/${wid}/invites`);
+export const revokeInvite = (wid: string, token: string) =>
+  request<void>(`/api/workspaces/${wid}/invites/${token}`, { method: "DELETE" });
 export const previewInvite = (token: string) =>
   request<{ workspace_name: string }>(`/api/invites/${token}`);
 export const acceptInvite = (token: string) =>
@@ -136,6 +160,22 @@ export const listConversations = (workspaceId: string) => {
   return request<{ items: Conversation[] }>(`/conversations?${q.toString()}`);
 };
 export const getConversation = (cid: string) => request<Conversation>(`/conversations/${cid}`);
+// Rename/delete a conversation — its author, or a workspace owner.
+export const renameConversation = (cid: string, title: string) =>
+  request<{ conversation_id: string; title: string }>(`/conversations/${cid}`, {
+    method: "PATCH",
+    body: JSON.stringify({ title }),
+  });
+export const deleteConversation = (cid: string) =>
+  request<{ removed_nodes: number }>(`/conversations/${cid}`, { method: "DELETE" });
+// Rename/delete a fork branch (Collaborator+; main and forked-from refuse).
+export const renameBranch = (bid: string, name: string) =>
+  request<{ branch_id: string; name: string }>(`/conversations/branches/${bid}`, {
+    method: "PATCH",
+    body: JSON.stringify({ name }),
+  });
+export const deleteBranch = (bid: string) =>
+  request<{ removed_nodes: number }>(`/conversations/branches/${bid}`, { method: "DELETE" });
 export const createConversation = (workspaceId: string, title: string, visibility = "shared") =>
   request<{ conversation_id: string; branch_id: string }>("/conversations", {
     method: "POST",
@@ -263,3 +303,8 @@ export const savePrompt = (wid: string, title: string, body: string, tags: strin
     body: JSON.stringify({ title, body, tags }),
   });
 export const getPrompt = (pid: string) => request<Prompt>(`/prompts/${pid}`);
+// Edit/delete a saved prompt — its author, or a workspace owner.
+export const updatePrompt = (pid: string, title: string, body: string, tags: string[]) =>
+  request<Prompt>(`/prompts/${pid}`, { method: "PATCH", body: JSON.stringify({ title, body, tags }) });
+export const deletePrompt = (pid: string) =>
+  request<{ ok: boolean }>(`/prompts/${pid}`, { method: "DELETE" });

@@ -4,7 +4,7 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
-  deleteLastMessage,
+  deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
@@ -14,6 +14,7 @@ import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
 import { useNotifications } from "@/store/notifications";
+import { useUnread } from "@/store/unread";
 import { can } from "@/lib/rbac";
 import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
@@ -92,6 +93,16 @@ export function ChatView() {
   // "Edit last message" hand-off: the removed message's text, waiting in the
   // composer for the author to revise and resend.
   const [composerDraft, setComposerDraft] = useState<string | null>(null);
+  // Conversation/branch housekeeping dialogs.
+  const [renameDlg, setRenameDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
+  const [deleteDlg, setDeleteDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
+
+  // The thread on screen is by definition read — keep its unread marker clear
+  // even as live turns stream into it.
+  const unreadIds = useUnread((st) => st.ids);
+  useEffect(() => {
+    if (activeConvId) useUnread.getState().clear(activeConvId);
+  }, [activeConvId, messages.length]);
   const canvasRef = useRef<HTMLDivElement>(null);
   // Which branch is on screen *now* — deep runs finish asynchronously (maybe
   // after a branch switch or a reload), so history refreshes check this first.
@@ -369,6 +380,47 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
   }
 
+  async function doRename() {
+    if (!renameDlg) return;
+    const name = renameDlg.name.trim();
+    if (!name) return;
+    try {
+      if (renameDlg.kind === "conversation") {
+        await renameConversation(renameDlg.id, name);
+        await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      } else {
+        await renameBranch(renameDlg.id, name);
+        if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+      }
+      setRenameDlg(null);
+      push("Renamed");
+    } catch (e: any) { push(e?.message ?? "Rename failed", "error"); }
+  }
+
+  async function doDelete() {
+    if (!deleteDlg) return;
+    try {
+      if (deleteDlg.kind === "conversation") {
+        await deleteConversation(deleteDlg.id);
+        await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+        if (deleteDlg.id === activeConvId) { setActiveConvId(null); setActiveBranchId(null); }
+        push("Conversation deleted");
+      } else {
+        await deleteBranch(deleteDlg.id);
+        if (activeConvId) {
+          const tree = await listBranches(activeConvId);
+          setBranches(tree.items);
+          if (deleteDlg.id === activeBranchId) {
+            const main = tree.items.find((b) => b.parent_branch_id === null) ?? tree.items[0];
+            setActiveBranchId(main?.id ?? null);
+          }
+        }
+        push("Branch deleted");
+      }
+      setDeleteDlg(null);
+    } catch (e: any) { push(e?.message ?? "Delete failed", "error"); }
+  }
+
   function handleDeepEvent(ev: import("@/lib/types").RunEvent) {
     const run = useMonitor.getState().run;
     if (!run) return;
@@ -535,11 +587,28 @@ export function ChatView() {
     remoteRuns.current.clear();
     setRemoteAuthorId(null);
     const off = onRoomEvent((ev) => {
-      if (ev.kind === "conversation.created") {
+      if (ev.kind === "conversation.created" || ev.kind === "conversation.updated") {
         qc.invalidateQueries({ queryKey: ["conversations", wid] });
-      } else if (ev.kind === "branch.created") {
+      } else if (ev.kind === "conversation.deleted") {
+        qc.invalidateQueries({ queryKey: ["conversations", wid] });
+        if (ev.conversation_id === activeConvId) {
+          // The thread I was reading is gone — fall back to the list.
+          setActiveConvId(null);
+          setActiveBranchId(null);
+        }
+      } else if (ev.kind === "branch.created" || ev.kind === "branch.updated") {
         if (ev.conversation_id === activeConvId) {
           listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+        }
+      } else if (ev.kind === "branch.deleted") {
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => {
+            setBranches(r.items);
+            if (ev.branch_id === activeBranchId) {
+              const main = r.items.find((b) => b.parent_branch_id === null) ?? r.items[0];
+              setActiveBranchId(main?.id ?? null);
+            }
+          }).catch(() => {});
         }
       } else if (ev.kind === "references.updated") {
         if (ev.conversation_id === activeConvId) {
@@ -663,9 +732,12 @@ export function ChatView() {
             onSelect={setActiveConvId}
             onNew={() => { setDraftTitle(""); setNewDlg(true); }}
             viewers={conversationViewers}
+            unread={unreadIds}
           />
           {activeConv && branches.length > 0 && (
-            <BranchTree branches={branches} activeId={activeBranchId} onSelect={setActiveBranchId} />
+            <BranchTree branches={branches} activeId={activeBranchId} onSelect={setActiveBranchId}
+              onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
+              onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined} />
           )}
         </div>
         <div className={s.leftFoot}><span className={s.liveDot} /> live · server-ordered log</div>
@@ -688,7 +760,17 @@ export function ChatView() {
           <>
             <div className={s.stageHead}>
               <div style={{ flex: 1, minWidth: 0 }}>
-                <div className={s.stageTitle}>{activeConv.title}</div>
+                <div className={s.stageTitle} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{activeConv.title}</span>
+                  {(activeConv.author_id === user?.id || role === "owner") && (
+                    <>
+                      <button className={s.branchAct} style={{ opacity: 0.6 }} title="Rename conversation"
+                        onClick={() => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✎</button>
+                      <button className={s.branchAct} style={{ opacity: 0.6, color: "var(--oxblood)" }} title="Delete conversation"
+                        onClick={() => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✕</button>
+                    </>
+                  )}
+                </div>
                 <div className={s.stageMeta}>
                   <span className={s.chip} style={{ color: activeConv.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)" }}>
                     {activeConv.visibility === "private" ? "◍ private" : "⊙ shared"}
@@ -796,6 +878,30 @@ export function ChatView() {
           onClose={() => setLinkDlg(false)}
           onPick={(id) => { doAddRef(id); setLinkDlg(false); }}
         />
+      )}
+      {renameDlg && (
+        <Dialog title={`Rename ${renameDlg.kind}`} onClose={() => setRenameDlg(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setRenameDlg(null)}>Cancel</Button>
+            <Button variant="primary" onClick={doRename}>Rename</Button>
+          </>}>
+          <Input autoFocus value={renameDlg.name}
+            onChange={(e) => setRenameDlg({ ...renameDlg, name: e.target.value })}
+            onKeyDown={(e) => e.key === "Enter" && doRename()} />
+        </Dialog>
+      )}
+      {deleteDlg && (
+        <Dialog title={`Delete ${deleteDlg.kind} "${deleteDlg.name}"?`} onClose={() => setDeleteDlg(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setDeleteDlg(null)}>Cancel</Button>
+            <Button variant="oxblood" onClick={doDelete}>Delete forever</Button>
+          </>}>
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+            {deleteDlg.kind === "conversation"
+              ? "Every branch, message and run record in this conversation is removed for the whole workspace — there is no undo."
+              : "The branch and its own messages are removed (inherited context belongs to its ancestors and stays). Refused if anything has forked from it."}
+          </div>
+        </Dialog>
       )}
       {newDlg && (
         <Dialog title="New conversation" onClose={() => setNewDlg(false)}

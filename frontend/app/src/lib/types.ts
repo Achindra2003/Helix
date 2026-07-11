@@ -35,6 +35,15 @@ export interface Invite {
   expires_at: string;
 }
 
+// An outstanding (unexpired) invite, from the owner-only list endpoint.
+export interface InviteSummary {
+  token: string;
+  role: Role;
+  created_at: string;
+  expires_at: string;
+  url: string;
+}
+
 export interface Conversation {
   id: string;
   workspace_id: string;

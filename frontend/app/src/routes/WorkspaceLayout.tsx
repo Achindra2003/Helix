@@ -6,6 +6,7 @@ import { SearchOverlay } from "@/components/shell/SearchOverlay";
 import { connectRoom, disconnectRoom, onRoomEvent } from "@/lib/realtime";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useNotifications } from "@/store/notifications";
+import { useUnread } from "@/store/unread";
 import { usePresenceStore } from "@/store/presence";
 import s from "@/components/shell/shell.module.css";
 
@@ -27,14 +28,25 @@ export function WorkspaceLayout() {
     return () => disconnectRoom();
   }, [wid]);
 
-  // Notification center: one shell-level listener over the room's events, so
-  // activity you'd otherwise miss (a teammate's deep run finishing while you
-  // read another thread) lands in the bell. Session-scoped by design.
+  // Notification center + unread markers: one shell-level listener over the
+  // room's events, so activity you'd otherwise miss (a teammate's deep run
+  // finishing, a turn landing in a thread you're not reading) is visible.
+  // Both stores are session-scoped by design.
   useEffect(() => {
     if (!wid) return;
+    useUnread.getState().reset(); // markers belong to one workspace at a time
     const off = onRoomEvent((ev) => {
+      if (ev.kind === "conversation.created") {
+        useUnread.getState().mark(ev.conversation_id);
+        return;
+      }
       if (ev.kind !== "run_event") return;
       const e = ev.event;
+      // A teammate's turn began in some thread — dot it; ChatView clears the
+      // marker for whichever thread is actually on screen.
+      if (e?.kind === "user_node") {
+        useUnread.getState().mark(ev.conversation_id);
+      }
       if (e?.kind !== "complete") return;
       // The relay excludes the sender, so this is always a teammate's run.
       const who =

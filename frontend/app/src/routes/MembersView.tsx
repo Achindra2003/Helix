@@ -2,7 +2,8 @@ import { useEffect, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
-  listMembers, createInvite, setMemberRole,
+  listMembers, createInvite, setMemberRole, removeMember,
+  listInvites, revokeInvite,
   renameWorkspace, deleteWorkspace, listWorkspaces,
 } from "@/lib/api";
 import { can, PERMISSION_ROWS, ROLE_META } from "@/lib/rbac";
@@ -13,7 +14,7 @@ import { Dialog } from "@/components/common/Dialog";
 import { Input } from "@/components/common/Input";
 import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
-import type { Role } from "@/lib/types";
+import type { Member, Role } from "@/lib/types";
 import { ProviderPanel } from "./ProviderPanel";
 import s from "./members.module.css";
 
@@ -33,7 +34,16 @@ export function MembersView() {
   const [wsName, setWsName] = useState("");
   const [wsBusy, setWsBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  const [confirmKick, setConfirmKick] = useState<Member | null>(null);
   useEffect(() => { setWsName(ws?.name ?? ""); }, [ws?.name]);
+
+  // Outstanding invites — owner-only endpoint, so only fetch as one.
+  const { data: inviteData } = useQuery({
+    queryKey: ["invites", wid],
+    queryFn: () => listInvites(wid!),
+    enabled: !!wid && canManage,
+  });
+  const invites = inviteData?.items ?? [];
 
   const { data: members, isLoading } = useQuery({
     queryKey: ["members", wid],
@@ -45,7 +55,26 @@ export function MembersView() {
     try {
       const inv = await createInvite(wid!);
       setInvite({ token: inv.token, url: inv.url });
+      qc.invalidateQueries({ queryKey: ["invites", wid] });
     } catch (e: any) { push(e?.message ?? "Invite failed", "error"); }
+  }
+
+  async function doRevoke(token: string) {
+    try {
+      await revokeInvite(wid!, token);
+      qc.invalidateQueries({ queryKey: ["invites", wid] });
+      push("Invite revoked — the link no longer admits anyone");
+    } catch (e: any) { push(e?.message ?? "Revoke failed", "error"); }
+  }
+
+  async function doKick() {
+    if (!confirmKick) return;
+    try {
+      await removeMember(wid!, confirmKick.user_id);
+      qc.invalidateQueries({ queryKey: ["members", wid] });
+      push(`${confirmKick.email} removed from the workspace`);
+      setConfirmKick(null);
+    } catch (e: any) { push(e?.message ?? "Remove failed", "error"); }
   }
 
   async function changeRole(uid: string, r: string) {
@@ -114,9 +143,45 @@ export function MembersView() {
                 ) : (
                   <div className={s.badge}>{ROLE_META[m.role].sigil} {ROLE_META[m.role].label}</div>
                 )}
+                {canManage && m.user_id !== ws?.owner_id && (
+                  <Button variant="ghost" style={{ fontSize: 12, color: "var(--oxblood)" }}
+                    title={`Remove ${m.email} from the workspace`}
+                    onClick={() => setConfirmKick(m)}>
+                    remove
+                  </Button>
+                )}
               </div>
             ))}
           </div>
+        )}
+
+        {canManage && invites.length > 0 && (
+          <>
+            <div className={s.matrixHead} style={{ marginTop: 38 }}>
+              <span className="serif-d" style={{ fontSize: 22 }}>Outstanding invites</span>
+              <span className={`mono ${s.tag}`}>revocable</span>
+            </div>
+            <div className={s.list}>
+              {invites.map((inv) => (
+                <div key={inv.token} className={s.row}>
+                  <span style={{ fontSize: 15 }}>✉</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <div className="mono" style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {inv.token}
+                    </div>
+                    <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+                      joins as {inv.role} · expires {new Date(inv.expires_at).toLocaleDateString()}
+                    </div>
+                  </div>
+                  <Button variant="ghost" style={{ fontSize: 12 }}
+                    onClick={() => { navigator.clipboard?.writeText(inv.token); push("Token copied"); }}>copy</Button>
+                  <Button variant="ghost" style={{ fontSize: 12, color: "var(--oxblood)" }}
+                    title="Revoke — the link stops admitting anyone, immediately"
+                    onClick={() => doRevoke(inv.token)}>revoke</Button>
+                </div>
+              ))}
+            </div>
+          </>
         )}
 
         {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
@@ -171,6 +236,18 @@ export function MembersView() {
         </div>
       </div>
 
+      {confirmKick && (
+        <Dialog title={`Remove ${confirmKick.email}?`} onClose={() => setConfirmKick(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setConfirmKick(null)}>Cancel</Button>
+            <Button variant="oxblood" onClick={doKick}>Remove member</Button>
+          </>}>
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+            They lose access immediately. Messages they wrote in shared threads stay part of
+            those conversations, and they can be invited back at any time.
+          </div>
+        </Dialog>
+      )}
       {confirmDelete && (
         <Dialog title={`Delete ${ws?.name ?? "this workspace"}?`} onClose={() => setConfirmDelete(false)}
           footer={<>
