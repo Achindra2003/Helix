@@ -158,6 +158,45 @@ def test_usage_reports_chat_tokens_from_sent_messages(make_workspace):
         assert after["deep_run_tokens"] == 0  # no deep run in this test
 
 
+def test_owner_can_remove_a_member_but_not_themselves(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        member_headers, mid = join_workspace(client, headers, wid)
+
+        # A collaborator can't kick anyone.
+        denied = client.delete(f"/api/workspaces/{wid}/members/{uid}", headers=member_headers)
+        assert denied.status_code == 403
+
+        # The owner can't be removed (even by themselves — that's delete-workspace).
+        blocked = client.delete(f"/api/workspaces/{wid}/members/{uid}", headers=headers)
+        assert blocked.status_code == 409
+
+        # The owner removes the member; the workspace 404s for them afterwards.
+        kicked = client.delete(f"/api/workspaces/{wid}/members/{mid}", headers=headers)
+        assert kicked.status_code == 204, kicked.text
+        assert client.get(f"/api/workspaces/{wid}", headers=member_headers).status_code == 404
+
+
+def test_invites_can_be_listed_and_revoked(make_workspace, make_user):
+    with TestClient(app) as client:
+        headers, _uid, wid = make_workspace(client)
+        token = client.post(
+            f"/api/workspaces/{wid}/invites", json={"role": "collaborator"}, headers=headers
+        ).json()["token"]
+
+        listed = client.get(f"/api/workspaces/{wid}/invites", headers=headers)
+        assert listed.status_code == 200, listed.text
+        assert [i["token"] for i in listed.json()["items"]] == [token]
+
+        revoked = client.delete(f"/api/workspaces/{wid}/invites/{token}", headers=headers)
+        assert revoked.status_code == 204
+        assert client.get(f"/api/workspaces/{wid}/invites", headers=headers).json()["items"] == []
+
+        # A revoked token no longer admits anyone.
+        joiner_headers, _jid = make_user(client)
+        assert client.post(f"/api/invites/{token}/accept", headers=joiner_headers).status_code == 404
+
+
 def test_leave_workspace_member_can_owner_cannot(make_workspace, join_workspace):
     with TestClient(app) as client:
         headers, _uid, wid = make_workspace(client)

@@ -663,3 +663,66 @@ def test_delete_last_message_blocked_after_a_fork(make_workspace):
 
         blocked = client.delete(f"/conversations/{branch_id}/messages/last", headers=headers)
         assert blocked.status_code == 409
+
+
+def test_rename_and_delete_conversation_author_or_owner_only(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        owner_headers, _oid, wid = make_workspace(client)
+        member_headers, _mid = join_workspace(client, owner_headers, wid)
+
+        # A collaborator's conversation…
+        conv = client.post(
+            "/conversations",
+            json={"workspace_id": wid, "title": "draft", "visibility": "shared"},
+            headers=member_headers,
+        ).json()
+        cid = conv["conversation_id"]
+
+        # …its author can rename it…
+        renamed = client.patch(
+            f"/conversations/{cid}", json={"title": "final"}, headers=member_headers
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["title"] == "final"
+
+        # …a second collaborator cannot…
+        other_headers, _xid = join_workspace(client, owner_headers, wid)
+        denied = client.patch(
+            f"/conversations/{cid}", json={"title": "hijack"}, headers=other_headers
+        )
+        assert denied.status_code == 403
+        assert client.delete(f"/conversations/{cid}", headers=other_headers).status_code == 403
+
+        # …but the workspace owner can delete it.
+        deleted = client.delete(f"/conversations/{cid}", headers=owner_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get(f"/conversations/{cid}", headers=owner_headers).status_code == 404
+
+
+def test_branch_rename_and_delete_with_safety(make_workspace):
+    with TestClient(app) as client:
+        headers, _uid, wid = make_workspace(client)
+        conv = _create_conv(client, headers, wid)
+        main_id, cid = conv["branch_id"], conv["conversation_id"]
+        client.post(f"/conversations/{main_id}/messages", json={"prompt": "hi"}, headers=headers)
+        node_id = client.get(
+            f"/conversations/branches/{main_id}/history", headers=headers
+        ).json()["nodes"][-1]["id"]
+        fork = client.post(
+            f"/conversations/{cid}/fork",
+            json={"from_node_id": node_id, "name": "experiment"},
+            headers=headers,
+        ).json()
+
+        renamed = client.patch(
+            f"/conversations/branches/{fork['branch_id']}", json={"name": "spike"}, headers=headers
+        )
+        assert renamed.status_code == 200, renamed.text
+        assert renamed.json()["name"] == "spike"
+
+        # Main is protected; the fork deletes cleanly.
+        assert client.delete(f"/conversations/branches/{main_id}", headers=headers).status_code == 409
+        gone = client.delete(f"/conversations/branches/{fork['branch_id']}", headers=headers)
+        assert gone.status_code == 200, gone.text
+        tree = client.get(f"/conversations/{cid}/branches", headers=headers).json()["items"]
+        assert [b["id"] for b in tree] == [main_id]

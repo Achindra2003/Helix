@@ -19,7 +19,7 @@ from datetime import date
 from fastapi import APIRouter, Depends
 from fastapi.responses import JSONResponse, Response, StreamingResponse
 from pydantic import BaseModel
-from sqlalchemy import select
+from sqlalchemy import delete as sa_delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from uuid import uuid4
@@ -28,7 +28,7 @@ from ..config import settings
 from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
-from ..models import ROLE_COLLABORATOR, ROLE_RANK, User
+from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
 from .. import realtime
 from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
@@ -228,6 +228,76 @@ async def create_conversation(
     return {"conversation_id": conv.id, "branch_id": conv.default_branch_id}
 
 
+class RenameConversation(BaseModel):
+    title: str
+
+
+async def _require_author_or_owner(conv, user: User, session: AsyncSession) -> None:
+    """Rename/delete of a conversation belongs to its author, or an owner —
+    the same split as documents (uploader-or-owner)."""
+    membership = await get_membership(conv.workspace_id, user, session)
+    if conv.author_id != user.id and membership.role != ROLE_OWNER:
+        raise api_error(
+            403, "forbidden", "Only the author or a workspace owner can do this."
+        )
+
+
+@router.patch("/{conversation_id}")
+async def rename_conversation(
+    conversation_id: str,
+    body: RenameConversation,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    await _require_author_or_owner(conv, user, session)
+    title = body.title.strip() or "Untitled"
+    updated = await _store.rename_conversation(conversation_id, title)
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.updated",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "title": title,
+            },
+            exclude_user=user.id,
+        )
+    return {"conversation_id": conversation_id, "title": updated.title}
+
+
+@router.delete("/{conversation_id}")
+async def delete_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete a conversation with its whole tree (branches, nodes, embeddings,
+    reference links, run records). Author or owner only."""
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    await _require_author_or_owner(conv, user, session)
+    removed = await _store.delete_conversation(conversation_id)
+    await _embeddings.drop(removed)
+    # Run records are written outside the store (DeepRunRecorder) — clean them
+    # here so the archive can't point at a conversation that no longer exists.
+    await session.execute(
+        sa_delete(DeepRunRow).where(DeepRunRow.conversation_id == conversation_id)
+    )
+    await session.commit()
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.deleted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+            },
+            exclude_user=user.id,
+        )
+    return {"removed_nodes": len(removed)}
+
+
 @router.get("")
 async def list_conversations(
     workspace_id: str,
@@ -342,6 +412,67 @@ async def get_history(
     await _require_branch(branch_id, user, session)
     nodes = await _store.get_history(branch_id)
     return {"branch_id": branch_id, "nodes": [to_dict(n) for n in nodes]}
+
+
+class RenameBranch(BaseModel):
+    name: str
+
+
+@router.patch("/branches/{branch_id}")
+async def rename_branch(
+    branch_id: str,
+    body: RenameBranch,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Rename a branch. Branches carry no author (they're shared structure),
+    so any Collaborator may — same bar as forking one."""
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    name = body.name.strip() or "branch"
+    updated = await _store.rename_branch(branch_id, name)
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.updated",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "name": name,
+            },
+            exclude_user=user.id,
+        )
+    return {"branch_id": branch_id, "name": updated.name}
+
+
+@router.delete("/branches/{branch_id}")
+async def delete_branch(
+    branch_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Delete an abandoned fork branch (its own nodes only — inherited context
+    belongs to ancestors). Refused for main and for anything forked-from."""
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    try:
+        removed = await _store.delete_branch(branch_id)
+    except KeyError:
+        raise api_error(404, "not_found", "branch not found")
+    except ValueError as exc:
+        raise api_error(409, "conflict", str(exc))
+    await _embeddings.drop(removed)
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.deleted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+            },
+            exclude_user=user.id,
+        )
+    return {"removed_nodes": len(removed)}
 
 
 @router.post("/{conversation_id}/fork")

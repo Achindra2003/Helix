@@ -16,7 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
-from ..models import ROLE_COLLABORATOR, ROLE_RANK, User
+from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
 from .. import realtime
 from .store import PromptStore
 
@@ -103,3 +103,60 @@ async def get_prompt(
     except Exception:
         raise api_error(404, "not_found", "prompt not found")
     return _to_dict(prompt)
+
+
+async def _require_prompt_author_or_owner(prompt_id: str, user: User, session):
+    """The prompt, once the caller may edit/delete it: its author, or a
+    workspace owner. Same 404 masking as `get_prompt` — outsiders can't
+    probe ids, and non-authors get an honest 403."""
+    prompt = await _store.get(prompt_id)
+    if prompt is None:
+        raise api_error(404, "not_found", "prompt not found")
+    try:
+        membership = await _require_membership(prompt.workspace_id, user, session)
+    except Exception:
+        raise api_error(404, "not_found", "prompt not found")
+    if prompt.author_id != user.id and membership.role != ROLE_OWNER:
+        raise api_error(403, "forbidden", "Only the author or an owner can change this prompt.")
+    return prompt
+
+
+class UpdatePrompt(BaseModel):
+    title: str
+    body: str
+    tags: list[str] = []
+
+
+@router.patch("/prompts/{prompt_id}")
+async def update_prompt(
+    prompt_id: str,
+    body: UpdatePrompt,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    prompt = await _require_prompt_author_or_owner(prompt_id, user, session)
+    updated = await _store.update(
+        prompt_id, title=body.title, body=body.body, tags=body.tags
+    )
+    await realtime.broadcast(
+        prompt.workspace_id,
+        {"kind": "prompt.saved", "workspace_id": prompt.workspace_id, "prompt": _to_dict(updated)},
+        exclude_user=user.id,
+    )
+    return _to_dict(updated)
+
+
+@router.delete("/prompts/{prompt_id}")
+async def delete_prompt(
+    prompt_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    prompt = await _require_prompt_author_or_owner(prompt_id, user, session)
+    await _store.delete(prompt_id)
+    await realtime.broadcast(
+        prompt.workspace_id,
+        {"kind": "prompt.deleted", "workspace_id": prompt.workspace_id, "prompt_id": prompt_id},
+        exclude_user=user.id,
+    )
+    return {"ok": True}

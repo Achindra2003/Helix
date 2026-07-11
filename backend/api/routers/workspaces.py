@@ -159,6 +159,31 @@ async def update_member_role(
     )
 
 
+@router.delete("/workspaces/{workspace_id}/members/{user_id}", status_code=204)
+async def remove_member(
+    workspace_id: str,
+    user_id: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Kick a member (owner-only). The counterpart of voluntary leave — a
+    departed or compromised account shouldn't keep tenancy until it chooses
+    to go. The canonical owner can't be removed (delete the workspace)."""
+    ws = await session.get(Workspace, workspace_id)
+    if user_id == ws.owner_id:
+        raise api_error(409, "conflict", "Cannot remove the workspace owner.")
+    target = await session.scalar(
+        select(Membership).where(
+            Membership.workspace_id == workspace_id,
+            Membership.user_id == user_id,
+        )
+    )
+    if target is None:
+        raise api_error(404, "not_found", "Member not found.")
+    await session.delete(target)
+    await session.commit()
+
+
 @router.patch("/workspaces/{workspace_id}", response_model=WorkspaceOut)
 async def rename_workspace(
     workspace_id: str,
@@ -418,6 +443,51 @@ async def create_invite(
         url=f"{settings.frontend_base_url}/invite/{token}",
         expires_at=invite.expires_at,
     )
+
+
+@router.get("/workspaces/{workspace_id}/invites")
+async def list_invites(
+    workspace_id: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Outstanding (unexpired) invites — so a leaked link is visible, not a
+    mystery. Owner-only: tokens are the secret itself."""
+    rows = (
+        await session.execute(
+            select(Invite)
+            .where(Invite.workspace_id == workspace_id)
+            .order_by(Invite.created_at.desc())
+        )
+    ).scalars().all()
+    return {
+        "items": [
+            {
+                "token": inv.token,
+                "role": inv.role,
+                "created_at": inv.created_at,
+                "expires_at": inv.expires_at,
+                "url": f"{settings.frontend_base_url}/invite/{inv.token}",
+            }
+            for inv in rows
+            if not inv.is_expired
+        ]
+    }
+
+
+@router.delete("/workspaces/{workspace_id}/invites/{token}", status_code=204)
+async def revoke_invite(
+    workspace_id: str,
+    token: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Revoke an invite before its expiry — the answer to a leaked link."""
+    inv = await session.get(Invite, token)
+    if inv is None or inv.workspace_id != workspace_id:
+        raise api_error(404, "not_found", "Invite not found.")
+    await session.delete(inv)
+    await session.commit()
 
 
 @router.get("/invites/{token}", response_model=InvitePreview)

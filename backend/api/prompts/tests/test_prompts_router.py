@@ -146,3 +146,40 @@ def test_insert_prompt_from_other_workspace_is_404(make_workspace):
             headers=headers_a,
         )
         assert resp.status_code == 404
+
+
+def test_prompt_edit_and_delete_author_or_owner_only(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        owner_headers, _oid, wid = make_workspace(client)
+        author_headers, _aid = join_workspace(client, owner_headers, wid)
+        other_headers, _xid = join_workspace(client, owner_headers, wid)
+
+        pid = client.post(
+            f"/workspaces/{wid}/prompts",
+            json={"title": "typo'd titel", "body": "draft", "tags": ["review"]},
+            headers=author_headers,
+        ).json()["id"]
+
+        # A non-author collaborator can neither edit nor delete.
+        denied = client.patch(
+            f"/prompts/{pid}",
+            json={"title": "hijack", "body": "x"},
+            headers=other_headers,
+        )
+        assert denied.status_code == 403
+        assert client.delete(f"/prompts/{pid}", headers=other_headers).status_code == 403
+
+        # The author fixes the typo.
+        fixed = client.patch(
+            f"/prompts/{pid}",
+            json={"title": "fixed title", "body": "final", "tags": ["review", "Final"]},
+            headers=author_headers,
+        )
+        assert fixed.status_code == 200, fixed.text
+        assert fixed.json()["title"] == "fixed title"
+        assert fixed.json()["tags"] == ["review", "final"]  # tags stay normalised
+
+        # The workspace owner can delete anyone's prompt.
+        deleted = client.delete(f"/prompts/{pid}", headers=owner_headers)
+        assert deleted.status_code == 200, deleted.text
+        assert client.get(f"/prompts/{pid}", headers=owner_headers).status_code == 404

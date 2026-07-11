@@ -123,6 +123,31 @@ class ConversationStore(Protocol):
         """
         ...
 
+    async def rename_conversation(
+        self, conversation_id: str, title: str
+    ) -> Conversation | None:
+        """Set a conversation's title. Returns the updated conversation, or
+        None if it doesn't exist."""
+        ...
+
+    async def delete_conversation(self, conversation_id: str) -> list[str]:
+        """Delete a conversation with all its branches, nodes, and reference
+        links (in both directions). Returns the removed node ids so callers
+        can clean overlays (embeddings). KeyError if it doesn't exist."""
+        ...
+
+    async def rename_branch(self, branch_id: str, name: str) -> Branch | None:
+        """Set a branch's name. Returns the updated branch, or None."""
+        ...
+
+    async def delete_branch(self, branch_id: str) -> list[str]:
+        """Delete a fork branch and its own nodes (never inherited ancestors,
+        which belong to other branches). Refused for the conversation's main
+        branch and for any branch something else has forked from — the same
+        keep-the-tree-intact rule as `delete_last_turn`. Returns the removed
+        node ids. KeyError if missing; ValueError if refused."""
+        ...
+
 
 class InMemoryStore:
     """Reference `ConversationStore` for the engine's tests (no database)."""
@@ -276,6 +301,53 @@ class InMemoryStore:
         for n in to_remove:
             del self.nodes[n.id]
         return [n.id for n in to_remove]
+
+    async def rename_conversation(
+        self, conversation_id: str, title: str
+    ) -> Conversation | None:
+        conv = self.conversations.get(conversation_id)
+        if conv is not None:
+            conv.title = title
+        return conv
+
+    async def delete_conversation(self, conversation_id: str) -> list[str]:
+        if conversation_id not in self.conversations:
+            raise KeyError(conversation_id)
+        branch_ids = {b.id for b in self.branches.values() if b.conversation_id == conversation_id}
+        node_ids = [n.id for n in self.nodes.values() if n.branch_id in branch_ids]
+        for nid in node_ids:
+            del self.nodes[nid]
+        for bid in branch_ids:
+            self.branches.pop(bid, None)
+            self._next_seq.pop(bid, None)
+        self.references.pop(conversation_id, None)
+        for links in self.references.values():
+            if conversation_id in links:
+                links.remove(conversation_id)
+        del self.conversations[conversation_id]
+        return node_ids
+
+    async def rename_branch(self, branch_id: str, name: str) -> Branch | None:
+        branch = self.branches.get(branch_id)
+        if branch is not None:
+            branch.name = name
+        return branch
+
+    async def delete_branch(self, branch_id: str) -> list[str]:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            raise KeyError(branch_id)
+        conv = self.conversations.get(branch.conversation_id)
+        if conv is not None and conv.default_branch_id == branch_id:
+            raise ValueError("the main branch can't be deleted — delete the conversation")
+        if any(b.parent_branch_id == branch_id for b in self.branches.values()):
+            raise ValueError("a branch has forked from this one")
+        node_ids = [n.id for n in self.nodes.values() if n.branch_id == branch_id]
+        for nid in node_ids:
+            del self.nodes[nid]
+        del self.branches[branch_id]
+        self._next_seq.pop(branch_id, None)
+        return node_ids
 
 
 class DbStore:
@@ -580,3 +652,89 @@ class DbStore:
                 await s.delete(n)
             await s.commit()
             return ids
+
+    async def rename_conversation(
+        self, conversation_id: str, title: str
+    ) -> Conversation | None:
+        from .models import ConversationRow
+
+        async with self._sf() as s:
+            row = await s.get(ConversationRow, conversation_id)
+            if row is None:
+                return None
+            row.title = title
+            await s.commit()
+            return self._to_conversation(row)
+
+    async def delete_conversation(self, conversation_id: str) -> list[str]:
+        from sqlalchemy import delete, or_, select
+
+        from .models import BranchRow, ConversationReferenceRow, ConversationRow, NodeRow
+
+        async with self._sf() as s:
+            conv = await s.get(ConversationRow, conversation_id)
+            if conv is None:
+                raise KeyError(conversation_id)
+            branch_ids = select(BranchRow.id).where(
+                BranchRow.conversation_id == conversation_id
+            )
+            node_ids = list(
+                (
+                    await s.execute(
+                        select(NodeRow.id).where(NodeRow.branch_id.in_(branch_ids))
+                    )
+                ).scalars()
+            )
+            await s.execute(delete(NodeRow).where(NodeRow.id.in_(node_ids)))
+            await s.execute(delete(BranchRow).where(BranchRow.conversation_id == conversation_id))
+            await s.execute(
+                delete(ConversationReferenceRow).where(
+                    or_(
+                        ConversationReferenceRow.conversation_id == conversation_id,
+                        ConversationReferenceRow.referenced_conversation_id == conversation_id,
+                    )
+                )
+            )
+            await s.delete(conv)
+            await s.commit()
+            return node_ids
+
+    async def rename_branch(self, branch_id: str, name: str) -> Branch | None:
+        from .models import BranchRow
+
+        async with self._sf() as s:
+            row = await s.get(BranchRow, branch_id)
+            if row is None:
+                return None
+            row.name = name
+            await s.commit()
+            return self._to_branch(row)
+
+    async def delete_branch(self, branch_id: str) -> list[str]:
+        from sqlalchemy import delete, select
+
+        from .models import BranchRow, ConversationRow, NodeRow
+
+        async with self._sf() as s:
+            branch = await s.get(BranchRow, branch_id)
+            if branch is None:
+                raise KeyError(branch_id)
+            conv = await s.get(ConversationRow, branch.conversation_id)
+            if conv is not None and conv.default_branch_id == branch_id:
+                raise ValueError("the main branch can't be deleted — delete the conversation")
+            child = await s.scalar(
+                select(BranchRow.id).where(BranchRow.parent_branch_id == branch_id)
+            )
+            if child is not None:
+                raise ValueError("a branch has forked from this one")
+            node_ids = list(
+                (
+                    await s.execute(
+                        select(NodeRow.id).where(NodeRow.branch_id == branch_id)
+                    )
+                ).scalars()
+            )
+            await s.execute(delete(NodeRow).where(NodeRow.branch_id == branch_id))
+            await s.delete(branch)
+            await s.commit()
+            return node_ids

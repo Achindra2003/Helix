@@ -127,6 +127,67 @@ async def test_delete_last_turn_rejects_an_empty_branch(store):
         await store.delete_last_turn(branch_id=conv.default_branch_id, user_id="u1")
 
 
+async def test_rename_conversation_and_branch(store):
+    conv = await _conv(store)
+    renamed = await store.rename_conversation(conv.id, "New Title")
+    assert renamed.title == "New Title"
+    assert (await store.get_conversation(conv.id)).title == "New Title"
+
+    branch = await store.rename_branch(conv.default_branch_id, "spine")
+    assert branch.name == "spine"
+    assert await store.rename_conversation("nope", "x") is None
+    assert await store.rename_branch("nope", "x") is None
+
+
+async def test_delete_conversation_removes_tree_and_reference_links(store):
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    n1 = await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+    await store.add_node(branch_id=b, role="assistant", content="B", author_id=None)
+    fork = await store.create_branch(conversation_id=conv.id, from_node_id=n1.id, name="alt")
+    await store.add_node(branch_id=fork.id, role="assistant", content="C", author_id=None)
+
+    other = await _conv(store)
+    await store.add_reference(conversation_id=other.id, referenced_conversation_id=conv.id)
+
+    removed = await store.delete_conversation(conv.id)
+    assert len(removed) == 3  # A, B, C — every node in every branch
+    assert await store.get_conversation(conv.id) is None
+    assert await store.get_branch(b) is None
+    assert await store.get_branch(fork.id) is None
+    # The other conversation no longer references the deleted one.
+    assert await store.list_reference_ids(other.id) == []
+
+    with pytest.raises(KeyError):
+        await store.delete_conversation(conv.id)
+
+
+async def test_delete_branch_safety_rules(store):
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    n1 = await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+
+    # Main can't be deleted.
+    with pytest.raises(ValueError):
+        await store.delete_branch(b)
+
+    fork = await store.create_branch(conversation_id=conv.id, from_node_id=n1.id, name="alt")
+    n2 = await store.add_node(branch_id=fork.id, role="assistant", content="C", author_id=None)
+    # A grandchild fork blocks deleting its parent…
+    grand = await store.create_branch(conversation_id=conv.id, from_node_id=n2.id, name="alt2")
+    with pytest.raises(ValueError):
+        await store.delete_branch(fork.id)
+
+    # …but a leaf fork deletes cleanly, taking only its own nodes.
+    removed = await store.delete_branch(grand.id)
+    assert removed == []  # the grandchild had no nodes of its own yet
+    removed = await store.delete_branch(fork.id)
+    assert removed == [n2.id]
+    assert await store.get_branch(fork.id) is None
+    # The parent spine is untouched.
+    assert [n.content for n in await store.get_history(b)] == ["A"]
+
+
 async def test_delete_last_turn_blocked_once_something_has_forked_from_it(store):
     conv = await _conv(store)
     b = conv.default_branch_id
