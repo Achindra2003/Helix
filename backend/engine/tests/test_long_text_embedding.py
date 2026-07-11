@@ -8,6 +8,20 @@ import pytest
 from ouroboros.memory import _word_chunks, cosine_similarity
 
 
+def _neural_embedder_or_skip():
+    """The real neural embedder, or skip — unlike `get_embedder()` (which falls
+    back to the lexical embedder on any failure, by design), this test is
+    specifically about the neural model's chunk-pooling behavior, so a network
+    failure fetching model weights on a cold cache must skip, not fail."""
+    pytest.importorskip("sentence_transformers")
+    from ouroboros.memory import SentenceTransformerEmbedder
+
+    try:
+        return SentenceTransformerEmbedder()
+    except Exception as exc:
+        pytest.skip(f"sentence-transformers model unavailable (offline?): {exc}")
+
+
 def test_short_text_is_a_single_chunk():
     assert _word_chunks("a short answer") == ["a short answer"]
 
@@ -23,10 +37,7 @@ def test_a_change_deep_in_a_long_answer_moves_the_similarity():
     """Two long answers identical for ~300 words, then diverging hard. Under
     truncation their similarity is ~1.0 (the difference is past the cutoff);
     with chunk-pooling it must be visibly below identical-pair similarity."""
-    pytest.importorskip("sentence_transformers")
-    from ouroboros.memory import SentenceTransformerEmbedder
-
-    emb = SentenceTransformerEmbedder()
+    emb = _neural_embedder_or_skip()
     head = (
         "The migration should proceed in three phases with careful validation "
         "at each step, starting from the read paths and only then moving writes. "
