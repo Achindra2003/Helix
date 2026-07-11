@@ -78,3 +78,72 @@ then send a chat turn and a deep run and watch the spans arrive.
 **Tests to read:** `api/conversation/tests/test_telemetry.py` (in-memory span
 exporter — note the proxy-tracer trick: set the global provider before any
 span starts), `api/providers/tests/test_resilient.py::test_usage_passes_through…`.
+
+---
+
+## 2 · Measured RAG (retrieval evals, BM25, hybrid fusion)
+
+**The industry problem.** Everyone wires RAG; almost nobody measures it. The
+interview question is "how do you *know* your retrieval works?", and the only
+good answer has three parts: a labeled dataset, ranking metrics, and a change
+process where thresholds come from the data.
+
+**The dataset:** `backend/evals/retrieval-golden.json` — 8 realistic team
+documents, 12 positive queries labeled with their relevant document, 4
+negatives that must retrieve *nothing*. Query kinds are deliberate:
+`exact-term` (error codes, env-var names — where embeddings are weakest),
+`paraphrase` (where they're strongest), and negatives (the relevance gate's
+contract). Judgments are **document-level** so re-chunking never invalidates
+labels — a real-world dataset-versioning lesson.
+
+**The metrics:** `backend/evals/retrieval.py` — recall@1, recall@k, MRR
+(1/rank of the first relevant hit), and **negative leakage** (fraction of
+unrelated queries that retrieved anything; the target is exactly 0). Run it:
+`python -m evals.retrieval` — the report lands in `evals/results/`.
+
+**What measuring immediately caught** (the story to tell): the dense floor of
+0.15, documented as "separates with margin", *leaked two negatives* — "best
+pizza near the office" retrieved the pricing sheet at cosine 0.166. Plotting
+the distributions showed the weakest positive at 0.241 and the strongest
+negative at 0.181, so the floor moved to 0.20 (`api/config.py`, with the
+measurement cited in the comment). One harness run, one real calibration bug,
+zero vibes. Post-fix: hybrid scores recall@1 = 1.00, MRR = 1.00, leakage = 0.
+
+**BM25, from scratch:** `backend/api/documents/lexical.py` (~60 lines —
+readable beats imported at this scale). Things to actually understand:
+- **idf** discounts common terms; the +0.5-smoothed variant never quite hits
+  zero for ubiquitous words, so the *gate* relies on the squash gap, not
+  literal zero (see `test_hybrid.py::test_bm25_ranks_rare_term…`).
+- **tf saturation** (`k1`): the 5th occurrence of a term adds less than the
+  1st. **Length normalization** (`b`): long chunks don't win by volume.
+- **Tokenization keeps identifiers whole** (`retry_count`, `ZX-9931`, `v1.2`)
+  — exact-term matching is the entire reason lexical exists.
+- **Corpus-size sensitivity**: with 2 documents, idf is nearly flat and no
+  threshold separates anything — why the unit tests pad the corpus, and why
+  the squash constant (`half=5`) is sized to workspace-scale corpora.
+
+**Hybrid fusion:** `DocumentIndex.search` (`documents/service.py`) — dense
+and BM25 each rank; **RRF** (`rrf_fuse`, k=60) merges by *position* because
+cosine and BM25 scores live on incomparable scales; the eligibility gate
+admits a chunk if *either* signal clears its floor. The canonical failure
+each side covers: dense catches "how do we undo a bad release" (the runbook
+never says "undo"); lexical catches "what does ERR-5093 mean" when the
+embedding of an error code carries no signal —
+`test_hybrid.py::test_hybrid_rescues_the_exact_term_dense_misses` constructs
+exactly that with a scripted embedder, so the rescue is a proven property,
+not an anecdote.
+
+**Interview questions this chapter answers:**
+- "How do you evaluate retrieval quality?" (golden set, recall@k/MRR,
+  negatives as a first-class metric)
+- "Dense vs sparse retrieval — when does each fail?" (paraphrase vs
+  exact-term, with a constructed counterexample each)
+- "Why RRF instead of score interpolation?" (incomparable scales; ranks
+  are scale-free)
+- "How do you pick a similarity threshold?" (measure the two distributions,
+  split where the margin is; re-run the harness on every retrieval change)
+
+**Tests to read:** `api/documents/tests/test_hybrid.py`,
+`evals/test_retrieval_hermetic.py` (note: the lexical arm is asserted
+hermetically because BM25 is embedder-independent — the dense arm's numbers
+only mean anything under the real embedder).

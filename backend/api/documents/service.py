@@ -211,32 +211,71 @@ class DocumentIndex:
 
     async def search(
         self, workspace_id: str, query: str, *, k: int | None = None,
-        floor: float | None = None,
+        floor: float | None = None, mode: str | None = None,
     ) -> list[dict]:
         """Top-`k` chunks relevant to `query`, with scores and identity —
-        the shape both the grounding path and the search endpoint return."""
+        the shape both the grounding path and the search endpoint return.
+
+        Hybrid retrieval (the default `mode`): dense cosine and BM25 each
+        rank the workspace's chunks, rankings fuse by RRF, and a chunk is
+        *eligible* if either signal clears its floor — dense catches
+        paraphrase, lexical catches exact rare terms (error codes, config
+        names) whose embeddings carry almost no signal. `mode` exists so the
+        retrieval eval harness can measure each arm alone; thresholds here
+        are chosen from that harness's report, not vibes.
+        """
         from ..telemetry import tracer
+        from .lexical import BM25, rrf_fuse, squash
 
         if not query.strip():
             return []
         k = k or settings.grounding_k
         floor = settings.grounding_floor if floor is None else floor
+        mode = mode or settings.grounding_retrieval_mode
         with tracer().start_as_current_span("retrieval.documents") as span:
             span.set_attribute("retrieval.k", k)
             span.set_attribute("retrieval.floor", floor)
+            span.set_attribute("retrieval.mode", mode)
             chunks = await self._workspace_chunks(workspace_id)
             span.set_attribute("retrieval.candidates", len(chunks))
             if not chunks:
                 return []
-            vecs = await self._current_vectors(chunks)
-            query_vec = (await self._embed([query[:2000]]))[0]
-            cosine = self._mem().cosine_similarity
-            scored = sorted(
-                ((cosine(query_vec, vecs[c.id]), c) for c in chunks),
-                key=lambda pair: pair[0],
-                reverse=True,
-            )
-            picked = [(s, c) for s, c in scored[:k] if s > floor]
+
+            n = len(chunks)
+            dense = [0.0] * n
+            if mode != "lexical":
+                vecs = await self._current_vectors(chunks)
+                query_vec = (await self._embed([query[:2000]]))[0]
+                cosine = self._mem().cosine_similarity
+                dense = [float(cosine(query_vec, vecs[c.id])) for c in chunks]
+            lex = [0.0] * n
+            if mode != "dense":
+                lex = [squash(s) for s in BM25([c.content for c in chunks]).scores(query)]
+
+            # Relevance gate: either signal clearing its floor admits a chunk.
+            # The dense floor's calibration story lives in config.py; the
+            # lexical floor is in squashed-BM25 units, measured on the golden
+            # set (evals/retrieval.py) so negatives stay leak-free.
+            lex_floor = settings.grounding_lexical_floor
+            eligible = [
+                i for i in range(n) if dense[i] > floor or lex[i] > lex_floor
+            ]
+            if not eligible:
+                span.set_attribute("retrieval.hits", 0)
+                return []
+
+            rankings = []
+            if mode != "lexical":
+                rankings.append(sorted(eligible, key=lambda i: dense[i], reverse=True))
+            if mode != "dense":
+                lex_hits = [i for i in eligible if lex[i] > 0]
+                if lex_hits:
+                    rankings.append(sorted(lex_hits, key=lambda i: lex[i], reverse=True))
+            fused = rrf_fuse(rankings)
+            top = sorted(eligible, key=lambda i: fused.get(i, 0.0), reverse=True)[:k]
+            # Reported relevance = the stronger of the two signals (both live
+            # in 0..1); the fused RRF value itself is rank math, not meaning.
+            picked = [(max(dense[i], lex[i]), chunks[i]) for i in top]
             span.set_attribute("retrieval.hits", len(picked))
             if picked:
                 span.set_attribute("retrieval.top_score", round(float(picked[0][0]), 4))

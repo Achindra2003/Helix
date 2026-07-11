@@ -46,11 +46,22 @@ class Settings(BaseSettings):
     # into the context as quoted data. The floor keeps an unrelated question
     # from dragging the knowledge base into every prompt.
     grounding_k: int = 4
-    # Measured on MiniLM: relevant question↔chunk cosines land ~0.24-0.46 even
-    # with heavy chunk dilution; unrelated ones sit near (or below) zero. 0.15
-    # separates the two with margin on both sides.
-    grounding_floor: float = 0.15
+    # Measured on MiniLM against the golden retrieval set (evals/retrieval.py):
+    # every positive query's relevant document scores ≥ 0.24; the strongest
+    # unrelated query tops out at 0.18 (money/office vocabulary brushing the
+    # pricing sheet). 0.20 splits them with margin on both sides — the original
+    # 0.15 leaked two negatives, which is exactly what the harness is for.
+    grounding_floor: float = 0.20
     grounding_chunk_chars: int = 1_200
+    # Retrieval arms: hybrid (dense + BM25 fused by RRF, the default) | dense |
+    # lexical. Kept switchable so the eval harness (evals/retrieval.py) can
+    # measure each arm alone — thresholds below come from its report.
+    grounding_retrieval_mode: str = "hybrid"
+    # Lexical relevance floor in squashed-BM25 units (score s -> s/(s+5); 0.30
+    # ≈ raw BM25 ~2.1, i.e. one genuinely rare term). Admits exact-identifier
+    # matches dense misses, while common-word overlap from unrelated questions
+    # stays below it — measured on the golden set (evals/retrieval.py).
+    grounding_lexical_floor: float = 0.30
     # Tests set True so ingestion completes within the upload request.
     documents_ingest_inline: bool = False
 

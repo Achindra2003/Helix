@@ -1,0 +1,63 @@
+{
+  "description": "Golden retrieval set: a small realistic team knowledge base with labeled queries. Positive queries name their relevant document(s); negatives must retrieve NOTHING (the relevance gate's guarantee). Mix by design: exact-identifier queries where lexical wins, paraphrase queries where dense wins, and phrased-idea queries both should get.",
+  "documents": [
+    {
+      "id": "deploy-runbook",
+      "filename": "deploy-runbook.md",
+      "text": "Deploy runbook. Releases go out through the blue-green pipeline: build the container, deploy to the idle color, run the smoke suite, then switch the load balancer. Never deploy on Friday afternoons.\n\nIf a release goes bad, the revert procedure is: switch the load balancer back to the previous color, mark the release as withdrawn in the tracker, and open an incident if any customer traffic saw errors. The previous color is kept warm for 48 hours precisely so this switch is instant.\n\nDatabase changes ride separately from code: expand-and-contract only. A release must never require the schema change to have landed first."
+    },
+    {
+      "id": "auth-spec",
+      "filename": "auth-spec.md",
+      "text": "Authentication specification. Sessions use short-lived JWTs signed with HS256; the signing secret rotates quarterly. Tokens carry only the subject id — role checks are always a live database read, never a claim in the token.\n\nPassword storage is bcrypt with a work factor of 12. Login attempts are rate limited per account and per source address. Password reset links expire after 30 minutes and are single use.\n\nService-to-service calls use mTLS inside the cluster; no bearer tokens cross the cluster boundary."
+    },
+    {
+      "id": "incident-postmortem",
+      "filename": "postmortem-march.md",
+      "text": "Postmortem: March 14 outage of the quillrelay service. At 09:12 UTC quillrelay began returning ERR-5093 (upstream handshake rejected) for 40% of requests. Root cause: a certificate renewal job renewed the leaf cert but not the intermediate, and quillrelay pins the chain.\n\nDetection took 22 minutes because the synthetic checks only exercised the cached path. Remediation: redeployed the full chain, added a chain-depth assertion to the renewal job, and the synthetics now bust cache on every third probe.\n\nAction items: alert on ERR-5093 specifically (it is always a certificate problem), and page the on-call directly when error ratio exceeds 5% for three minutes."
+    },
+    {
+      "id": "env-config",
+      "filename": "env-config.md",
+      "text": "Environment configuration reference. HELIX_DEEP_DEADLINE_S caps the wall clock of a reasoning run segment; the default is 300 seconds. OTEL_EXPORTER_OTLP_ENDPOINT enables tracing export; leave it unset in development.\n\nDOCUMENT_MAX_BYTES caps uploads at 8 MiB. GROUNDING_FLOOR sets the dense relevance gate; do not lower it below 0.10 without re-running the retrieval evals.\n\nAll settings load from the .env file; environment variables outrank it. Secrets never go in the compose file."
+    },
+    {
+      "id": "billing-pricing",
+      "filename": "pricing-sheet.md",
+      "text": "Pricing sheet for the managed tier. The starter plan is 12 dollars per seat per month billed annually, or 15 monthly. It includes three workspaces and thirty days of history.\n\nThe team plan is 29 per seat and adds unlimited workspaces, one year of history, and priority support with a four-hour first-response target during business hours.\n\nToken passthrough: model usage is billed at provider list price plus zero markup; the invoice itemizes tokens per workspace per model."
+    },
+    {
+      "id": "onboarding-guide",
+      "filename": "onboarding.md",
+      "text": "New teammate onboarding. Day one: get your laptop enrolled, join the team workspace from the invite link, and read the deploy runbook before touching anything.\n\nYour first week goal is one small shipped change end to end: pick a starter ticket, branch, get a review from your onboarding buddy, and take it through the release pipeline yourself with supervision.\n\nAccess grants follow least privilege: production access is not part of onboarding and requires a separate request with a stated need."
+    },
+    {
+      "id": "migration-plan",
+      "filename": "db-migration-plan.md",
+      "text": "Database migration plan for the fourth quarter. We move the primary datastore from the single SQLite file to Postgres using the expand-and-contract pattern: add the new columns and dual-write, backfill in batches of ten thousand rows, verify checksums per table, then contract by dropping the legacy columns.\n\nThe backfill runs only during the low-traffic window between 02:00 and 05:00 UTC. Every batch is idempotent and resumable; a failed batch halts the job and pages nobody — it is retried the next window.\n\nRollback before the contract step is trivial (stop dual-writes). After contract it requires restoring from the nightly snapshot, so the contract waits two full weeks after verification."
+    },
+    {
+      "id": "style-guide",
+      "filename": "writing-style.md",
+      "text": "Writing style guide for user-facing copy. Lead with the outcome, not the mechanism. Prefer plain verbs: use, not utilize; help, not facilitate. Error messages state what happened, why, and the one next action — never blame the user.\n\nDates are absolute in documentation (March 14), relative only in live UI (2 hours ago). Numbers under ten are words unless they are measurements.\n\nNever promise in copy what the system does not enforce."
+    }
+  ],
+  "queries": [
+    { "id": "q-err-code", "text": "what does ERR-5093 mean", "relevant": ["incident-postmortem"], "kind": "exact-term" },
+    { "id": "q-quillrelay", "text": "quillrelay outage root cause", "relevant": ["incident-postmortem"], "kind": "exact-term" },
+    { "id": "q-otel-var", "text": "OTEL_EXPORTER_OTLP_ENDPOINT what is it for", "relevant": ["env-config"], "kind": "exact-term" },
+    { "id": "q-deadline-var", "text": "HELIX_DEEP_DEADLINE_S default value", "relevant": ["env-config"], "kind": "exact-term" },
+    { "id": "q-undo-release", "text": "how do we undo a bad release", "relevant": ["deploy-runbook"], "kind": "paraphrase" },
+    { "id": "q-friday", "text": "is it ok to ship on a friday", "relevant": ["deploy-runbook"], "kind": "paraphrase" },
+    { "id": "q-passwords", "text": "how are user passwords stored and protected", "relevant": ["auth-spec"], "kind": "paraphrase" },
+    { "id": "q-token-role", "text": "do our session tokens contain the user's role", "relevant": ["auth-spec"], "kind": "paraphrase" },
+    { "id": "q-cost-seat", "text": "how much does a seat cost per month", "relevant": ["billing-pricing"], "kind": "paraphrase" },
+    { "id": "q-first-week", "text": "what should a new hire accomplish in their first week", "relevant": ["onboarding-guide"], "kind": "paraphrase" },
+    { "id": "q-backfill", "text": "when does the postgres backfill run and what happens if a batch fails", "relevant": ["migration-plan"], "kind": "mixed" },
+    { "id": "q-error-copy", "text": "rules for writing error messages", "relevant": ["style-guide"], "kind": "mixed" },
+    { "id": "neg-pizza", "text": "best pizza place near the office", "relevant": [], "kind": "negative" },
+    { "id": "neg-cricket", "text": "who won the cricket match yesterday", "relevant": [], "kind": "negative" },
+    { "id": "neg-vacation", "text": "recommend a vacation spot for hiking in the alps", "relevant": [], "kind": "negative" },
+    { "id": "neg-recipe", "text": "recipe for sourdough bread starter", "relevant": [], "kind": "negative" }
+  ]
+}
