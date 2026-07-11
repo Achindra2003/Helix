@@ -8,12 +8,18 @@ and for each working feature — **what it does, why it matters, and how it actu
 > and any hard question can be *escalated* to a self-halting deep-reasoning engine, all under
 > role-based access control.
 
-**Ground truth as of this writing (v2, branch `v2-complete`):** backend **64/64
-tests passing**, frontend builds clean, both run live (React + Vite UI on `:5173`,
-FastAPI + SSE + WebSocket API on `:8000`) against a real LLM provider (Groq —
-chat on the fast 8B, deep reasoning on the 70B). Nothing in the demo is faked —
-every click hits the live API, and a scripted 2-user end-to-end (presence, live
-fan-out, guided steer) passes 15/15.
+**Ground truth as of this writing (branch `ui-standout`, the release codebase
+forked from `v2-complete`):** backend **179/179 tests passing** (hermetic — stub
+provider, no keys/network needed), frontend builds clean, both run live
+(React + Vite UI on `:5173`, FastAPI + SSE + WebSocket API on `:8000`) against
+a real LLM provider (Groq — chat on the fast 8B, deep reasoning on the 70B) or
+per-workspace BYO keys. Nothing in the demo is faked — every click hits the
+live API, and a scripted 2-user end-to-end (presence, live fan-out, guided
+steer) passes 15/15. Since `v2-complete`, this branch has also added: a
+workspace knowledge base with cited RAG grounding (chat **and** Deep
+Reasoning), server-side durable deep runs (survive a dropped tab), provider
+resilience (retry/circuit-breaker/fallback), run history with provenance, and
+per-workspace BYO API keys.
 
 ---
 
@@ -46,6 +52,11 @@ A single ~8-minute flow that exercises every finished pillar:
    **self-halts (converged)** in ~7s. The **Kill switch** stops a run on command.
 6. **Replay & export.** Step back through the thread; **download** it as Markdown/JSON.
 7. **Roles.** Flip the role switch to **Observer** — the workspace goes read-only.
+8. **Knowledge base.** Rail → **DOCS**, upload a small `.md` → chip flips
+   processing → ready with a chunk count. Ask chat (or escalate to Deep
+   Reasoning) a question that shares terms with the doc — the reply carries
+   **⌘ filename.md §n** citation chips; an unrelated question shows none
+   (the relevance gate, not a bug).
 
 ---
 
@@ -69,8 +80,10 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 | FR-12 | Budget meter & guardrails | ✅ | Budget bar; run bounded, halts before runaway |
 | FR-13 | History, replay & export | ✅ | Replay scrubber + authenticated Markdown/JSON download |
 | FR-14 | Tool permission layer | 🟡 | Server-side research policy flag; per-role allowlist UI is future |
+| FR-15 | File grounding — workspace knowledge base (RAG) | ✅ | DOCS panel: upload → chunked/embedded server-side; chat **and** Deep Reasoning ground replies with citation chips when relevant |
+| FR-16 | Per-workspace provider settings (BYO key) | ✅ | TEAM → Provider panel: pick provider/model, paste an encrypted key, Test connection; retry/breaker/fallback on every call |
 
-**Score:** 13 fully done, 1 partial (with an honest limit).
+**Score:** 15 fully done, 1 partial (with an honest limit).
 
 ---
 
@@ -137,8 +150,11 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
   live. Result: a real ~7s converging run, not a fixed canned animation.
 
 ### ✅ FR-11 — Run control: Kill and Steer both work
-- **Kill:** aborts the streaming `fetch` (`AbortController`); the server sees the dropped
-  stream and finalises the run as killed — a clean, cooperative stop.
+- **Kill:** deep runs now execute **server-side** — closing the tab or aborting the
+  stream no longer stops them. The monitor's **Stop** button calls
+  `POST /conversations/deep/runs/{id}/kill`, which halts the run cooperatively and
+  finalises it as `killed`. Reload the page mid-run and the monitor **reattaches**
+  (`GET .../stream?after=N`) instead of showing a dead panel.
 - **Steer (guided runs):** tick **⟂ guided** next to Deep Reasoning. The adaptive loop pauses
   at a steer checkpoint between refinement cycles; the monitor opens a violet steer box —
   type guidance (or "Continue as-is") and the run resumes from its LangGraph checkpoint over
@@ -178,8 +194,10 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 | Item | Maps to | Status |
 |---|---|---|
 | **Per-role tool allowlist UI + approvals** for Deep Reasoning | FR-14 | The policy exists server-side (`DEEP_REASONING_ALLOW_RESEARCH`, and research requires a Tavily key); the Owner-facing UI is future. |
-| **Postgres row-level security + migrations** | NFR-2 | API-layer tenancy is enforced everywhere; RLS is a prod-deploy hardening step. |
+| **Per-conversation model picker / agents & connectors** | — | Provider is workspace-wide (FR-16), not per-conversation; agents/connectors are the next market-gap wave, deliberately post-launch. |
+| **Postgres row-level security + migrations** | NFR-2 | API-layer tenancy is enforced everywhere; RLS + Alembic are the hosted-instance hardening lane. |
 | **Redis-backed rooms** | NFR-4 | Needed only for multi-process deployment; the seam is ready. |
+| **Original-file blob store** | — | Ingestion keeps extracted text only; re-upload = re-ingest. Nothing reads raw bytes after ingest today. |
 
 ---
 
@@ -188,7 +206,7 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 - **Keep Deep Reasoning questions focused** so the converge lands fast on the free Groq tier
   (deep runs use the 70B model; chat stays on the 8B).
 - Rooms are in-process: one API process for now (fine for the demo and small teams).
-- Verified via the live API + 64 tests + a scripted 2-user end-to-end; still **do one real
+- Verified via the live API + 179 tests + a scripted 2-user end-to-end; still **do one real
   click-through** before presenting.
 
 ---

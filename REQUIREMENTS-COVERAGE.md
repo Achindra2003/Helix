@@ -23,12 +23,14 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 | **FR-6** | Fork & branch tree (inherit context, interactive tree) | ✅ | Hover a message → **fork here**, or the **Fork** button; **Branch lineage** sidebar shows parent→child, active highlighted, click to open. Fork inherits ancestor context, siblings stay isolated. |
 | **FR-7** | Shared prompt library (save, tag, search, insert) | ✅ | **LIBR**: search, tags, **+ Save prompt**, **Insert →** (runs the prompt as a turn); teammates' saves appear live. |
 | **FR-8** | LLM provider abstraction (Groq/Ollama by config) | ✅ | Backend provider interface; UI shows the active provider (`☉ groq`). Swap via `backend/.env`. Deep Reasoning uses its own `DEEP_REASONING_MODEL` (70B) independent of chat. |
-| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize on the 70B model; halts on **semantic convergence** (MiniLM embeddings) or budget; each step emits node/depth/energy/thought/synthesis/readings. |
-| **FR-10** | Deep Reasoning monitor (trace, topology, meters) | ✅ | Right panel: **topology strip** lighting node-by-node, **energy + budget** meters, **depth / loop-guard / stability / confidence / tokens**, live **step trace**. Teammates watching the same shared branch see the trace live too. |
-| **FR-11** | Run control — kill & steer | ✅ | **Kill switch** halts a run. **⟂ guided** toggle → the run **pauses between reasoning cycles**; the monitor opens a steer box — inject guidance (any Collaborator can) or continue as-is; the run resumes over HTTP from its checkpoint. |
-| **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** (run converges/bounded). *Per-workspace rate metering not yet surfaced.* |
+| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize on the 70B model; halts on **semantic convergence** (MiniLM embeddings) or budget; each step emits node/depth/energy/thought/synthesis/readings. The run itself now executes **server-side** — closing the tab no longer kills it (reconnect on reload; explicit **Stop** button). |
+| **FR-10** | Deep Reasoning monitor (trace, topology, meters) | ✅ | Right panel: **topology strip** lighting node-by-node, **energy + budget** meters, **depth / loop-guard / stability / confidence / tokens**, live **step trace**, a **queue indicator** when a workspace's concurrency cap is hit, and a **Run history** drawer (past runs incl. model + provenance). Teammates watching the same shared branch see the trace live too. |
+| **FR-11** | Run control — kill & steer | ✅ | **Stop** halts a run server-side (`POST .../kill`) — no longer just an aborted local stream. **⟂ guided** toggle → the run **pauses between reasoning cycles**; the monitor opens a steer box — inject guidance (any Collaborator can) or continue as-is; the run resumes over HTTP from its checkpoint. |
+| **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** + a **wall-clock deadline** per run segment (a rate-limited provider can no longer stretch a run indefinitely). *Per-workspace rate metering not yet surfaced.* |
 | **FR-13** | History, replay & export (JSON/Markdown) | ✅ | Conversation header: **replay** scrubber (step through the thread), **↓ md / ↓ json** export (authenticated download). |
 | **FR-14** | Permission layer (tool allowlist + approval) | 🟡 | Server-side **tool policy**: `DEEP_REASONING_ALLOW_RESEARCH` gates the web-research detour at graph build (and research needs a Tavily key). Per-role allowlist UI + approval flow are future work. |
+| **FR-15** *(new)* | File grounding — workspace knowledge base (RAG) | ✅ | Rail → **DOCS**: upload → chunked + embedded server-side → **ready** with a chunk count; a search box ranks chunks by relevance. Chat **and** Deep Reasoning replies ground on relevant chunks automatically (workspace-wide, no per-conversation attach) with **citation chips** ("⌘ spec.md §3") when relevance clears a measured floor — silently absent on unrelated questions, which is the relevance gate working, not a bug. Closes the #1 gap named in `MARKET-VALIDATION.md`. |
+| **FR-16** *(new)* | Per-workspace provider settings (BYO API key) | ✅ | TEAM → **Provider** panel (owner-only): pick provider, paste an encrypted key, pick models, **Test connection**. Server-wide `.env` values remain the fallback (self-host needs nothing new); a hosted instance ships with no fallback key so a workspace can never spend the operator's key. Retry/circuit-breaker/safe-fallback wrap every call. |
 
 ## Non-functional requirements
 
@@ -48,12 +50,14 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 
 ## Scorecard
 
-- **Functional:** 13 of 14 fully delivered; FR-14 partial (server-side policy
-  flag; per-role UI future).
+- **Functional:** 15 of 16 fully delivered (14 original + 2 added this
+  milestone); FR-14 partial (server-side policy flag; per-role UI future).
 - **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**Verification:** backend `pytest -q` → **64 passed** (hermetic: stub provider +
-throwaway SQLite; includes RBAC-gating, WebSocket room, and guided-steer tests);
+**Verification:** backend `pytest -q` → **179 passed** (hermetic: stub provider
++ throwaway SQLite, no network/keys required; includes RBAC-gating, WebSocket
+room, guided-steer, provider resilience, durable deep runs, file grounding,
+deep-run grounding, and an adversarial injection-regression corpus);
 frontend `npm run build` typechecks clean; a scripted live end-to-end run
 (2 users over real HTTP + WS + Groq) passes 15/15 checks: presence, live token
 fan-out, fork, references, guided steer to convergence, observer gating,

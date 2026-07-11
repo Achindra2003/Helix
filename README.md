@@ -3,16 +3,18 @@
 A multi-tenant **collaborative AI workspace** — "Git for your team's AI work."
 Shared & branchable conversations with one team-wide assistant, live presence and
 real-time fan-out over WebSockets, a shared prompt library, cross-conversation
-references, and a monitored, steerable **Deep Reasoning** mode that halts itself
-when its answer converges.
+references, a workspace knowledge base with cited RAG grounding, and a monitored,
+steerable **Deep Reasoning** mode that halts itself when its answer converges —
+and now grounds on that same knowledge base.
 
 See `helix-product.md` (what), `helix-srs.md` (requirements),
-`REQUIREMENTS-COVERAGE.md` (what's delivered, mapped to the SRS), and
+`REQUIREMENTS-COVERAGE.md` (what's delivered, mapped to the SRS),
+`AI-LANE-CONTRACTS.md` (the AI layer's frozen interfaces), and
 `HELIX-AI-EXPLAINED.md` (how the AI layer works).
 
 ## Status
 
-All 14 functional requirements are implemented and tested (FR-14 as a
+15 of 16 functional requirements are fully delivered and tested (FR-14 is a
 server-side policy flag; the per-role allowlist UI is future work):
 
 - **Auth & tenancy** — register/login/JWT, workspaces, role-carrying invite
@@ -35,8 +37,21 @@ server-side policy flag; the per-role allowlist UI is future work):
   steer it mid-flight. The monitor shows convergence happening: a stability
   sparkline climbing to the halting threshold and the ouroboros ring closing.
 - **Prompt library** — save/tag/search/insert, updating live for the room.
+- **Knowledge base (file grounding / RAG)** — upload documents to a workspace;
+  chat **and** Deep Reasoning replies ground on relevant chunks automatically,
+  with citation chips, when relevance clears a measured floor. Closes the #1
+  gap named in `MARKET-VALIDATION.md`.
+- **Per-workspace provider settings (BYO API key)** — each workspace can plug
+  in its own Groq (or OpenAI-compatible) key and models, encrypted at rest,
+  with retry/circuit-breaker/safe-fallback on every call. Server `.env`
+  values remain the fallback for self-host.
+- **Durable, resilient deep runs** — Deep Reasoning executes server-side, so
+  closing the tab doesn't kill a run; reconnect on reload, an explicit Stop
+  button, a per-workspace queue, and a Run history archive with provenance
+  (which model/thresholds produced each run).
 
-Backend: **69/69 tests** (hermetic — stub provider + throwaway SQLite).
+Backend: **179/179 tests** (hermetic — stub provider + throwaway SQLite, no
+keys or network required; includes an adversarial injection-regression suite).
 Frontend: React 18 + Vite + TS, builds clean.
 Market context: see `MARKET-VALIDATION.md` (July 2026 landscape).
 
@@ -95,5 +110,9 @@ model while the reasoning loop gets the strongest one.
 ## Roadmap (post-v2)
 
 - Per-role tool allowlist UI for Deep Reasoning (FR-14 beyond the policy flag).
+- Per-conversation model picker (today the provider/model is set once per
+  workspace) and agents/connectors — the next wave of market gaps.
 - Postgres row-level security + Alembic migrations for prod hardening.
 - Redis pub/sub behind the realtime seam for multi-process deployment.
+- A blob store for original uploaded files (today only extracted text is
+  kept; re-upload re-ingests).

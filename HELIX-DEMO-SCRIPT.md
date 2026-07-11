@@ -122,9 +122,12 @@ A segment-by-segment runbook for the live demo. Total target: **~10–12 minutes
    - the live **step trace**.
 3. It **converges** (~7s) — point to **`converged`** and the crystallized answer.
    "It decided it was done."
-4. Run it again and hit **◼ Kill switch** mid-flight → "stopped on command."
-5. Note honestly: *Steer (pause → inject guidance → resume) is built into the engine;
-   wiring it through the live API is the next step.*
+4. Run it again and hit **◼ Stop run** mid-flight → "stopped on command — the run
+   actually lives server-side now, so closing the tab wouldn't have stopped it;
+   only this button does."
+5. Tick **⟂ guided** and escalate again → the run **pauses** at a steer checkpoint;
+   type a constraint into the steer box → it resumes and visibly pivots. "Any
+   Collaborator can steer, which makes a paused run a team decision, not a solo one."
 
 ---
 
@@ -147,18 +150,18 @@ thread), then **↓ md** / **↓ json** to download.
 > frontend streaming over SSE. The Deep Reasoning engine is a separate recursive
 > graph behind one clean interface."
 
-**Show:** `REQUIREMENTS-COVERAGE.md` — "Up to this milestone: **10 of 14 functional
-requirements fully delivered**, the rest partial or in progress." Scroll the matrix.
+**Show:** `REQUIREMENTS-COVERAGE.md` — "**15 of 16 functional requirements fully
+delivered**, one partial with a named limit." Scroll the matrix.
 
 ---
 
 ## 9. What's next (honest roadmap)  ·  Speaker: **M**  ·  ~45s
 
 **Say:**
-> "Remaining work is one backend lane, and the frontend already has the seams for it:
-> (1) enforce auth/tenancy on the chat routes, (2) WebSocket presence + live-watch so
-> you see teammates typing in real time, (3) server-side steer for Deep Reasoning,
-> (4) a tool-permission layer. Then containerise and deploy."
+> "What's left is packaging and a couple of named, deliberate seams — not core
+> product gaps: a per-role tool-approval UI for Deep Reasoning, a per-conversation
+> model picker (today the provider is workspace-wide), and the launch motion —
+> a hardened container, Postgres migrations, and a public hosted instance."
 
 ---
 
@@ -204,9 +207,9 @@ does").
 - **"Is the AI real or scripted?"** (A) — fully live Groq; show the streaming again, or the network tab.
 - **"How is a fork instant on a long conversation?"** (M/A) — branches are *pointers* into a shared node tree; we copy no history (O(1) write, O(depth) read).
 - **"What stops Deep Reasoning running forever / costing a fortune?"** (A) — a compute-budget halting controller + convergence thresholds + the kill switch (FR-12, NFR-6).
-- **"Can you swap the model / run offline?"** (M) — one provider interface; flip Groq↔Ollama in config, no code change (FR-8, NFR-9).
+- **"Can you swap the model / run offline?"** (M) — one provider interface; flip Groq↔Ollama in config, or paste a workspace's own key/model under TEAM → Provider — no code change (FR-8, FR-16, NFR-9).
 - **"Is data isolated between teams?"** (M) — every resource is workspace-scoped; production adds Postgres Row-Level Security (FR-2, NFR-2).
-- **"Why does presence show only me?"** (M) — the WebSocket room is the next backend task; the UI seam is already in place.
+- **"What happens if I close the tab mid deep-run?"** (A) — nothing: the run executes server-side and keeps going; reload and the monitor reattaches to the live stream. Only the Stop button actually halts it.
 
 ---
 
@@ -216,9 +219,11 @@ does").
 2. Open `demo_artifacts/demo_transcript.txt` (a captured end-to-end run), **or**
 3. Run the narrated script: `cd backend && ./.venv/Scripts/python.exe -m api.demo_helix`
    (`Option A` in `HELIX-DEMO.md`) — same story, no UI dependency.
-4. Backend tests as proof of correctness: `pytest -q` → 43 passing.
+4. Backend tests as proof of correctness: `pytest -q` → 179 passing (hermetic —
+   stub provider, no keys or network needed).
 
 ## Don't-click list (avoid dead ends on stage)
-- Don't rely on **Steer** in the monitor (button is disabled — not wired over HTTP yet).
-- Don't expect **live presence** of a second user (no WebSocket yet) — describe it instead.
 - Keep Deep Reasoning questions **short**; the bounded config is tuned for a ~7s converge.
+- Don't expect the **per-role tool-approval UI** (FR-14) — the policy is server-side only; say so if asked.
+- Don't expect a **per-conversation model picker** — the provider/model is set once per workspace (TEAM → Provider), not per chat.
+- A **process restart** loses any in-flight deep run (its durable record survives) — not a concern for a single demo session, worth knowing if the API restarts mid-panel.
