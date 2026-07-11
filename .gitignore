@@ -40,3 +40,9 @@ helix.db
 # Standalone Ouroboros clone (own git repo + 256MB venv + real .env); the
 # engine Helix uses is vendored at backend/engine/ouroboros/.
 /Ouroboros/
+
+# Session logs / working notes (internal process chatter, not product docs).
+# BATON-RAJNISH.md, BATON-MANSOOR.md, and baton-2.md are curated handoff docs
+# and stay tracked; only the raw .txt session transcripts are ignored.
+baton*.txt
+dump*.txt
