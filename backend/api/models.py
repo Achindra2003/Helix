@@ -73,6 +73,10 @@ class WorkspaceSettings(Base):
     base_url: Mapped[str] = mapped_column(String, default="")
     chat_model: Mapped[str] = mapped_column(String, default="")
     deep_model: Mapped[str] = mapped_column(String, default="")
+    # Agent tool allowlist (FR-14): a JSON array of tool names, owner-managed.
+    # "" = never set = the safe default (workspace-internal tools only);
+    # "[]" = the owner explicitly disabled every tool. See api/tools/.
+    tool_allowlist: Mapped[str] = mapped_column(String, default="")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=_now, onupdate=_now
     )

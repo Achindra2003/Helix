@@ -34,12 +34,15 @@ from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
 from ..models import WorkspaceSettings
 from ..telemetry import make_llm_span_callback, record_llm_call
+from ..tools import bindable, resolve_allowlist
+from ..tools.agent import AgentProducer, build_agent_graph
+from ..tools.builtin import make_tools
 from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
 from ..documents.service import DocumentIndex
-from .events import DeepRunRegistered, to_dict, to_sse
+from .events import AgentRunRegistered, DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
 from .run_log import DeepRunRecorder
 from .runs import RunHandle, RunManager
@@ -903,6 +906,155 @@ async def steer_deep_run(
 
     resume_from = handle.seq  # stream only the continuation, like the old segments
     _runs.steer(handle, lambda: run.steer(body.guidance))
+    return _subscription(handle, after=resume_from)
+
+
+class AgentRequest(BaseModel):
+    prompt: str
+
+
+class ApprovalDecision(BaseModel):
+    approved: bool
+
+
+@router.post("/{branch_id}/agent")
+async def send_agent_message(
+    branch_id: str,
+    body: AgentRequest,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Run one agent (tool-loop) turn, streamed as SSE (FR-14 complete).
+
+    Same engine, same branch, same event contract — the third producer.
+    Emits: agent_run (the run_id handle) -> user_node -> (token | tool_call |
+    tool_result)* -> complete -> assistant_node -> [DONE].
+
+    The model is offered only the workspace's *allowed and available* tools
+    (owner-managed under workspace settings → Tools); a sensitive tool call
+    pauses the run (`waiting`, reason="approval") until any Collaborator
+    decides it via POST /conversations/agent/runs/{run_id}/approve. Runs
+    execute server-side on the shared run manager, so reconnect/status/kill
+    use the same /conversations/deep/runs/{run_id}/* surface deep runs do.
+    """
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    # Tool calling needs a function-calling model: Groq, same resolution rule
+    # as deep runs (workspace Groq key wins, server key is the self-host
+    # fallback, no key is a clear 503).
+    row = await session.get(WorkspaceSettings, conv.workspace_id)
+    resolved = resolve(row)
+    if not resolved.deep_groq_key:
+        raise api_error(
+            503,
+            "agent_unavailable",
+            "Agent runs need a Groq API key — the workspace owner can add one "
+            "under workspace settings → Provider.",
+        )
+    model = (
+        resolved.chat_model
+        if resolved.provider == "groq" and resolved.chat_model
+        else settings.groq_model
+    )
+
+    # The allowlist decides what the model's world contains (see api/tools):
+    # un-allowed or unavailable tools are never bound, never mentioned.
+    allowed = resolve_allowlist(row.tool_allowlist if row else None)
+    tools = bindable(
+        make_tools(
+            workspace_id=conv.workspace_id,
+            viewer_id=user.id,
+            documents=_documents,
+            embeddings=_embeddings,
+            tavily_key=settings.tavily_api_key,
+        ),
+        allowed,
+    )
+
+    run_id = uuid4().hex
+    handle_box: list = []
+    graph, graph_config, make_inputs = build_agent_graph(
+        thread_id=uuid4().hex,
+        tools=tools,
+        groq_api_key=resolved.deep_groq_key,
+        groq_model=model,
+        max_tool_rounds=settings.agent_max_tool_rounds,
+        extra_callbacks=[
+            make_llm_span_callback(
+                workspace_id=conv.workspace_id, run_id=run_id,
+                provider="groq", model=model,
+            )
+        ],
+    )
+    references = await _resolve_reference_blocks(branch.conversation_id)
+    producer = AgentProducer(
+        graph=graph,
+        graph_config=graph_config,
+        make_inputs=make_inputs,
+        specs={t.name: t for t in tools},
+        references=references,
+        recaller=_embeddings.recall_block,
+        grounder=_grounder_for(conv.workspace_id),
+        should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
+        deadline_s=settings.deep_reasoning_deadline_s,
+    )
+    recorder = DeepRunRecorder(
+        run_id=run_id,
+        workspace_id=conv.workspace_id,
+        conversation_id=conv.id,
+        branch_id=branch_id,
+        author_id=user.id,
+        session_factory=SessionLocal,
+        model=model,
+        provenance={
+            "kind": "agent",
+            "tools": [t.name for t in tools],
+            "allowlist": allowed,
+            "max_tool_rounds": settings.agent_max_tool_rounds,
+            "provider_source": resolved.source,
+        },
+    )
+    run = engine.ResumableRun(store=_store, producer=producer, branch_id=branch_id)
+    handle = RunHandle(
+        run_id=run_id,
+        workspace_id=conv.workspace_id,
+        conversation_id=conv.id,
+        branch_id=branch_id,
+        author_id=user.id,
+        shared=conv.visibility == "shared",
+        run=run,
+        recorder=recorder,
+    )
+    handle_box.append(handle)
+    handle.events.append(AgentRunRegistered(run_id=run_id))
+
+    _runs.launch(handle=handle, start=lambda: run.start(prompt=body.prompt, author_id=user.id))
+    return _subscription(handle)
+
+
+@router.post("/agent/runs/{run_id}/approve")
+async def approve_agent_tool(
+    run_id: str,
+    body: ApprovalDecision,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Decide a paused sensitive tool call: approve executes it, deny folds a
+    refusal back so the model answers without the tool.
+
+    Any Collaborator may decide — a paused agent on a shared thread is a team
+    decision point, same rule as steering a deep run. Streams the
+    continuation; pauses again if the model requests another sensitive call.
+    """
+    handle = await _require_run(run_id, user, session, ROLE_COLLABORATOR)
+    run = handle.run
+    if handle.status != "paused" or not run.paused:
+        raise api_error(409, "conflict", "run is not paused for approval")
+    handle.recorder.note_steer(
+        "tool call approved" if body.approved else "tool call denied"
+    )
+
+    resume_from = handle.seq
+    _runs.steer(handle, lambda: run.steer("approve" if body.approved else "deny"))
     return _subscription(handle, after=resume_from)
 
 

@@ -100,6 +100,16 @@ class Settings(BaseSettings):
     deep_reasoning_stability_threshold: float | None = None
     deep_reasoning_confidence_threshold: float = 0.7
 
+    # --- Agent tool loop (FR-14; see api/tools/) ---
+    # Web search runs on Tavily. Without a key the tool is *visibly
+    # unavailable* in the catalog and never offered to the model — same key
+    # the deep-reasoning research detour uses.
+    tavily_api_key: str = ""
+    # One round = the model requests tools, they run, it reads the results.
+    # Bounds the loop so a model that keeps asking for "one more search"
+    # terminates; the graph's recursion limit is derived from this.
+    agent_max_tool_rounds: int = 5
+
     # --- Observability (OTel GenAI tracing; see api/telemetry.py) ---
     # Unset (the default) = no SDK installed, no-op tracer, nothing exported —
     # the hermetic suite and zero-infra self-host stay untouched. Point it at

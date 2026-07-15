@@ -147,3 +147,104 @@ not an anecdote.
 `evals/test_retrieval_hermetic.py` (note: the lexical arm is asserted
 hermetically because BM25 is embedder-independent — the dense arm's numbers
 only mean anything under the real embedder).
+
+---
+
+## 3 · Tool Use & Human-in-the-Loop (the agent loop, FR-14)
+
+**The industry problem.** "Add tools to the model" sounds like an API call —
+`bind_tools`, done. The interview questions are all about what surrounds it:
+who decides which tools exist (governance), what happens when the model calls
+a tool it shouldn't (policy), how a human approves a dangerous call without
+killing the run (HITL), and how the loop terminates (safety). Helix answers
+each one structurally — in graph shape and binding decisions, not prompt text.
+
+**The three policy layers** (`backend/api/tools/__init__.py` — read the
+docstring first, it's the design doc):
+
+1. **Catalog** — what exists. `builtin.make_tools` returns every tool with an
+   `available` flag: web search without a `TAVILY_API_KEY` is *visibly*
+   unavailable in the settings UI, never silently missing.
+2. **Allowlist** — what this workspace permits. Owner-managed
+   (`PUT /api/workspaces/{wid}/settings/tools`), stored as JSON on
+   `WorkspaceSettings.tool_allowlist`. The subtle contract: `""` (never set)
+   means the safe default (workspace-internal tools only), while `"[]"` means
+   the owner chose a tool-less agent — absence and emptiness are different
+   answers (`resolve_allowlist`).
+3. **Approval** — sensitive tools (anything leaving the workspace) pause the
+   run for a human verdict before *every* call.
+
+**The load-bearing line:** `bindable()` filters the catalog by allowlist ×
+availability **before** `bind_tools`. An un-allowed tool isn't refused at call
+time — it never enters the model's world. That's the difference between a
+locked door and a door the model never learns exists; the former invites
+jailbreaks, the latter has nothing to jailbreak.
+
+**The graph** (`backend/api/tools/agent.py` → `build_agent_graph`, the
+LangGraph shape interviews ask you to whiteboard):
+
+    START → agent ─(no tool calls)────────────→ END
+              │(sensitive call)   │(safe calls)
+              ▼                   ▼
+    [interrupt] gate ─(approved)→ tools ──→ agent
+              └─(denied: denial ToolMessages)→ agent
+
+LangGraph concepts exercised, each mapped to a line:
+- **Conditional edges on tool calls** — `route_agent` reads
+  `messages[-1].tool_calls`: none ⇒ END, any sensitive ⇒ gate, else tools.
+- **`interrupt_before=["gate"]`** — the human-in-the-loop pause is a
+  *checkpoint*, not a busy-wait: the graph stops before the gate node runs,
+  the HTTP stream ends on `waiting(reason="approval")`, and the process could
+  serve a thousand paused runs for free.
+- **Resume via `aupdate_state`** — the approval endpoint injects
+  `{"decision": "approve"|"deny"}` and re-streams with `inputs=None`
+  ("continue the checkpoint"). Same protocol as deep-run steer — one
+  mechanism, two features.
+- **State-shaped routing** — `route_gate` doesn't read a flag; it reads the
+  *messages*: approval left the tool-call request as the last message ⇒
+  tools; denial appended `ToolMessage`s ⇒ back to agent. State is the truth.
+- **The `add_messages` reducer** — nodes append, never replace, so the whole
+  tool transcript (request → results) stays in context and the model reads
+  its own tool results on the next turn.
+- **Termination** — `recursion_limit` derived from `agent_max_tool_rounds`:
+  a model that never stops asking for "one more search" hits a hard stop
+  (`test_runaway_tool_loop_hits_the_recursion_limit`).
+
+**Failure semantics worth quoting:** a broken tool returns its error *as the
+tool result* (`status="error"`), so the model can say "the search failed,
+but…" — a degraded answer, never a crashed run. A hallucinated tool name gets
+"does not exist" the same way. Denial folds back "the user declined; answer
+from what you have and say what you couldn't check" — the model must produce
+an answer that's honest about its blind spot.
+
+**Security inheritance, not reimplementation:** `search_conversations` runs
+*as the caller* (`viewer_id` flows into the same visibility clause the search
+endpoint uses), so the agent can never surface a private thread its user
+couldn't open. The tool layer inherits RBAC instead of becoming a hole in it.
+
+**The producer split** (same two-layer pattern as deep reasoning, same
+reason): `AgentProducer` is pure event-mapping — `tool_call` / `tool_result`
+frames for the UI, `Token` for prose, `Waiting` on the gate — testable
+against a fake graph in milliseconds; `build_agent_graph` is the only file
+that imports LangGraph. And the run rides the *existing* `RunManager`: an
+agent run is durable, reconnectable, killable, and recorded (`DeepRunRow`
+with `provenance.kind="agent"`) because deep runs already built that
+machinery. New feature, zero new infrastructure.
+
+**Interview questions this chapter answers:**
+- "Design a tool-calling agent with human approval for dangerous actions."
+  (the graph above — interrupt as checkpoint, resume as state update)
+- "How do you stop an agent calling tools it shouldn't?" (bind-time
+  allowlist beats call-time refusal, and why)
+- "What happens when a tool fails mid-run?" (errors are results; the model
+  narrates the gap)
+- "How does the model see tool results?" (`ToolMessage` + `tool_call_id`
+  pairing, the add_messages reducer)
+- "How do you test an agent without an LLM?" (a scripted fake behind the
+  same graph — the structure is what's under test)
+
+**Tests to read:** `api/tools/tests/test_agent_graph.py` (the real graph,
+scripted LLM — approval/denial/hallucination/runaway), `test_agent_producer.py`
+(event mapping + the ResumableRun pause), `test_agent_http.py` (the HTTP
+surface: allowlist → binding, approval RBAC), `test_builtin.py` (catalog
+policy).

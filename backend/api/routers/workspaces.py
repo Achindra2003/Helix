@@ -1,3 +1,4 @@
+import json
 import secrets
 
 from fastapi import APIRouter, Depends
@@ -38,6 +39,8 @@ from ..provider_settings import (
 )
 from ..providers.pricing import estimate_cost_usd
 from ..telemetry import LlmCallRow
+from ..tools import resolve_allowlist
+from ..tools.builtin import make_tools
 from ..schemas import (
     InviteOut,
     InvitePreview,
@@ -416,6 +419,89 @@ async def put_provider_settings(
     await session.commit()
     await session.refresh(row)
     return _provider_out(row, owner=True)
+
+
+# --- Tool allowlist (FR-14) ---
+class ToolAllowlistIn(BaseModel):
+    allowed: list[str]
+
+
+def _tools_out(row: WorkspaceSettings | None, *, workspace_id: str, viewer_id: str) -> dict:
+    """The catalog with this workspace's policy applied — what the settings UI
+    renders: every tool that exists, whether it can work here (`available`),
+    and whether the owner permits it (`allowed`)."""
+    allowed = resolve_allowlist(row.tool_allowlist if row else None)
+    catalog = make_tools(
+        workspace_id=workspace_id,
+        viewer_id=viewer_id,
+        documents=None,  # handlers are never invoked on this path
+        embeddings=None,
+        tavily_key=settings.tavily_api_key,
+    )
+    return {
+        "allowed": allowed,
+        "items": [
+            {
+                "name": t.name,
+                "description": t.description,
+                "sensitive": t.sensitive,
+                "available": t.available,
+                "allowed": t.name in allowed,
+            }
+            for t in catalog
+        ],
+    }
+
+
+@router.get("/workspaces/{workspace_id}/settings/tools")
+async def get_tool_settings(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Any member may read — the composer needs to know whether agent runs
+    have tools, and which calls will pause for approval."""
+    await get_membership(workspace_id, user, session)
+    row = await session.get(WorkspaceSettings, workspace_id)
+    return _tools_out(row, workspace_id=workspace_id, viewer_id=user.id)
+
+
+@router.put("/workspaces/{workspace_id}/settings/tools")
+async def put_tool_settings(
+    workspace_id: str,
+    body: ToolAllowlistIn,
+    user: User = Depends(get_current_user),
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Owner-only: set exactly which tools agent runs may be offered.
+
+    An empty list is a valid choice (a tool-less agent), distinct from
+    never-configured (the safe default: workspace-internal tools only).
+    """
+    catalog_names = {
+        t.name
+        for t in make_tools(
+            workspace_id=workspace_id, viewer_id=user.id,
+            documents=None, embeddings=None,
+            tavily_key=settings.tavily_api_key,
+        )
+    }
+    names = [n.strip() for n in body.allowed]
+    unknown = sorted(set(names) - catalog_names)
+    if unknown:
+        raise api_error(
+            400, "bad_request",
+            f"Unknown tool(s): {', '.join(unknown)}. Known: {sorted(catalog_names)}.",
+        )
+    row = await session.get(WorkspaceSettings, workspace_id)
+    if row is None:
+        row = WorkspaceSettings(workspace_id=workspace_id)
+        session.add(row)
+    row.tool_allowlist = json.dumps(names)
+    await session.commit()
+    await session.refresh(row)
+    return _tools_out(row, workspace_id=workspace_id, viewer_id=user.id)
 
 
 @router.post("/workspaces/{workspace_id}/settings/provider/test")

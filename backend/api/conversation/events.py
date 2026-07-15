@@ -102,6 +102,45 @@ class Grounding:
     kind: str = field(default="grounding", init=False)
 
 
+# --- Agent (tool-loop) extension events (FR-14 — api/tools/agent.py) ---
+@dataclass
+class AgentRunRegistered:
+    """First frame of every agent run: the handle for run control.
+
+    Agent runs share the deep-run control surface (reconnect via
+    GET /conversations/deep/runs/{run_id}/stream, status, kill); approval of
+    a paused sensitive tool call goes to
+    POST /conversations/agent/runs/{run_id}/approve.
+    """
+
+    run_id: str
+    kind: str = field(default="agent_run", init=False)
+
+
+@dataclass
+class ToolCall:
+    """The model requested a tool call. `sensitive` calls pause the run for
+    approval right after this frame (`waiting`, reason="approval")."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    sensitive: bool = False
+    kind: str = field(default="tool_call", init=False)
+
+
+@dataclass
+class ToolResult:
+    """A tool call resolved. `content` is a preview for the UI — the model
+    sees the full result. status: ok | error | denied."""
+
+    id: str
+    name: str
+    content: str
+    status: str = "ok"
+    kind: str = field(default="tool_result", init=False)
+
+
 @dataclass
 class Step:
     """One reasoning transition (reason / reflect / synthesize / ...)."""
@@ -144,6 +183,7 @@ class Complete:
 Event = (
     UserNode | Token | AssistantNode | Done
     | DeepRunRegistered | RunQueued | Grounding
+    | AgentRunRegistered | ToolCall | ToolResult
     | Step | Budget | Waiting | Complete
 )
 
