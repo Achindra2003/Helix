@@ -20,6 +20,7 @@ import asyncio
 from array import array
 
 from sqlalchemy import LargeBinary, String, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -116,7 +117,15 @@ class EmbeddingIndex:
                 else:  # embedder upgraded: overwrite in place
                     row.version = version
                     row.vector = _pack(vec)
-            await session.commit()
+            try:
+                await session.commit()
+            except IntegrityError:
+                # Check-then-insert race: a concurrent ensure() (the send
+                # path's fire-and-forget embed vs. a search's backfill) won
+                # and wrote the same node's row first. Its vector is
+                # identical (same content, same embedder), so losing here
+                # is success, not an error.
+                await session.rollback()
 
     def ensure_soon(self, node: Node) -> None:
         """Fire-and-forget embed-on-write (the hot path must not wait on it).

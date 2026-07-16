@@ -177,3 +177,32 @@ async def test_chat_producer_uses_the_wired_recaller():
     assert isinstance(events[0], Token)
     assert seen["n"] == 10  # recaller got the full history
     assert "the recalled decision" in seen["system"]  # and its block was used
+
+
+@pytest.mark.asyncio
+async def test_concurrent_ensure_folds_the_unique_race(sf):
+    """The send path's fire-and-forget embed and a search's backfill can hit
+    the same node at once; both see it missing, both insert, and the loser
+    used to surface the UNIQUE violation as a 500. The loser must fold —
+    the winner already wrote the identical vector."""
+    import asyncio
+    import threading
+
+    barrier = threading.Barrier(2, timeout=5)
+
+    class BarrierEmbedder(CountingEmbedder):
+        # Neither ensure() may commit until both have read "missing" and
+        # reached the embed step — the race, made deterministic.
+        def embed(self, texts):
+            barrier.wait()
+            return super().embed(texts)
+
+    embedder = BarrierEmbedder()
+    index = EmbeddingIndex(sf, memory=FakeMemory(embedder))
+    node = _node(1, "we retry three times")
+
+    await asyncio.gather(index.ensure([node]), index.ensure([node]))
+
+    async with sf() as session:
+        rows = (await session.execute(select(NodeEmbeddingRow))).scalars().all()
+    assert [r.node_id for r in rows] == ["n1"]
