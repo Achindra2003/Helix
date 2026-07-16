@@ -3,6 +3,17 @@ import { Markdown } from "@/components/common/Markdown";
 import type { GroundingItem } from "@/lib/types";
 import s from "./chat.module.css";
 
+// One tool call in an agent turn (FR-14): requested → (approval?) → resolved.
+// "pending" = a sensitive call holding for a human verdict.
+export interface ToolActivity {
+  id: string;
+  name: string;
+  args: string; // compact one-line rendering of the arguments
+  sensitive: boolean;
+  status: "running" | "pending" | "ok" | "error" | "denied";
+  preview?: string; // the tool_result's content preview
+}
+
 export interface ChatMessage {
   id: string;
   role: "user" | "assistant" | "system";
@@ -20,7 +31,18 @@ export interface ChatMessage {
   forkChildren?: string[];
   // Knowledge-base sources this reply grounded on (the `grounding` SSE frame).
   grounding?: GroundingItem[];
+  // Agent tool ledger — what the model did before it answered (stream-only,
+  // like grounding: nodes don't persist it, this session's memory does).
+  tools?: ToolActivity[];
 }
+
+const TOOL_GLYPH: Record<ToolActivity["status"], { glyph: string; color: string; label: string }> = {
+  running: { glyph: "◌", color: "var(--gilt)", label: "running" },
+  pending: { glyph: "⚿", color: "var(--gilt)", label: "awaiting approval" },
+  ok: { glyph: "✓", color: "var(--verde)", label: "done" },
+  error: { glyph: "✕", color: "var(--oxblood)", label: "failed" },
+  denied: { glyph: "⊘", color: "var(--ink-3)", label: "denied" },
+};
 
 // Delete/edit is only ever offered on the branch's *trailing* turn you wrote
 // (edit = delete + resend; history stays append-only underneath).
@@ -73,6 +95,23 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
             </>
           )}
         </div>
+        {m.tools && m.tools.length > 0 && (
+          <div className={s.toolLedger}>
+            {m.tools.map((t) => {
+              const g = TOOL_GLYPH[t.status];
+              return (
+                <div key={t.id || t.name} className={s.toolRow}
+                  title={t.preview ? `${g.label} — ${t.preview}` : g.label}>
+                  <span className={s.toolStatus} style={{ color: g.color }}>{g.glyph}</span>
+                  <span style={{ color: "var(--oxblood)" }}>⚒ {t.name}</span>
+                  {t.args && <span className={s.toolArgs}>({t.args})</span>}
+                  {t.status === "pending" && <span style={{ color: "var(--gilt)" }}>awaiting approval</span>}
+                  {t.status === "denied" && <span style={{ color: "var(--ink-3)" }}>denied</span>}
+                </div>
+              );
+            })}
+          </div>
+        )}
         <div className={`${s.msgBody} ${asst && dropCap && !m.typing ? s.dropCap : ""}`}>
           {asst ? (
             <>

@@ -3,12 +3,18 @@ import { Button } from "@/components/common/Button";
 import s from "./chat.module.css";
 
 export function Composer({
-  provider, busy, onSend, onDeep, onLibrary, draft, onDraftConsumed,
+  provider, busy, onSend, onDeep, onAgent, agentHint, onLibrary, draft, onDraftConsumed,
 }: {
   provider: string;
   busy: boolean;
   onSend: (text: string) => void;
   onDeep: (text: string, guided: boolean) => void;
+  // Agent mode (FR-14): the model gets hands — the workspace's allowed tools,
+  // with sensitive calls pausing for approval.
+  onAgent: (text: string) => void;
+  // What this workspace's agent can currently do (tooltip: tool names, or why
+  // agent runs are unavailable).
+  agentHint?: string;
   onLibrary: () => void;
   // "Edit last message" hand-off: the deleted message's text lands here for
   // the author to revise and resend (edit = delete + resend, by design).
@@ -39,6 +45,12 @@ export function Composer({
     onDeep(t, guided);
     setText("");
   }
+  function agent() {
+    const t = text.trim();
+    if (!t || busy) return;
+    onAgent(t);
+    setText("");
+  }
 
   return (
     <div className={s.composer}>
@@ -56,6 +68,10 @@ export function Composer({
         </Button>
         <Button onClick={deep} disabled={busy} style={{ padding: "6px 11px", fontSize: 12.5, borderColor: "var(--oxblood)", color: "var(--oxblood)" }} title="Escalate to Deep Reasoning">
           <span>⟳</span> Deep Reasoning
+        </Button>
+        <Button onClick={agent} disabled={busy} style={{ padding: "6px 11px", fontSize: 12.5 }}
+          title={agentHint ?? "Agent: Helix answers with tools — searching before it speaks"}>
+          <span style={{ color: "var(--oxblood)" }}>⚒</span> Agent
         </Button>
         <label
           title="Guided: the run pauses between reasoning cycles so you can steer it from the monitor"

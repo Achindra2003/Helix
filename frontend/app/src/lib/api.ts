@@ -5,7 +5,7 @@ import { useSession } from "@/store/session";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
-  WorkspaceSearchHit, WorkspaceUsage, InviteSummary,
+  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -151,6 +151,18 @@ export const putProviderSettings = (
 export const testProviderSettings = (wid: string) =>
   request<{ ok: boolean; detail: string }>(`/api/workspaces/${wid}/settings/provider/test`, {
     method: "POST",
+  });
+
+// --- agent tool allowlist (FR-14) ---
+// Read: any member (the composer needs to know what agent runs can do).
+// Write: owner-only. An empty list is a valid choice (a tool-less agent),
+// distinct from never-configured (the safe workspace-internal default).
+export const getToolSettings = (wid: string) =>
+  request<ToolSettings>(`/api/workspaces/${wid}/settings/tools`);
+export const putToolSettings = (wid: string, allowed: string[]) =>
+  request<ToolSettings>(`/api/workspaces/${wid}/settings/tools`, {
+    method: "PUT",
+    body: JSON.stringify({ allowed }),
   });
 
 // --- conversations (live engine routes are root-level) ---

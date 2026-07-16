@@ -16,6 +16,7 @@ import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
 import type { Member, Role } from "@/lib/types";
 import { ProviderPanel } from "./ProviderPanel";
+import { ToolsPanel } from "./ToolsPanel";
 import s from "./members.module.css";
 
 const ROLES: Role[] = ["owner", "collaborator", "observer"];
@@ -185,6 +186,7 @@ export function MembersView() {
         )}
 
         {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
+        {wid && <ToolsPanel wid={wid} isOwner={role === "owner"} />}
 
         {canManageWs && (
           <>

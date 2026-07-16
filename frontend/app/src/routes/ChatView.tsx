@@ -4,11 +4,11 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
-  deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch,
+  deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
-import type { Branch, Conversation, ConversationRef, GroundingItem, Node } from "@/lib/types";
+import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
@@ -25,7 +25,7 @@ import { EmptyState } from "@/components/common/Feedback";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import { ConversationList } from "@/components/chat/ConversationList";
 import { BranchTree } from "@/components/chat/BranchTree";
-import { MessageList, type ChatMessage } from "@/components/chat/MessageList";
+import { MessageList, type ChatMessage, type ToolActivity } from "@/components/chat/MessageList";
 import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
@@ -42,6 +42,16 @@ interface SavedDeepRun {
 // history reloads happen after every turn — remember which sources each
 // assistant node cited so the chips survive the round-trip for this session.
 const groundingByNode: Record<string, GroundingItem[]> = {};
+// Same deal for the agent tool ledger (FR-14): which tools each reply used.
+const toolsByNode: Record<string, ToolActivity[]> = {};
+
+// One line of "what the model asked the tool for" — enough to judge a call.
+function compactArgs(args: Record<string, unknown>): string {
+  return Object.entries(args)
+    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : JSON.stringify(v)}`)
+    .join(", ")
+    .slice(0, 140);
+}
 
 function nodeToMsg(
   n: Node,
@@ -62,6 +72,7 @@ function nodeToMsg(
     forkPoint: !!forkNodeId && n.id === forkNodeId,
     forkChildren: forkMap?.[n.id],
     grounding: groundingByNode[n.id],
+    tools: toolsByNode[n.id],
   };
 }
 
@@ -161,6 +172,33 @@ export function ChatView() {
     enabled: !!wid,
   });
   const providerUnconfigured = providerSettings ? !providerSettings.configured : false;
+
+  // Agent runs (FR-14): what this workspace's agent may do — for the composer
+  // tooltip, and to warn that sensitive calls will pause for approval.
+  const { data: toolSettings } = useQuery({
+    queryKey: ["tool-settings", wid],
+    queryFn: () => getToolSettings(wid!),
+    enabled: !!wid,
+  });
+  const agentHint = useMemo(() => {
+    if (!toolSettings) return undefined;
+    const usable = toolSettings.items.filter((t) => t.allowed && t.available);
+    if (usable.length === 0) {
+      return "Agent: no tools enabled in this workspace — owners can enable them under TEAM → Agent tools";
+    }
+    const names = usable.map((t) => t.name).join(", ");
+    return `Agent: Helix may use ${names}${usable.some((t) => t.sensitive) ? " — sensitive calls pause for your approval" : ""}`;
+  }, [toolSettings]);
+
+  // The in-flight agent turn: its stream comes in segments (each approval
+  // pause ends one, each verdict opens the next), so the accumulating message
+  // state lives in a ref that every segment's handler shares.
+  const agentRunRef = useRef<{
+    runId: string; userMsg: ChatMessage; asst: ChatMessage; acc: string;
+    branchId: string; paused: boolean;
+  } | null>(null);
+  // A sensitive tool call holding for a human verdict (the banner + buttons).
+  const [approval, setApproval] = useState<{ runId: string; calls: ToolActivity[] } | null>(null);
 
   // Teammates reading each conversation right now (dots on the rows).
   const presenceUsers = usePresenceStore((st) => st.users);
@@ -322,6 +360,117 @@ export function ChatView() {
     const branchId = await ensureConversation();
     if (!branchId) return;
     await streamTurn(branchId, `/conversations/${branchId}/messages/from-prompt`, { prompt_id: promptId });
+  }
+
+  // --- Agent turns (FR-14): chat with hands. Same bubble, plus a tool
+  // ledger; a sensitive call ends the stream segment on waiting(approval)
+  // and the verdict endpoint streams the continuation.
+  function handleAgentEvent(ev: RunEvent) {
+    const run = agentRunRef.current;
+    if (!run) return;
+    if (ev.kind === "agent_run") {
+      run.runId = ev.run_id;
+    } else if (ev.kind === "user_node") {
+      run.userMsg.id = ev.node.id;
+      run.userMsg.body = ev.node.content;
+      setMessages((m) => [...m]);
+    } else if (ev.kind === "grounding") {
+      run.asst.grounding = ev.items;
+      setMessages((m) => [...m]);
+    } else if (ev.kind === "token") {
+      run.acc += ev.text;
+      run.asst.body = run.acc;
+      setMessages((m) => [...m]);
+      scrollDown();
+    } else if (ev.kind === "tool_call") {
+      (run.asst.tools ??= []).push({
+        id: ev.id, name: ev.name, args: compactArgs(ev.arguments),
+        sensitive: ev.sensitive, status: ev.sensitive ? "pending" : "running",
+      });
+      setMessages((m) => [...m]);
+      scrollDown();
+    } else if (ev.kind === "tool_result") {
+      const t = run.asst.tools?.find((x) => x.id === ev.id && (x.status === "running" || x.status === "pending"));
+      if (t) {
+        t.status = ev.status;
+        t.preview = ev.content;
+        setMessages((m) => [...m]);
+      }
+    } else if (ev.kind === "waiting") {
+      run.paused = true;
+      setApproval({ runId: run.runId, calls: (run.asst.tools ?? []).filter((t) => t.status === "pending") });
+    } else if (ev.kind === "complete") {
+      if (ev.status === "error" && !run.acc) {
+        run.asst.body = `[${ev.stop_reason}]`;
+        setMessages((m) => [...m]);
+      }
+    } else if (ev.kind === "assistant_node") {
+      run.asst.id = ev.node.id;
+      run.asst.typing = false;
+      run.asst.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ⚒ agent` : undefined;
+      if (run.asst.grounding) groundingByNode[ev.node.id] = run.asst.grounding;
+      if (run.asst.tools?.length) toolsByNode[ev.node.id] = run.asst.tools;
+      setMessages((m) => [...m]);
+    }
+  }
+
+  /** Await one SSE segment of an agent run. Paused-for-approval keeps the
+   *  composer busy (the banner owns the next step); anything else finishes
+   *  the turn. */
+  async function finishAgentSegment(done: Promise<void>) {
+    const run = agentRunRef.current;
+    try {
+      await done;
+    } catch (e: any) {
+      if (run) {
+        run.asst.body = run.acc + (run.acc ? "\n" : "") + `[stream error: ${e?.message ?? e}]`;
+        run.paused = false;
+      }
+    }
+    if (agentRunRef.current?.paused) return;
+    if (run) {
+      run.asst.typing = false;
+      setMessages((m) => [...m]);
+    }
+    agentRunRef.current = null;
+    setApproval(null);
+    setBusy(false);
+    if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+    qc.invalidateQueries({ queryKey: ["conversations", wid] });
+  }
+
+  async function onAgent(text: string) {
+    const branchId = await ensureConversation();
+    if (!branchId) return;
+    setBusy(true);
+    const userMsg: ChatMessage = {
+      id: "tmp-u", role: "user", authorName: "You",
+      authorColor: colorFor(user?.email ?? "?"), body: text, time: nowTime(),
+    };
+    const asst: ChatMessage = {
+      id: "tmp-agent", role: "assistant", authorName: "Helix",
+      body: "", time: nowTime(), typing: true, tools: [],
+    };
+    setMessages((m) => [...m, userMsg, asst]);
+    scrollDown();
+    agentRunRef.current = { runId: "", userMsg, asst, acc: "", branchId, paused: false };
+    const h = streamSSE(`/conversations/${branchId}/agent`, { prompt: text }, handleAgentEvent);
+    await finishAgentSegment(h.done);
+  }
+
+  async function decideApproval(approved: boolean) {
+    const run = agentRunRef.current;
+    if (!run?.runId) return;
+    setApproval(null);
+    run.paused = false;
+    if (approved) {
+      // Denials resolve via the gate's tool_result frames; approvals start
+      // executing now — say so.
+      for (const t of run.asst.tools ?? []) if (t.status === "pending") t.status = "running";
+      setMessages((m) => [...m]);
+    }
+    const h = streamSSE(`/conversations/agent/runs/${run.runId}/approve`, { approved }, handleAgentEvent);
+    await finishAgentSegment(h.done);
   }
 
   // consume a pending "insert from library" once we're in chat
@@ -657,6 +806,20 @@ export function ChatView() {
             const cur = useMonitor.getState().run;
             if (cur) monitor.patch({ answer: (cur.answer + e.text).replace(/^\s*\[answer\]\s*/i, "") });
           }
+        } else if (e.kind === "tool_call" && run) {
+          // A teammate's agent turn: watchers see the same tool ledger.
+          (run.asst.tools ??= []).push({
+            id: e.id, name: e.name, args: compactArgs(e.arguments),
+            sensitive: e.sensitive, status: e.sensitive ? "pending" : "running",
+          });
+          setMessages((m) => [...m]);
+        } else if (e.kind === "tool_result" && run) {
+          const t = run.asst.tools?.find((x) => x.id === e.id && (x.status === "running" || x.status === "pending"));
+          if (t) {
+            t.status = e.status;
+            t.preview = e.content;
+            setMessages((m) => [...m]);
+          }
         } else if (e.kind === "step" && run) {
           // A teammate escalated to Deep Reason on this branch: if my monitor
           // is idle, watch their reasoning trace live (no kill control — it's
@@ -703,6 +866,7 @@ export function ChatView() {
           run.asst.body = e.node.content || run.acc;
           run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ☁ ${provider}` : undefined;
           if (run.asst.grounding) groundingByNode[e.node.id] = run.asst.grounding;
+          if (run.asst.tools?.length) toolsByNode[e.node.id] = run.asst.tools;
           setMessages((m) => [...m]);
         } else if (e.kind === "done") {
           remoteRuns.current.delete(key);
@@ -843,6 +1007,25 @@ export function ChatView() {
                   ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
                 </div>
               )}
+              {approval && (
+                <div className={s.approveBar}>
+                  <span style={{ fontSize: 15, color: "var(--gilt)" }}>⚿</span>
+                  <span style={{ minWidth: 0 }}>
+                    Helix wants to run{" "}
+                    {approval.calls.length === 0 ? <strong>a sensitive tool</strong> : approval.calls.map((c, i) => (
+                      <span key={c.id}>
+                        {i > 0 && ", "}
+                        <strong className="mono" style={{ fontSize: 12.5 }}>{c.name}</strong>
+                        {c.args && <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>({c.args})</span>}
+                      </span>
+                    ))}
+                    {" "}— this call leaves the workspace, so it needs your approval.
+                  </span>
+                  <div style={{ flex: 1 }} />
+                  <Button variant="primary" onClick={() => decideApproval(true)}>Approve</Button>
+                  <Button variant="ghost" onClick={() => decideApproval(false)}>Deny</Button>
+                </div>
+              )}
               {canSend && providerUnconfigured && (
                 <div className={s.remoteBanner} style={{ cursor: "pointer" }} onClick={() => nav(`/w/${wid}/members`)}>
                   ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
@@ -851,6 +1034,7 @@ export function ChatView() {
               )}
               {canSend ? (
                 <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
+                  onAgent={onAgent} agentHint={agentHint}
                   onLibrary={() => nav(`/w/${wid}/library`)}
                   draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
               ) : (

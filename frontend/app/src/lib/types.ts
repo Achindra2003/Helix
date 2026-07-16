@@ -220,6 +220,23 @@ export interface WorkspaceUsage {
   estimated_cost_usd?: number | null;
 }
 
+// --- agent tools (FR-14; GET/PUT /api/workspaces/{wid}/settings/tools) ---
+// `available` = can work in this deployment (e.g. web search needs a server
+// key); `allowed` = the owner permits it here. The model is only ever offered
+// tools that are both — everything else stays out of its world entirely.
+export interface ToolCatalogItem {
+  name: string;
+  description: string;
+  sensitive: boolean; // sensitive ⇒ every call pauses for human approval
+  available: boolean;
+  allowed: boolean;
+}
+
+export interface ToolSettings {
+  allowed: string[];
+  items: ToolCatalogItem[];
+}
+
 export interface Health {
   status: string;
   db_time: string;
@@ -233,6 +250,12 @@ export type RunEvent =
   | { kind: "token"; text: string }
   | { kind: "assistant_node"; node: Node }
   | { kind: "deep_run"; run_id: string }
+  // Agent (tool-loop) frames — FR-14. `agent_run` is the control handle;
+  // a sensitive `tool_call` is followed by waiting(reason="approval") until
+  // POST /conversations/agent/runs/{run_id}/approve decides it.
+  | { kind: "agent_run"; run_id: string }
+  | { kind: "tool_call"; id: string; name: string; arguments: Record<string, unknown>; sensitive: boolean }
+  | { kind: "tool_result"; id: string; name: string; content: string; status: "ok" | "error" | "denied" }
   | { kind: "queued"; position: number }
   | { kind: "step"; idx: number; node: string; depth: number; energy: number; payload: Record<string, unknown> }
   | { kind: "budget"; tokens_used: number; tokens_budget: number; pct: number }
