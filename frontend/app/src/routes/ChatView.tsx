@@ -5,10 +5,11 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
+  searchWorkspace,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing } from "@/lib/realtime";
-import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent } from "@/lib/types";
+import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
@@ -199,6 +200,53 @@ export function ChatView() {
   } | null>(null);
   // A sensitive tool call holding for a human verdict (the banner + buttons).
   const [approval, setApproval] = useState<{ runId: string; calls: ToolActivity[] } | null>(null);
+
+  // Proactive resurfacing: while a question is being typed, quietly check
+  // whether the workspace has already explored it — the product's whole
+  // thesis ("nobody re-asks what a colleague solved") made visible at the
+  // exact moment it matters. Debounced; gated hard on relevance (this is
+  // unsolicited UI — the same lesson as RAG's citation gate: silence beats
+  // noise); an enhancement, so failures never surface.
+  // Floor calibrated on real MiniLM cosines: related rephrasings of the same
+  // question score 0.37–0.48, adjacent-but-different topics 0.27, unrelated
+  // ≤0.11 — 0.33 splits related from adjacent with margin on both sides.
+  // (Stricter than the 0.20 document-grounding floor because this surface is
+  // unsolicited: a wrong chip here is noise, not a wrong citation.)
+  const RESURFACE_FLOOR = 0.33;
+  const [resurfaced, setResurfaced] = useState<WorkspaceSearchHit[]>([]);
+  const [resurfaceMuted, setResurfaceMuted] = useState(false);
+  const resurfaceTimer = useRef<number | null>(null);
+  const resurfaceSeq = useRef(0);
+  useEffect(() => () => { if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current); }, []);
+  // A new thread on screen is a new question context — reset the strip.
+  useEffect(() => { setResurfaced([]); setResurfaceMuted(false); }, [activeConvId]);
+
+  function onDraftChange(text: string) {
+    if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current);
+    const q = text.trim();
+    if (q.length < 18) {
+      // Too short to mean anything (and "" is a send/clear): drop the strip
+      // and un-mute for the next question.
+      setResurfaced([]);
+      setResurfaceMuted(false);
+      return;
+    }
+    resurfaceTimer.current = window.setTimeout(async () => {
+      const seq = ++resurfaceSeq.current;
+      try {
+        const r = await searchWorkspace(wid!, q, 8);
+        if (seq !== resurfaceSeq.current) return; // a newer draft superseded this
+        const seen = new Set<string>();
+        setResurfaced(r.items.filter((h) => {
+          if (h.conversation_id === activeConvId) return false; // it's on screen
+          if (h.score < RESURFACE_FLOOR) return false;
+          if (seen.has(h.conversation_id)) return false; // one chip per thread
+          seen.add(h.conversation_id);
+          return true;
+        }).slice(0, 3));
+      } catch { /* resurfacing is an enhancement, never an error */ }
+    }, 700);
+  }
 
   // Teammates reading each conversation right now (dots on the rows).
   const presenceUsers = usePresenceStore((st) => st.users);
@@ -1007,6 +1055,30 @@ export function ChatView() {
                   ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
                 </div>
               )}
+              {canSend && !busy && !resurfaceMuted && resurfaced.length > 0 && (
+                <div className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
+                  <span style={{ color: "var(--gilt)" }}>✦</span>
+                  <span>explored before —</span>
+                  {resurfaced.map((h) => {
+                    const who = h.role === "assistant" ? "Helix"
+                      : h.author_id === user?.id ? "you" : (emailOf(h.author_id) ?? "a teammate");
+                    return (
+                      <button key={h.node_id} className={s.chip}
+                        title={`${who}: “${h.excerpt}”`}
+                        onClick={() => nav(`/w/${wid}?conv=${h.conversation_id}&branch=${h.branch_id}`)}
+                        style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 260 }}>
+                        <span style={{ color: "var(--oxblood)" }}>⊙</span>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {h.conversation_title}
+                        </span>
+                        <span style={{ color: "var(--ink-3)", flex: "0 0 auto" }}>· {who}</span>
+                      </button>
+                    );
+                  })}
+                  <button onClick={() => setResurfaceMuted(true)} title="Dismiss for this question"
+                    style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
+                </div>
+              )}
               {approval && (
                 <div className={s.approveBar}>
                   <span style={{ fontSize: 15, color: "var(--gilt)" }}>⚿</span>
@@ -1036,6 +1108,7 @@ export function ChatView() {
                 <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
                   onAgent={onAgent} agentHint={agentHint}
                   onLibrary={() => nav(`/w/${wid}/library`)}
+                  onDraftChange={onDraftChange}
                   draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
               ) : (
                 <div className={s.readonly}>

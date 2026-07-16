@@ -3,7 +3,7 @@ import { Button } from "@/components/common/Button";
 import s from "./chat.module.css";
 
 export function Composer({
-  provider, busy, onSend, onDeep, onAgent, agentHint, onLibrary, draft, onDraftConsumed,
+  provider, busy, onSend, onDeep, onAgent, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed,
 }: {
   provider: string;
   busy: boolean;
@@ -16,6 +16,9 @@ export function Composer({
   // agent runs are unavailable).
   agentHint?: string;
   onLibrary: () => void;
+  // Proactive resurfacing: the parent watches what's being typed and can
+  // surface "a teammate already explored this" before the send happens.
+  onDraftChange?: (text: string) => void;
   // "Edit last message" hand-off: the deleted message's text lands here for
   // the author to revise and resend (edit = delete + resend, by design).
   draft?: string | null;
@@ -26,9 +29,16 @@ export function Composer({
   // can steer it mid-flight from the monitor. Off = classic self-halting run.
   const [guided, setGuided] = useState(false);
 
+  // Every text change flows through here so the parent's resurfacing watcher
+  // sees sends/clears too, not just keystrokes.
+  function update(t: string) {
+    setText(t);
+    onDraftChange?.(t);
+  }
+
   useEffect(() => {
     if (draft) {
-      setText(draft);
+      update(draft);
       onDraftConsumed?.();
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -38,18 +48,18 @@ export function Composer({
     const t = text.trim();
     if (!t || busy) return;
     onSend(t);
-    setText("");
+    update("");
   }
   function deep() {
     const t = text.trim() || "What is the most defensible choice here, and why?";
     onDeep(t, guided);
-    setText("");
+    update("");
   }
   function agent() {
     const t = text.trim();
     if (!t || busy) return;
     onAgent(t);
-    setText("");
+    update("");
   }
 
   return (
@@ -59,7 +69,7 @@ export function Composer({
         rows={2}
         placeholder="Continue the thread, or escalate to Deep Reasoning…"
         value={text}
-        onChange={(e) => setText(e.target.value)}
+        onChange={(e) => update(e.target.value)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
       />
       <div className={s.composerRow}>
