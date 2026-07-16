@@ -9,7 +9,7 @@ and for each working feature — **what it does, why it matters, and how it actu
 > role-based access control.
 
 **Ground truth as of this writing (branch `ui-standout`, the release codebase
-forked from `v2-complete`):** backend **179/179 tests passing** (hermetic — stub
+forked from `v2-complete`):** backend **257 tests passing** (hermetic — stub
 provider, no keys/network needed), frontend builds clean, both run live
 (React + Vite UI on `:5173`, FastAPI + SSE + WebSocket API on `:8000`) against
 a real LLM provider (Groq — chat on the fast 8B, deep reasoning on the 70B) or
@@ -18,8 +18,9 @@ live API, and a scripted 2-user end-to-end (presence, live fan-out, guided
 steer) passes 15/15. Since `v2-complete`, this branch has also added: a
 workspace knowledge base with cited RAG grounding (chat **and** Deep
 Reasoning), server-side durable deep runs (survive a dropped tab), provider
-resilience (retry/circuit-breaker/fallback), run history with provenance, and
-per-workspace BYO API keys.
+resilience (retry/circuit-breaker/fallback), run history with provenance,
+per-workspace BYO API keys, and **Agent mode** (a governed tool loop with an
+owner-managed allowlist and human-in-the-loop approval for sensitive calls).
 
 ---
 
@@ -79,11 +80,11 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 | FR-11 | Run control — kill & steer | ✅ | **Kill works**; **⟂ guided** runs pause between cycles and resume with injected guidance over HTTP |
 | FR-12 | Budget meter & guardrails | ✅ | Budget bar; run bounded, halts before runaway |
 | FR-13 | History, replay & export | ✅ | Replay scrubber + authenticated Markdown/JSON download |
-| FR-14 | Tool permission layer | 🟡 | Server-side research policy flag; per-role allowlist UI is future |
+| FR-14 | Tool permission layer | ✅ | **⚒ Agent** composer mode: owner-governed tool allowlist (TEAM → Agent tools), sensitive calls pause for **human approval** above the composer, tool ledger on every agent reply |
 | FR-15 | File grounding — workspace knowledge base (RAG) | ✅ | DOCS panel: upload → chunked/embedded server-side; chat **and** Deep Reasoning ground replies with citation chips when relevant |
 | FR-16 | Per-workspace provider settings (BYO key) | ✅ | TEAM → Provider panel: pick provider/model, paste an encrypted key, Test connection; retry/breaker/fallback on every call |
 
-**Score:** 15 fully done, 1 partial (with an honest limit).
+**Score:** 16 of 16 fully done.
 
 ---
 
@@ -193,8 +194,7 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 
 | Item | Maps to | Status |
 |---|---|---|
-| **Per-role tool allowlist UI + approvals** for Deep Reasoning | FR-14 | The policy exists server-side (`DEEP_REASONING_ALLOW_RESEARCH`, and research requires a Tavily key); the Owner-facing UI is future. |
-| **Per-conversation model picker / agents & connectors** | — | Provider is workspace-wide (FR-16), not per-conversation; agents/connectors are the next market-gap wave, deliberately post-launch. |
+| **Per-conversation model picker / connectors** | — | Provider is workspace-wide (FR-16), not per-conversation; external connectors are the next market-gap wave, deliberately post-launch. (The agent tool loop itself shipped — FR-14.) |
 | **Postgres row-level security + migrations** | NFR-2 | API-layer tenancy is enforced everywhere; RLS + Alembic are the hosted-instance hardening lane. |
 | **Redis-backed rooms** | NFR-4 | Needed only for multi-process deployment; the seam is ready. |
 | **Original-file blob store** | — | Ingestion keeps extracted text only; re-upload = re-ingest. Nothing reads raw bytes after ingest today. |
@@ -206,7 +206,7 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 - **Keep Deep Reasoning questions focused** so the converge lands fast on the free Groq tier
   (deep runs use the 70B model; chat stays on the 8B).
 - Rooms are in-process: one API process for now (fine for the demo and small teams).
-- Verified via the live API + 179 tests + a scripted 2-user end-to-end; still **do one real
+- Verified via the live API + 257 tests + a scripted 2-user end-to-end; still **do one real
   click-through** before presenting.
 
 ---

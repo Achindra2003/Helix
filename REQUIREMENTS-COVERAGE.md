@@ -28,7 +28,7 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 | **FR-11** | Run control — kill & steer | ✅ | **Stop** halts a run server-side (`POST .../kill`) — no longer just an aborted local stream. **⟂ guided** toggle → the run **pauses between reasoning cycles**; the monitor opens a steer box — inject guidance (any Collaborator can) or continue as-is; the run resumes over HTTP from its checkpoint. |
 | **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** + a **wall-clock deadline** per run segment (a rate-limited provider can no longer stretch a run indefinitely). *Per-workspace rate metering not yet surfaced.* |
 | **FR-13** | History, replay & export (JSON/Markdown) | ✅ | Conversation header: **replay** scrubber (step through the thread), **↓ md / ↓ json** export (authenticated download). |
-| **FR-14** | Permission layer (tool allowlist + approval) | 🟡 | Server-side **tool policy**: `DEEP_REASONING_ALLOW_RESEARCH` gates the web-research detour at graph build (and research needs a Tavily key). Per-role allowlist UI + approval flow are future work. |
+| **FR-14** | Permission layer (tool allowlist + approval) | ✅ | Composer **⚒ Agent** → a LangGraph tool loop (search the knowledge base, past conversations, or the web) with three policy layers enforced **by binding, not refusal**: a catalog with availability (web search greys out without a server Tavily key), an **owner-governed allowlist** (TEAM → Agent tools), and **human-in-the-loop approval** — sensitive calls checkpoint-pause the run (`interrupt_before`) until a member approves or denies from the banner above the composer. Each reply carries a live **tool ledger** (call, args, status), relayed to watchers too. Un-allowed tools are never offered to the model at all. |
 | **FR-15** *(new)* | File grounding — workspace knowledge base (RAG) | ✅ | Rail → **DOCS**: upload → chunked + embedded server-side → **ready** with a chunk count; a search box ranks chunks by relevance. Chat **and** Deep Reasoning replies ground on relevant chunks automatically (workspace-wide, no per-conversation attach) with **citation chips** ("⌘ spec.md §3") when relevance clears a measured floor — silently absent on unrelated questions, which is the relevance gate working, not a bug. Closes the #1 gap named in `MARKET-VALIDATION.md`. |
 | **FR-16** *(new)* | Per-workspace provider settings (BYO API key) | ✅ | TEAM → **Provider** panel (owner-only): pick provider, paste an encrypted key, pick models, **Test connection**. Server-wide `.env` values remain the fallback (self-host needs nothing new); a hosted instance ships with no fallback key so a workspace can never spend the operator's key. Retry/circuit-breaker/safe-fallback wrap every call. |
 
@@ -50,14 +50,15 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 
 ## Scorecard
 
-- **Functional:** 15 of 16 fully delivered (14 original + 2 added this
-  milestone); FR-14 partial (server-side policy flag; per-role UI future).
+- **Functional:** 16 of 16 fully delivered (14 original + 2 added this
+  milestone).
 - **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**Verification:** backend `pytest -q` → **179 passed** (hermetic: stub provider
+**Verification:** backend `pytest -q` → **257 passed** (hermetic: stub provider
 + throwaway SQLite, no network/keys required; includes RBAC-gating, WebSocket
 room, guided-steer, provider resilience, durable deep runs, file grounding,
-deep-run grounding, and an adversarial injection-regression corpus);
+deep-run grounding, the agent tool loop with its approval gate and allowlist
+policy, and an adversarial injection-regression corpus);
 frontend `npm run build` typechecks clean; a scripted live end-to-end run
 (2 users over real HTTP + WS + Groq) passes 15/15 checks: presence, live token
 fan-out, fork, references, guided steer to convergence, observer gating,

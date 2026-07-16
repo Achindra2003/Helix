@@ -14,8 +14,7 @@ See `helix-product.md` (what), `helix-srs.md` (requirements),
 
 ## Status
 
-15 of 16 functional requirements are fully delivered and tested (FR-14 is a
-server-side policy flag; the per-role allowlist UI is future work):
+All 16 functional requirements are fully delivered and tested:
 
 - **Auth & tenancy** — register/login/JWT, workspaces, role-carrying invite
   links; RBAC enforced **server-side** on every conversation/prompt route.
@@ -41,6 +40,12 @@ server-side policy flag; the per-role allowlist UI is future work):
   chat **and** Deep Reasoning replies ground on relevant chunks automatically,
   with citation chips, when relevance clears a measured floor. Closes the #1
   gap named in `MARKET-VALIDATION.md`.
+- **Agent mode (tool loop)** — the composer's ⚒ Agent button lets the model
+  *search before it speaks*: the knowledge base, past conversations, or the
+  web. Owners govern exactly which tools exist (TEAM → Agent tools); tools
+  that leave the workspace pause for a member's approval before every call
+  (human-in-the-loop, checkpointed server-side); each reply shows its tool
+  ledger. Un-allowed tools are never even offered to the model.
 - **Per-workspace provider settings (BYO API key)** — each workspace can plug
   in its own Groq (or OpenAI-compatible) key and models, encrypted at rest,
   with retry/circuit-breaker/safe-fallback on every call. Server `.env`
@@ -50,7 +55,7 @@ server-side policy flag; the per-role allowlist UI is future work):
   button, a per-workspace queue, and a Run history archive with provenance
   (which model/thresholds produced each run).
 
-Backend: **179/179 tests** (hermetic — stub provider + throwaway SQLite, no
+Backend: **257 tests** (hermetic — stub provider + throwaway SQLite, no
 keys or network required; includes an adversarial injection-regression suite).
 Frontend: React 18 + Vite + TS, builds clean.
 Market context: see `MARKET-VALIDATION.md` (July 2026 landscape).
@@ -109,7 +114,6 @@ model while the reasoning loop gets the strongest one.
 
 ## Roadmap (post-v2)
 
-- Per-role tool allowlist UI for Deep Reasoning (FR-14 beyond the policy flag).
 - Per-conversation model picker (today the provider/model is set once per
   workspace) and agents/connectors — the next wave of market gaps.
 - Postgres row-level security + Alembic migrations for prod hardening.

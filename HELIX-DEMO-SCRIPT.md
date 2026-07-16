@@ -150,8 +150,8 @@ thread), then **↓ md** / **↓ json** to download.
 > frontend streaming over SSE. The Deep Reasoning engine is a separate recursive
 > graph behind one clean interface."
 
-**Show:** `REQUIREMENTS-COVERAGE.md` — "**15 of 16 functional requirements fully
-delivered**, one partial with a named limit." Scroll the matrix.
+**Show:** `REQUIREMENTS-COVERAGE.md` — "**16 of 16 functional requirements fully
+delivered**." Scroll the matrix.
 
 ---
 
@@ -159,9 +159,10 @@ delivered**, one partial with a named limit." Scroll the matrix.
 
 **Say:**
 > "What's left is packaging and a couple of named, deliberate seams — not core
-> product gaps: a per-role tool-approval UI for Deep Reasoning, a per-conversation
-> model picker (today the provider is workspace-wide), and the launch motion —
-> a hardened container, Postgres migrations, and a public hosted instance."
+> product gaps: a per-conversation model picker (today the provider is
+> workspace-wide), external connectors beyond the built-in tool catalog, and
+> the launch motion — a hardened container, Postgres migrations, and a public
+> hosted instance."
 
 ---
 
@@ -202,6 +203,34 @@ does").
 
 ---
 
+## NEW BEAT (added July 15, `ui-standout`) — Agent mode: governed tools + human approval
+*Slot it right after the knowledge-base beat (it builds on the same docs). Speaker: **A** · ~90s · proves FR-14*
+
+**Say:**
+> "So far the model answers from what it's given. Agent mode lets it *go
+> looking* — but under governance, which is the part enterprises actually ask
+> about. The owner decides which tools exist for this workspace; anything
+> unchecked is never even offered to the model — there's no door to jailbreak,
+> the door doesn't exist. And any tool that leaves the workspace pauses for a
+> human before every single call."
+
+**Show / click:**
+1. **TEAM → Agent tools**: the catalog — knowledge-base search and
+   conversation search on by default; **web_search** marked *⚿ needs
+   approval* (and greyed *unavailable* unless the server has a Tavily key —
+   "the UI tells you *why*, not just *no*").
+2. Back to **CHAT**: hit **⚒ Agent** with a question the docs can answer →
+   the reply's **tool ledger** appears line by line: *⚒ search_knowledge_base
+   ("…") ✓* — "you watch it decide what to look up, then answer grounded in
+   what it found."
+3. If a Tavily key is configured: enable web_search, ask something current →
+   the run **pauses** with an approval bar naming the exact call and its
+   arguments; click **Approve** (or **Deny** — the model then answers without
+   it and says what it couldn't check). "The pause is a server-side
+   checkpoint, not a spinner — the run costs nothing while it waits."
+
+---
+
 ## Q&A — likely questions & who answers
 
 - **"Is the AI real or scripted?"** (A) — fully live Groq; show the streaming again, or the network tab.
@@ -219,11 +248,11 @@ does").
 2. Open `demo_artifacts/demo_transcript.txt` (a captured end-to-end run), **or**
 3. Run the narrated script: `cd backend && ./.venv/Scripts/python.exe -m api.demo_helix`
    (`Option A` in `HELIX-DEMO.md`) — same story, no UI dependency.
-4. Backend tests as proof of correctness: `pytest -q` → 179 passing (hermetic —
+4. Backend tests as proof of correctness: `pytest -q` → 257 passing (hermetic —
    stub provider, no keys or network needed).
 
 ## Don't-click list (avoid dead ends on stage)
 - Keep Deep Reasoning questions **short**; the bounded config is tuned for a ~7s converge.
-- Don't expect the **per-role tool-approval UI** (FR-14) — the policy is server-side only; say so if asked.
+- **⚒ Agent** runs need the workspace's Groq key (same as Deep Reasoning); web_search stays greyed out in TEAM → Agent tools unless the server has a Tavily key — that's the availability layer working, point at it proudly.
 - Don't expect a **per-conversation model picker** — the provider/model is set once per workspace (TEAM → Provider), not per chat.
 - A **process restart** loses any in-flight deep run (its durable record survives) — not a concern for a single demo session, worth knowing if the API restarts mid-panel.
