@@ -89,3 +89,62 @@ Per tier (mean score):
 The experiment did exactly what it was built to do: it replaced "the
 controller obviously helps" with a measured, narrower, defensible claim —
 and located the next question worth asking.
+
+---
+
+# Hard-set run of 2026-07-16 — the frontier experiment (next-experiment #1)
+
+`questions-hard.json`: 8 questions engineered so single-pass plausibly fails
+(interacting constraints, checkable structures, conflicting specs). Same
+protocol as the pilot: 3 arms, engine + judge `llama-3.3-70b-versatile`
+(absolute 0–10, blind to arm), humanize off, web research off.
+
+**Coverage caveat:** Groq's free-tier daily token cap (100k TPD) killed the
+run at 20/24 — complete three-arm triples exist for **6 of 8** questions
+(`hf-sched`, `hf-rate`, `hf-migrate`, `hf-logic`, `hf-cap`, `hf-cache2`);
+`hf-api`/`hf-budget` are pending. Rerun the gap when the window frees:
+`python -m evals.harness --questions evals/questions-hard-remainder.json
+--arms fixed-1,fixed-4,adaptive`. Numbers below are over the 6 complete
+questions (18 runs, scores recovered from the run log).
+
+## Headline numbers
+
+| arm | mean score | mean tokens | mean cycles | stop reasons |
+|-----|-----------|-------------|-------------|--------------|
+| fixed-1 | **8.83** | **1,697** | 1 | budget×6 |
+| fixed-4 | 8.50 | 7,735 | 4 | budget×6 |
+| adaptive | 8.50 | 3,752 | 2.00 | **converged×6** |
+
+Top-score-per-question (ties shared): fixed-1 on 5/6, fixed-4 on 3/6,
+adaptive on 3/6. Adaptive's one outright win is `hf-sched` (10 vs 9/9) —
+the two-room scheduling problem with five interacting constraints, i.e.
+exactly the engineered failure mode where a first coherent-sounding answer
+tends to violate a constraint and a verification pass catches it.
+
+## The verdict
+
+**Even on questions engineered to break it, single-pass did not break** under
+this judge. The hoped-for upgrade — "on genuinely hard questions, refinement
+wins on quality" — did **not** materialize: adaptive ties fixed-4 and trails
+fixed-1 by a third of a point. What did replicate, now on both question sets:
+
+1. **The controller dominates fixed iteration.** Same quality as fixed-4 at
+   **49% of its tokens**, converging in 2 cycles every time, never hitting
+   the cap. If a team iterates at all, the controller is strictly better
+   than counting cycles.
+2. **The one adaptive win is the designed one.** Where constraints interact
+   (`hf-sched`), the reflect pass caught what one shot missed. That's a
+   real, narrow capability — worth demoing on exactly that class of problem.
+3. **Same instrument caveats as the pilot** (same-family judge, absolute
+   rubric compressing 6–10, n=6, no error bars). A pairwise independent
+   judge remains the next methodological upgrade before any stronger claim.
+
+## What this settles for positioning
+
+Deep Reasoning's pitch is now measured twice and should be stated as:
+**transparency, steerability, and disciplined cost — not higher IQ.** The
+honest sentence for the README/demo: *"When you iterate, Helix converges
+instead of counting — fixed-4 quality at half its cost, with a live proof it
+stopped because the answer settled."* Any "better answers" claim is
+unsupported on current evidence, and saying so out loud is the credibility
+feature no competitor demo has.
