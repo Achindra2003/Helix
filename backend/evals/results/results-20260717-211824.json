@@ -1,0 +1,80 @@
+[
+  {
+    "question_id": "hf-api",
+    "tier": "hard",
+    "arm": "fixed-1",
+    "answer": "To satisfy the requirements, a hybrid approach can be used, combining a cursor with a unique item identifier and a version number. This allows for efficient insertion and deletion of items, prevents duplicates, and ensures correct ordering by score and recency. The client can fetch a page with a cursor pointing to the last seen item, and the server returns the next page of items along with their identifiers and version numbers, enabling the client to detect and handle any changes or duplicates.",
+    "depth": 1,
+    "stop_reason": "budget",
+    "tokens": 1713,
+    "duration_s": 2.5,
+    "score": 8.0,
+    "justification": "The answer provides a decisive and practical recommendation for a hybrid approach that satisfies the requirements, but it lacks a detailed explanation of how the offset, simple cursor, and snapshot approaches break specific requirements, which is part of the question.",
+    "error": ""
+  },
+  {
+    "question_id": "hf-api",
+    "tier": "hard",
+    "arm": "fixed-4",
+    "answer": "A well-designed cursor method with cache invalidation mechanisms and unique item identifiers can efficiently handle insertions, deletions, and ordering by score and recency, while preventing duplicates across pages. This approach minimizes latency and complexity, addressing the requirements without introducing significant scalability issues. By incorporating item identifiers and a robust cache invalidation strategy, the cursor method can reliably navigate large datasets and ensure consistency across page fetches.",
+    "depth": 4,
+    "stop_reason": "budget",
+    "tokens": 7538,
+    "duration_s": 9.4,
+    "score": 6.0,
+    "justification": "The answer provides a general approach to solving the pagination problem with a cursor method and cache invalidation, but it lacks specific details on how the contract would work and does not explicitly address the limitations of offset, simple cursor, and snapshot approaches.",
+    "error": ""
+  },
+  {
+    "question_id": "hf-api",
+    "tier": "hard",
+    "arm": "adaptive",
+    "answer": "A hybrid approach combining elements of cursor and snapshot pagination can be used, where each item is assigned a unique identifier and a version number that increments with each update, and the client fetches pages based on a cursor that includes the last seen item's identifier and version. This approach ensures that items are not duplicated or omitted, even when items are inserted or deleted between page fetches, and allows for caching and efficient pagination. Offset pagination breaks the requirement of handling insertions and deletions between page fetches, simple cursor pagination breaks the requirement of not showing duplicate items when ordering is not purely temporal, and snapshot pagination breaks the requirement of efficient pagination when the number of items is large.",
+    "depth": 2,
+    "stop_reason": "converged",
+    "tokens": 3573,
+    "duration_s": 14.7,
+    "score": 9.0,
+    "justification": "The answer correctly identifies the limitations of offset, cursor, and snapshot pagination approaches and proposes a hybrid approach that satisfies all requirements, but could be more complete in detailing the exact contract and its implementation.",
+    "error": ""
+  },
+  {
+    "question_id": "hf-budget",
+    "tier": "hard",
+    "arm": "fixed-1",
+    "answer": "Assuming unit prices of $0.017/hour for a Postgres instance, $0.0055/hour for a web API instance, $0.0000042/second for background workers, and $0.023/GB-month for log storage, a concrete allocation could be: a Postgres instance with 50GB storage ($8.50/month), a web API instance handling 30 req/s ($13.20/month), background workers processing 2M jobs/month ($15.12/month), and log retention of 30 days at 5GB/day ($34.50/month). The total estimated cost is $71.32/month, which is under the $200/month budget. The single line item most likely to blow up first is log retention, as increasing log volume or retention period would significantly increase costs.",
+    "depth": 1,
+    "stop_reason": "budget",
+    "tokens": 1937,
+    "duration_s": 9.0,
+    "score": 9.0,
+    "justification": "The answer provides a concrete allocation with real-world price arithmetic, verifies the total cost is under budget, and identifies the line item most likely to blow up first, but lacks a detailed breakdown of the arithmetic used to calculate each cost.",
+    "error": ""
+  },
+  {
+    "question_id": "hf-budget",
+    "tier": "hard",
+    "arm": "fixed-4",
+    "answer": "To allocate the $200/month cloud budget, assume unit prices of $0.17/GB-hour for Postgres, $0.0055/instance-hour for the web API, $0.000004/seconds for background workers, and $0.10/GB-month for log retention. Allocate $30 for Postgres, $45 for the web API, $20 for background workers, and $15 for log retention, totaling $110. The web API is the single line item most likely to blow up first due to potential fluctuations in sustained request rates, and considering dynamic pricing models or cost optimization strategies could help mitigate this risk. Given the potential consequences of downtime or cost surprises, prioritizing cost certainty and reliability over optimal resource utilization is crucial, especially for the developers and operations teams managing the web API.",
+    "depth": 4,
+    "stop_reason": "budget",
+    "tokens": 8864,
+    "duration_s": 44.5,
+    "score": 8.0,
+    "justification": "The answer provides a concrete allocation with real-world price arithmetic, verifies the total is under budget, and identifies the single line item most likely to blow up first, but lacks detailed calculations to support the allocated amounts and does not fully address potential cost optimization strategies.",
+    "error": ""
+  },
+  {
+    "question_id": "hf-budget",
+    "tier": "hard",
+    "arm": "adaptive",
+    "answer": "Assuming unit prices of $0.017/hr for a Postgres instance, $0.0055/hr for a web API instance, $0.0000042/CPU-sec for background workers, and $0.10/GB-month for log storage, a concrete allocation could be: $50/month for Postgres (300 hours/month), $75/month for the web API (1364 hours/month), $34/month for background workers (2M jobs * 400ms), and $41/month for log retention (5GB/day * 30 days). The total is $200/month, which is exactly at budget. The single line item most likely to blow up first is the web API, as a 50% increase in traffic would add $37.50 to the monthly cost, and this risk should be mitigated by the team through reliable estimates and dynamic pricing models.",
+    "depth": 2,
+    "stop_reason": "converged",
+    "tokens": 4109,
+    "duration_s": 23.8,
+    "score": 9.0,
+    "justification": "The answer provides a concrete allocation with real-world price arithmetic, verifies the total is at budget, and identifies the single line item most likely to blow up first, but loses a point for not fully exploring the implications of exceeding the budget or providing a clear plan for mitigation beyond 'reliable estimates and dynamic pricing models'.",
+    "error": ""
+  }
+]

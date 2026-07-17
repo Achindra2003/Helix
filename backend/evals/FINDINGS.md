@@ -105,7 +105,8 @@ run at 20/24 — complete three-arm triples exist for **6 of 8** questions
 `hf-api`/`hf-budget` are pending. Rerun the gap when the window frees:
 `python -m evals.harness --questions evals/questions-hard-remainder.json
 --arms fixed-1,fixed-4,adaptive`. Numbers below are over the 6 complete
-questions (18 runs, scores recovered from the run log).
+questions (18 runs, scores recovered from the run log). **The remainder ran
+2026-07-17 — full-set numbers in the section below; the verdict holds.**
 
 ## Headline numbers
 
@@ -148,3 +149,39 @@ instead of counting — fixed-4 quality at half its cost, with a live proof it
 stopped because the answer settled."* Any "better answers" claim is
 unsupported on current evidence, and saying so out loud is the credibility
 feature no competitor demo has.
+
+---
+
+# Remainder run of 2026-07-17 — hard-set coverage complete (8/8)
+
+The daily token window freed; `hf-api`/`hf-budget` ran all three arms
+(results-20260717-211824.json). The remainder itself leaned adaptive:
+it took `hf-api` outright (9 vs 8 vs 6 — the conflicting-specs pagination
+question, the same interacting-constraints class as `hf-sched`) and shared
+the top on `hf-budget` (9 = 9, with fixed-4 at 8).
+
+## Full-set numbers (all 8 questions × 3 arms, 24 runs)
+
+| arm | mean score | mean tokens | stop reasons |
+|-----|-----------|-------------|--------------|
+| fixed-1 | **8.75** | **1,729** | budget×8 |
+| fixed-4 | 8.13 | 7,852 | budget×8 |
+| adaptive | 8.63 | 3,774 | **converged×8** |
+
+## What the completed set adds
+
+1. **The verdict stands, slightly softened.** fixed-1 still leads, but the
+   gap narrowed from 0.33 to 0.13 — inside noise at n=8 with no error bars.
+   The claim stays "not measurably smarter," now with the caveat cutting in
+   adaptive's favor rather than against it.
+2. **Adaptive now clearly beats fixed-4 on quality** (8.63 vs 8.13) at 48%
+   of its tokens, converging 8/8. On the hard set, fixed iteration didn't
+   just cost more — it scored *worst* (over-iteration degrading answers is
+   visible in the `hf-api` fixed-4 run: 6.0 after 4 cycles vs 8.0 in one).
+3. **Both adaptive outright wins are the designed class** — interacting
+   constraints (`hf-sched`, `hf-api`). Two-for-two where the reflect pass
+   has something checkable to catch. The demo should use exactly these.
+
+Positioning is unchanged: transparency, steerability, disciplined cost.
+The new honest garnish: on the hardest question class, blind iteration
+actively hurt, and the controller is what stopped it from hurting.
