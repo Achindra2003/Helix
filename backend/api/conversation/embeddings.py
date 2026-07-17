@@ -87,45 +87,56 @@ class EmbeddingIndex:
         version mismatch (embedder upgraded) re-embeds and overwrites. This is
         both the write path (called after a node persists) and the backfill
         (pre-substrate nodes get rows the first time retrieval wants them).
+
+        Concurrency-safe: a concurrent ensure() (the send path's
+        fire-and-forget embed vs. a search's backfill) can win the
+        check-then-insert race on any row, which aborts this whole batch —
+        so a collision retries once, and the second pass sees the winner's
+        rows and inserts only what is still missing. (Folding just the
+        collision is not enough: the rollback discards the batch's *other*
+        inserts, which is how the first version of this fix silently left
+        old nodes unembedded and invisible to search.)
         """
         todo = [n for n in nodes if n.content.strip()]
         if not todo:
             return
         version = self.version
-        async with self._sf() as session:
-            result = await session.execute(
-                select(NodeEmbeddingRow).where(
-                    NodeEmbeddingRow.node_id.in_([n.id for n in todo])
-                )
-            )
-            rows = {r.node_id: r for r in result.scalars()}
-            missing = [
-                n for n in todo
-                if n.id not in rows or rows[n.id].version != version
-            ]
-            if not missing:
-                return
-            vectors = await self._embed([n.content[:4000] for n in missing])
-            for node, vec in zip(missing, vectors):
-                row = rows.get(node.id)
-                if row is None:
-                    session.add(
-                        NodeEmbeddingRow(
-                            node_id=node.id, version=version, vector=_pack(vec)
-                        )
+        for attempt in (1, 2):
+            async with self._sf() as session:
+                result = await session.execute(
+                    select(NodeEmbeddingRow).where(
+                        NodeEmbeddingRow.node_id.in_([n.id for n in todo])
                     )
-                else:  # embedder upgraded: overwrite in place
-                    row.version = version
-                    row.vector = _pack(vec)
-            try:
-                await session.commit()
-            except IntegrityError:
-                # Check-then-insert race: a concurrent ensure() (the send
-                # path's fire-and-forget embed vs. a search's backfill) won
-                # and wrote the same node's row first. Its vector is
-                # identical (same content, same embedder), so losing here
-                # is success, not an error.
-                await session.rollback()
+                )
+                rows = {r.node_id: r for r in result.scalars()}
+                missing = [
+                    n for n in todo
+                    if n.id not in rows or rows[n.id].version != version
+                ]
+                if not missing:
+                    return
+                vectors = await self._embed([n.content[:4000] for n in missing])
+                for node, vec in zip(missing, vectors):
+                    row = rows.get(node.id)
+                    if row is None:
+                        session.add(
+                            NodeEmbeddingRow(
+                                node_id=node.id, version=version, vector=_pack(vec)
+                            )
+                        )
+                    else:  # embedder upgraded: overwrite in place
+                        row.version = version
+                        row.vector = _pack(vec)
+                try:
+                    await session.commit()
+                    return
+                except IntegrityError:
+                    await session.rollback()
+                    if attempt == 2:
+                        # Two collisions in a row: give up quietly — ensure is
+                        # an enhancement on every path that calls it, and the
+                        # next read re-backfills whatever is still missing.
+                        return
 
     def ensure_soon(self, node: Node) -> None:
         """Fire-and-forget embed-on-write (the hot path must not wait on it).

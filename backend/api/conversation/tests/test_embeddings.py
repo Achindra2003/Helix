@@ -180,29 +180,38 @@ async def test_chat_producer_uses_the_wired_recaller():
 
 
 @pytest.mark.asyncio
-async def test_concurrent_ensure_folds_the_unique_race(sf):
+async def test_concurrent_ensure_survives_the_unique_race_batch_intact(sf):
     """The send path's fire-and-forget embed and a search's backfill can hit
     the same node at once; both see it missing, both insert, and the loser
-    used to surface the UNIQUE violation as a 500. The loser must fold —
-    the winner already wrote the identical vector."""
+    used to surface the UNIQUE violation as a 500. The loser must retry —
+    and crucially its *whole batch* must land: the first fix rolled back the
+    losing commit and silently dropped every other node's vector with it,
+    leaving old nodes invisible to workspace search."""
     import asyncio
+    import itertools
     import threading
 
     barrier = threading.Barrier(2, timeout=5)
+    calls = itertools.count()
 
     class BarrierEmbedder(CountingEmbedder):
-        # Neither ensure() may commit until both have read "missing" and
-        # reached the embed step — the race, made deterministic.
+        # The first two embed calls (one per concurrent ensure) hold at a
+        # barrier so both have read "missing" before either commits — the
+        # race, made deterministic. A retry pass sails through.
         def embed(self, texts):
-            barrier.wait()
+            if next(calls) < 2:
+                barrier.wait()
             return super().embed(texts)
 
     embedder = BarrierEmbedder()
     index = EmbeddingIndex(sf, memory=FakeMemory(embedder))
-    node = _node(1, "we retry three times")
+    shared = _node(1, "we retry three times")
+    other = _node(2, "deploy on friday")
 
-    await asyncio.gather(index.ensure([node]), index.ensure([node]))
+    # One caller ensures just the shared node; the other a batch containing
+    # it. Whoever loses the race on n1 must still end up persisting n2.
+    await asyncio.gather(index.ensure([shared]), index.ensure([shared, other]))
 
     async with sf() as session:
         rows = (await session.execute(select(NodeEmbeddingRow))).scalars().all()
-    assert [r.node_id for r in rows] == ["n1"]
+    assert sorted(r.node_id for r in rows) == ["n1", "n2"]

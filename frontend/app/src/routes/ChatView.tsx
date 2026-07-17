@@ -120,6 +120,11 @@ export function ChatView() {
   // after a branch switch or a reload), so history refreshes check this first.
   const activeBranchRef = useRef<string | null>(null);
   useEffect(() => { activeBranchRef.current = activeBranchId; }, [activeBranchId]);
+  // Same for the conversation: the resurfacing debounce fires later than the
+  // keystroke that armed it, and must exclude the thread on screen *then*
+  // (typing right after a switch would otherwise exclude the wrong thread).
+  const activeConvRef = useRef<string | null>(null);
+  useEffect(() => { activeConvRef.current = activeConvId; }, [activeConvId]);
 
   // Deep link from the Map, the search overlay, or the notification bell:
   // /w/:wid?conv=…&branch=… lands directly in that thread at that branch.
@@ -238,7 +243,7 @@ export function ChatView() {
         if (seq !== resurfaceSeq.current) return; // a newer draft superseded this
         const seen = new Set<string>();
         setResurfaced(r.items.filter((h) => {
-          if (h.conversation_id === activeConvId) return false; // it's on screen
+          if (h.conversation_id === activeConvRef.current) return false; // it's on screen
           if (h.score < RESURFACE_FLOOR) return false;
           if (seen.has(h.conversation_id)) return false; // one chip per thread
           seen.add(h.conversation_id);
