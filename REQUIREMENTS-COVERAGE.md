@@ -54,7 +54,7 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
   milestone).
 - **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**Verification:** backend `pytest -q` → **257 passed** (hermetic: stub provider
+**Verification:** backend `pytest -q` → **261 passed** (hermetic: stub provider
 + throwaway SQLite, no network/keys required; includes RBAC-gating, WebSocket
 room, guided-steer, provider resilience, durable deep runs, file grounding,
 deep-run grounding, the agent tool loop with its approval gate and allowlist

@@ -248,7 +248,7 @@ does").
 2. Open `demo_artifacts/demo_transcript.txt` (a captured end-to-end run), **or**
 3. Run the narrated script: `cd backend && ./.venv/Scripts/python.exe -m api.demo_helix`
    (`Option A` in `HELIX-DEMO.md`) — same story, no UI dependency.
-4. Backend tests as proof of correctness: `pytest -q` → 257 passing (hermetic —
+4. Backend tests as proof of correctness: `pytest -q` → 261 passing (hermetic —
    stub provider, no keys or network needed).
 
 ## Don't-click list (avoid dead ends on stage)

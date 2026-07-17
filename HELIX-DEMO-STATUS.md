@@ -9,7 +9,7 @@ and for each working feature — **what it does, why it matters, and how it actu
 > role-based access control.
 
 **Ground truth as of this writing (branch `ui-standout`, the release codebase
-forked from `v2-complete`):** backend **257 tests passing** (hermetic — stub
+forked from `v2-complete`):** backend **261 tests passing** (hermetic — stub
 provider, no keys/network needed), frontend builds clean, both run live
 (React + Vite UI on `:5173`, FastAPI + SSE + WebSocket API on `:8000`) against
 a real LLM provider (Groq — chat on the fast 8B, deep reasoning on the 70B) or
@@ -206,7 +206,8 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 - **Keep Deep Reasoning questions focused** so the converge lands fast on the free Groq tier
   (deep runs use the 70B model; chat stays on the 8B).
 - Rooms are in-process: one API process for now (fine for the demo and small teams).
-- Verified via the live API + 257 tests + a scripted 2-user end-to-end; still **do one real
+- Verified via the live API + 261 tests + a scripted 2-user end-to-end (plus an
+  automated browser click-through, `frontend/app/e2e/smoke.mjs`); still **do one real
   click-through** before presenting.
 
 ---

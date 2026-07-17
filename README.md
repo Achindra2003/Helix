@@ -1,11 +1,42 @@
 # Helix
 
-A multi-tenant **collaborative AI workspace** — "Git for your team's AI work."
-Shared & branchable conversations with one team-wide assistant, live presence and
-real-time fan-out over WebSockets, a shared prompt library, cross-conversation
-references, a workspace knowledge base with cited RAG grounding, and a monitored,
-steerable **Deep Reasoning** mode that halts itself when its answer converges —
-and now grounds on that same knowledge base.
+**The AI workspace that remembers what your team already figured out.**
+
+Most teams run AI in private tabs and lose everything: the prompt that worked,
+the approach that didn't, the thread where the decision actually happened.
+Helix is "Git for your team's AI work" — shared, **branchable** conversations
+where the record compounds: start typing a question and Helix resurfaces the
+teammate's thread that already explored it; answers ground on your own
+documents with citations; every fork, run, and source stays visible to the
+whole room, live.
+
+And when a question is genuinely hard, escalate it — **⚒ Agent** (the model
+searches your knowledge base, past threads, or the web before answering,
+under an owner-governed tool allowlist with human approval for anything that
+leaves the workspace) or **⟳ Deep Reasoning** (a recursive run the whole team
+can watch, steer, and stop, that halts itself when its answer converges).
+Never a black box: you see the reasoning, the sources, the tool calls, the
+cost, and the moment it decided to stop.
+
+## See it
+
+*The moment Helix exists for — you start typing, and the workspace remembers:*
+
+![Proactive resurfacing: typing a question surfaces the teammate's thread that already explored it](docs/screenshots/03-resurfacing.png)
+
+*An Agent reply: the tool ledger shows what it looked up, the answer cites the workspace's own spec:*
+
+![Agent mode: tool ledger and cited grounding in one reply](docs/screenshots/04-agent-ledger.png)
+
+*Deep Reasoning under supervision — live trace, meters, and a Stop button:*
+
+![The Deep Reasoning monitor mid-run](docs/screenshots/06-deep-monitor.png)
+
+More in [`docs/screenshots/`](docs/screenshots/) — all captured by the automated
+click-through (`frontend/app/e2e/smoke.mjs`), which drives the real UI through
+the whole golden path (register → workspace → streamed chat → knowledge-base
+upload → cited grounding → resurfacing → agent run → deep run → map) as a
+browser-level smoke test.
 
 See `helix-product.md` (what), `helix-srs.md` (requirements),
 `REQUIREMENTS-COVERAGE.md` (what's delivered, mapped to the SRS),
@@ -35,6 +66,14 @@ All 16 functional requirements are fully delivered and tested:
   and **guided mode**: the run pauses between cycles so anyone on the team can
   steer it mid-flight. The monitor shows convergence happening: a stability
   sparkline climbing to the halting threshold and the ouroboros ring closing.
+  The claim is measured, not vibes (`backend/evals/FINDINGS.md`): when you
+  iterate, the controller matches fixed-4-cycle quality at **~half the
+  tokens** and proves it stopped because the answer settled — transparency,
+  steerability, and disciplined cost, not "more cycles = smarter."
+- **Proactive resurfacing** — start typing a question and threads the
+  workspace already explored appear above the composer ("✦ explored before"),
+  relevance-gated on measured embedding floors so it's silent unless it's
+  actually the same question. Nobody re-asks what a colleague solved.
 - **Prompt library** — save/tag/search/insert, updating live for the room.
 - **Knowledge base (file grounding / RAG)** — upload documents to a workspace;
   chat **and** Deep Reasoning replies ground on relevant chunks automatically,
@@ -55,7 +94,7 @@ All 16 functional requirements are fully delivered and tested:
   button, a per-workspace queue, and a Run history archive with provenance
   (which model/thresholds produced each run).
 
-Backend: **257 tests** (hermetic — stub provider + throwaway SQLite, no
+Backend: **261 tests** (hermetic — stub provider + throwaway SQLite, no
 keys or network required; includes an adversarial injection-regression suite).
 Frontend: React 18 + Vite + TS, builds clean.
 Market context: see `MARKET-VALIDATION.md` (July 2026 landscape).
