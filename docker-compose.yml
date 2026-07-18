@@ -1,47 +1,55 @@
-services:
-  postgres:
-    image: postgres:16-alpine
-    restart: unless-stopped
-    environment:
-      POSTGRES_USER: ${POSTGRES_USER:-helix}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helix}
-      POSTGRES_DB: ${POSTGRES_DB:-helix}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres-data:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helix}"]
-      interval: 5s
-      timeout: 3s
-      retries: 10
+# Helix — the default install. One container, SQLite, no other infrastructure.
+#
+#   docker compose up
+#
+# Then open http://localhost:8000 and register. That is the whole install.
+#
+# SQLite is a deliberate choice, not a limitation: a team workspace's data is
+# small, and requiring a database server would turn a one-command install into
+# an infrastructure project. Postgres is available for the hosted instance —
+# see docker-compose.postgres.yml.
 
-  backend:
-    build: ./backend
+services:
+  helix:
+    build:
+      # The build context is the repo root because the image needs *both*
+      # frontend/ (stage 1) and backend/ (stage 2). Docker cannot copy from
+      # outside its context, which is why the Dockerfile lives at the root.
+      context: .
+      dockerfile: Dockerfile
+    image: helix:latest
     restart: unless-stopped
-    env_file: .env
-    environment:
-      # Inside the compose network, Postgres is reachable at host "postgres".
-      DATABASE_URL: postgresql://${POSTGRES_USER:-helix}:${POSTGRES_PASSWORD:-helix}@postgres:5432/${POSTGRES_DB:-helix}
     ports:
       - "8000:8000"
-    depends_on:
-      postgres:
-        condition: service_healthy
-    volumes:
-      # Live-reload: edits on the host are reflected in the container.
-      - ./backend:/app
+    environment:
+      # The database file lives on the named volume below, so it survives
+      # `docker compose down` and image rebuilds.
+      DATABASE_URL: sqlite+aiosqlite:////data/helix.db
 
-  # Optional local LLM. Enable with:  docker compose --profile ollama up
-  ollama:
-    image: ollama/ollama:latest
-    profiles: ["ollama"]
-    restart: unless-stopped
-    ports:
-      - "11434:11434"
+      # Signs login tokens. The default is a placeholder that MUST be replaced
+      # for any real deployment — generate one with:
+      #     python -c "import secrets; print(secrets.token_urlsafe(32))"
+      # Changing it later logs everyone out and invalidates saved provider
+      # keys (their encryption is derived from it), so set it before inviting
+      # anyone.
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+
+      # stub = a fake model that echoes back, so the app is fully explorable
+      # with no API key. Switch to groq and set GROQ_API_KEY for real replies,
+      # or let each workspace bring its own key in the UI (TEAM -> Provider).
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+
+      # Optional: enables the agent's web_search tool. Greys out without it.
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
     volumes:
-      - ollama-data:/root/.ollama
+      - helix-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
 
 volumes:
-  postgres-data:
-  ollama-data:
+  helix-data:

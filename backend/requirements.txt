@@ -4,7 +4,13 @@ sqlalchemy[asyncio]==2.0.36
 aiosqlite==0.20.0
 asyncpg==0.30.0
 pydantic==2.10.4
-pydantic-settings==2.7.1
+# 2.7.1 was unsatisfiable alongside requirements-engine.txt: langchain-community
+# 0.4.2 requires pydantic-settings>=2.10.1. It only appeared to work because the
+# two requirement files were installed as separate pip commands, which let the
+# second silently upgrade the pin — a clean single-command install (as in the
+# Docker build) fails with ResolutionImpossible. 2.14.2 is what every existing
+# environment has actually been running, and what the 261-test suite passes on.
+pydantic-settings==2.14.2
 email-validator==2.2.0
 pyjwt==2.10.1
 bcrypt==4.2.1

@@ -109,9 +109,60 @@ backend/engine/  vendored Ouroboros deep-reasoning engine (LangGraph)
 docker-compose.yml   (optional — for Postgres/prod; not needed for dev)
 ```
 
-## Quick start — no Docker needed
+## Install — one command
 
-Dev runs on **SQLite** (a local file, zero infra). Postgres is only for prod.
+```bash
+git clone https://github.com/Achindra2003/Helix.git
+cd Helix
+docker compose up
+```
+
+Open **http://localhost:8000**, register, create a workspace, and chat. That
+is the whole install — no Python, no Node, no database server, no API key.
+
+The container serves the API *and* the built UI on one port, stores its data
+in a Docker volume (so it survives rebuilds), runs as a non-root user, and
+reports health to Docker. It ships on the `stub` provider: a fake model that
+echoes back, so every screen is explorable before you decide to plug in a key.
+
+**For real model replies**, either set a key for the whole server:
+
+```bash
+JWT_SECRET=$(python3 -c "import secrets; print(secrets.token_urlsafe(32))") \
+LLM_PROVIDER=groq GROQ_API_KEY=gsk_... docker compose up
+```
+
+…or let each workspace bring its own under **TEAM → Provider** in the UI.
+
+> **Before inviting anyone**, set `JWT_SECRET` to a random value. It signs
+> login tokens, and the default is a public placeholder. Changing it later
+> logs everyone out and invalidates saved provider keys — their encryption is
+> derived from it.
+
+**Postgres instead of SQLite** (for a hosted deployment):
+
+```bash
+docker compose -f docker-compose.postgres.yml up
+```
+
+### About the image
+
+~2.5 GB, because Deep Reasoning's LangGraph stack and a MiniLM embedding
+model are included rather than optional — every feature works on first run,
+with nothing to configure. Two deliberate choices behind that number:
+
+- **torch is installed from PyTorch's CPU-only index.** On Linux the default
+  wheel pulls the NVIDIA CUDA stack (~4.5 GB of cuBLAS, NCCL, cuSPARSELt)
+  that can never execute here — there is no GPU, and torch exists only to run
+  a small embedding model. Excluding it is the difference between 2.5 GB and
+  roughly 7 GB.
+- **The MiniLM weights are baked in at build time**, so the container runs
+  fully offline and the first Deep Reasoning request doesn't stall on a
+  download.
+
+## Developing without Docker
+
+Dev runs on **SQLite** (a local file, zero infra).
 
 ```bash
 cp .env.example backend/.env       # runs as-is; SQLite + stub LLM, no keys
@@ -119,8 +170,9 @@ cp .env.example backend/.env       # runs as-is; SQLite + stub LLM, no keys
 # Terminal 1 — backend
 cd backend
 python -m venv .venv
-.venv/Scripts/python -m pip install -r requirements.txt -r requirements-engine.txt   # (Windows)
-.venv/Scripts/python -m uvicorn api.main:app --reload      # http://localhost:8000
+.venv/bin/python -m pip install -r requirements.txt -r requirements-engine.txt
+.venv/bin/python -m uvicorn api.main:app --reload           # http://localhost:8000
+# Windows: swap .venv/bin/ for .venv/Scripts/ in both lines above
 
 # Terminal 2 — frontend
 cd frontend/app
@@ -130,8 +182,13 @@ npm run dev                    # http://localhost:5173
 
 Open http://localhost:5173, register, create a workspace, and chat.
 API docs at http://localhost:8000/docs.
-`requirements-engine.txt` includes `sentence-transformers` so convergence and
-semantic memory use real MiniLM embeddings (first run downloads the model).
+
+**Install both requirements files.** `requirements-engine.txt` is not
+optional for development: without it six test modules fail at *collection*
+(`ModuleNotFoundError: langchain_core`) and the suite never runs. It also
+brings `sentence-transformers`, so convergence and semantic memory use real
+MiniLM embeddings instead of the lexical fallback (first run downloads the
+model).
 
 ### Switch to Postgres later
 Set `DATABASE_URL=postgresql+asyncpg://helix:helix@localhost:5432/helix` in
