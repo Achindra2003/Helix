@@ -7,7 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
 from . import db, telemetry
-from .config import settings
+from .config import secure_jwt_secret, settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
 from .documents.router import router as documents_router
@@ -18,6 +18,11 @@ from .routers import auth, workspaces
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # First, before anything else starts: resolve a safe token-signing secret,
+    # or refuse to run. Raising here means the process never listens.
+    # Assigned back onto `settings` because security.py and provider_settings.py
+    # read `settings.jwt_secret` at call time.
+    settings.jwt_secret = secure_jwt_secret()
     telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
     yield
@@ -33,6 +38,64 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Request size caps (P2) --------------------------------------------------
+# Enforced here rather than per-route so nothing can be added later that
+# forgets them, and so an oversized body is rejected before any handler,
+# database session, or model call is entered.
+#
+# Two tiers: prompt-carrying routes get a tight text-sized cap, everything else
+# gets a global ceiling that still admits document uploads
+# (settings.document_max_bytes, 8 MB by default).
+_PROMPT_PATH_MARKERS = ("/messages", "/deep", "/agent", "/steer", "/from-prompt")
+
+
+def _body_limit_for(path: str) -> int:
+    """The cap that applies to a path, in bytes."""
+    if path.startswith("/conversations") and any(
+        marker in path for marker in _PROMPT_PATH_MARKERS
+    ):
+        return settings.max_message_bytes
+    return settings.max_request_bytes
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Reject oversized bodies up front, by Content-Length.
+
+    Trusting the declared length is deliberate: it is what lets the request be
+    refused *before* the body is read, which is the whole point — streaming
+    gigabytes into memory to then reject them is the attack, not the defence.
+    A client that lies about the length still cannot exceed the server's own
+    body handling, and uvicorn caps what it will buffer.
+
+    Note this is a byte cap, not a character count: a prompt of multi-byte
+    characters hits it sooner than an ASCII one. That is the correct thing to
+    bound here, since bytes are what cost storage and bandwidth.
+    """
+    limit = _body_limit_for(request.url.path)
+    if limit > 0:
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                size = int(declared)
+            except ValueError:
+                size = 0
+            if size > limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "error": {
+                            "code": "payload_too_large",
+                            "message": (
+                                f"Request body is {size} bytes; the limit for "
+                                f"this endpoint is {limit}."
+                            ),
+                        }
+                    },
+                )
+    return await call_next(request)
 
 
 # --- Uniform error shape: { "error": { "code", "message" } }  (contract §1) ---

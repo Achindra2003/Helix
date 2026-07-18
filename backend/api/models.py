@@ -6,7 +6,7 @@ land. UUID primary keys are stored as strings for SQLite/Postgres portability.
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
-from sqlalchemy import DateTime, ForeignKey, String, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, String, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from .db import Base
@@ -109,6 +109,14 @@ class Invite(Base):
     role: Mapped[str] = mapped_column(String, default=ROLE_COLLABORATOR)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Redemption budget (P2). Expiry alone leaves a leaked link usable by
+    # everyone who sees it until it lapses; this bounds the blast radius.
+    # `uses` counts redemptions that actually created a membership — an
+    # existing member re-opening the link is not a use. `max_uses = 0` means
+    # unlimited, which is what pre-existing invite rows get from the column
+    # shim, so adding this cannot retroactively invalidate live links.
+    uses: Mapped[int] = mapped_column(Integer, default=0)
+    max_uses: Mapped[int] = mapped_column(Integer, default=0)
 
     @staticmethod
     def default_expiry(days: int = 7) -> datetime:
@@ -117,3 +125,11 @@ class Invite(Base):
     @property
     def is_expired(self) -> bool:
         return as_utc(self.expires_at) < _now()
+
+    @property
+    def is_exhausted(self) -> bool:
+        return self.max_uses > 0 and self.uses >= self.max_uses
+
+    @property
+    def is_usable(self) -> bool:
+        return not self.is_expired and not self.is_exhausted

@@ -87,6 +87,23 @@ async def create_workspace(
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
+    # Cap workspaces per owner (P2): one account creating them in a loop is the
+    # cheapest way to fill the database. Counts only workspaces this user owns —
+    # being invited into many is normal and unbounded.
+    if settings.max_workspaces_per_user > 0:
+        owned = await session.scalar(
+            select(func.count())
+            .select_from(Workspace)
+            .where(Workspace.owner_id == user.id)
+        )
+        if owned >= settings.max_workspaces_per_user:
+            raise api_error(
+                409,
+                "limit_reached",
+                f"You already own the maximum of "
+                f"{settings.max_workspaces_per_user} workspaces.",
+            )
+
     ws = Workspace(name=body.name, owner_id=user.id)
     session.add(ws)
     await session.flush()  # assign ws.id
@@ -561,6 +578,7 @@ async def create_invite(
         created_by=_owner.user_id,
         role=role,
         expires_at=Invite.default_expiry(),
+        max_uses=settings.invite_max_uses,
     )
     session.add(invite)
     await session.commit()
@@ -619,7 +637,7 @@ async def revoke_invite(
 @router.get("/invites/{token}", response_model=InvitePreview)
 async def preview_invite(token: str, session: AsyncSession = Depends(get_session)):
     invite = await session.get(Invite, token)
-    if invite is None or invite.is_expired:
+    if invite is None or not invite.is_usable:
         raise api_error(404, "not_found", "Invite is invalid or expired.")
     ws = await session.get(Workspace, invite.workspace_id)
     return InvitePreview(workspace_name=ws.name)
@@ -632,7 +650,7 @@ async def accept_invite(
     session: AsyncSession = Depends(get_session),
 ):
     invite = await session.get(Invite, token)
-    if invite is None or invite.is_expired:
+    if invite is None or not invite.is_usable:
         raise api_error(404, "not_found", "Invite is invalid or expired.")
 
     existing = await session.scalar(
@@ -642,6 +660,22 @@ async def accept_invite(
         )
     )
     if existing is None:
+        # Cap members per workspace (P2). Checked only on the join path: an
+        # existing member re-opening the link must never be turned away.
+        if settings.max_members_per_workspace > 0:
+            members = await session.scalar(
+                select(func.count())
+                .select_from(Membership)
+                .where(Membership.workspace_id == invite.workspace_id)
+            )
+            if members >= settings.max_members_per_workspace:
+                raise api_error(
+                    409,
+                    "limit_reached",
+                    f"This workspace has reached its limit of "
+                    f"{settings.max_members_per_workspace} members.",
+                )
+
         session.add(
             Membership(
                 user_id=user.id,
@@ -649,6 +683,9 @@ async def accept_invite(
                 role=invite.role,
             )
         )
+        # Only a redemption that actually adds someone counts against the
+        # invite's budget.
+        invite.uses += 1
         await session.commit()
         role = invite.role
     else:

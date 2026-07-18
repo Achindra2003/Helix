@@ -39,7 +39,9 @@ services:
       # synchronous psycopg2 driver, which is not installed, and the app dies
       # on startup. The previous compose file had exactly that bug.
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helix}:${POSTGRES_PASSWORD:-helix}@postgres:5432/${POSTGRES_DB:-helix}
-      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      # Unset = generated once and persisted to the data volume. See the note
+      # in docker-compose.yml.
+      JWT_SECRET: ${JWT_SECRET:-}
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}
@@ -48,6 +50,11 @@ services:
         # Wait for the database to actually accept connections, not merely for
         # its container to exist — otherwise the app races it and crashes.
         condition: service_healthy
+    volumes:
+      # Application data lives in Postgres here, but /data still holds the
+      # auto-generated JWT secret. Without this volume it would be regenerated
+      # on every container replacement, logging the whole team out each time.
+      - helix-data:/data
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
       interval: 30s
@@ -57,3 +64,4 @@ services:
 
 volumes:
   postgres-data:
+  helix-data:

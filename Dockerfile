@@ -98,6 +98,13 @@ USER helix
 # compose overrides this for the Postgres setup.
 ENV DATABASE_URL=sqlite+aiosqlite:////data/helix.db
 
+# Where to persist an auto-generated signing secret when the operator has not
+# set JWT_SECRET. On the data volume, so it survives restarts and image
+# rebuilds — a secret regenerated per boot would log everyone out every time.
+# This is what keeps `docker compose up` a single command while still giving
+# every install its own unique secret instead of the public placeholder.
+ENV JWT_SECRET_FILE=/data/.jwt_secret
+
 EXPOSE 8000
 
 # Lets Docker distinguish "running" from "alive". A hung app now shows as
