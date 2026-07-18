@@ -1,30 +1,33 @@
 /* Helix design tokens — "alchemical manuscript" (parchment grimoire).
    Ported from Helix.dc.html; palette WCAG-validated in design_critique.md. */
 :root {
-  /* surfaces */
+  /* surfaces — paper-0 is the bright input well; the rest darken outward */
+  --paper-0: #efe8d4;
   --paper: #e6dcc2;
   --paper-2: #ded2b4;
   --paper-3: #d3c5a2;
   --paper-4: #c8b68f;
-  /* ink */
+  /* ink — WCAG-tuned (scratchpad contrast audit, Jul 2026):
+     ink-3 ≥4.5 on paper..paper-3 (all small text); ink-faint ≥3.0 and is
+     DECORATIVE-ONLY — never information-bearing text. */
   --ink: #241b12;
   --ink-2: #4b3d2a;
-  --ink-3: #796a4f;
-  --ink-faint: #a2906e;
-  /* rules / hairlines */
-  --rule: rgba(36, 27, 18, 0.26);
-  --rule-soft: rgba(36, 27, 18, 0.13);
-  /* accents */
-  --oxblood: #8c2b1e;
-  --oxblood-2: #a8341f;
-  --cinnabar: #b23a22;
+  --ink-3: #5d4e36;
+  --ink-faint: #867351;
+  /* rules / hairlines — strong enough to survive the grain overlay */
+  --rule: rgba(36, 27, 18, 0.34);
+  --rule-soft: rgba(36, 27, 18, 0.2);
+  /* accents — text-bearing ones hold ≥4.5 on paper */
+  --oxblood: #8f3e13; /* russet — the seal red re-tempered into the parchment's own earth family */
+  --oxblood-2: #a95425;
+  --cinnabar: #b45f2a;
   --gilt: #9a7a2c;
-  --gilt-1: #7e6320; /* darker brass — legible as outline-button/label text on paper */
-  --gilt-2: #c0992f;
+  --gilt-1: #6b5316; /* brass as TEXT/line — ≥4.5 on paper and paper-2 */
+  --gilt-2: #c0992f; /* bright brass — decorative marks only, never text */
   --verde: #46624c;
-  --violet: #6e5aa8;
+  --violet: #5d4796;
   --violet-bright: #8b73d6;
-  --ember: #c5752a;
+  --ember: #94500f;
   --char: #15110b;
   --ash: #c2b393;
   --ash-2: #8c7e62;
@@ -58,9 +61,77 @@
   --radius: 9px;
   --radius-lg: 13px;
 
+  /* motion — one easing voice ("the quill lands, then settles") and three beats.
+     Long ambient motions (ring precession, grain) define their own durations. */
+  --ease-quill: cubic-bezier(0.22, 0.61, 0.21, 1);
+  --dur-1: 140ms; /* hover/press */
+  --dur-2: 260ms; /* element enter */
+  --dur-3: 480ms; /* page turn */
+
   /* golden-ratio 3-pane widths (chat) */
   --pane-left: 248px;
   --pane-right: 360px;
 
-  --focus: var(--violet-bright);
+  /* the wax seal (primary action fill) — its own tokens so the fill can stay
+     a deep seal in BOTH themes while text-accent reds retune per theme */
+  --seal-from: var(--oxblood-2);
+  --seal-to: #8f3e13;
+  --seal-text: #f4e9cf;
+  --seal-border: #6e2f0d;
+
+  /* interaction tints that must flip with the theme */
+  --hover-tint: rgba(36, 27, 18, 0.05);
+  --stripe: rgba(36, 27, 18, 0.025);
+  /* warm amber wash for the selected/active state — lit, not painted */
+  --accent-tint: rgba(154, 122, 44, 0.16);
+
+  /* ambient page gradient (auth) */
+  --grad-hi: #ece2c8;
+  --grad-lo: #cdbc95;
+
+  /* focus lives in the action family (violet is reserved for steer) */
+  --focus: var(--cinnabar);
+}
+
+/* ── Nocturne: the same scriptorium after dark — leather, candlelight, cream
+   ink. Opt-in via the ☾ toggle; light parchment stays the default identity.
+   Every text pair below is WCAG-validated (scratchpad contrast-dark audit). */
+:root[data-theme="dark"] {
+  --paper-0: #332a1c;
+  --paper: #292217;
+  --paper-2: #211b12;
+  --paper-3: #1a1510;
+  --paper-4: #14100a;
+
+  --ink: #eee4c9;
+  --ink-2: #d3c6a4;
+  --ink-3: #ab9b78;
+  --ink-faint: #83734f;
+
+  --rule: rgba(238, 228, 201, 0.26);
+  --rule-soft: rgba(238, 228, 201, 0.14);
+
+  --oxblood: #dd8a50;
+  --oxblood-2: #c9712f;
+  --cinnabar: #e08a53;
+  --gilt: #a8842f;
+  --gilt-1: #c9a53e;
+  --gilt-2: #d9b654;
+  --verde: #8fb096;
+  --violet: #a795d6;
+  --ember: #d0813e;
+  --ash: #4a3f2c;
+  --ash-2: #6b5e45;
+
+  /* the seal keeps its deep russet — wax on dark leather still reads */
+  --seal-from: #a3511f;
+  --seal-to: #8a3d12;
+  --seal-border: #5f2a0b;
+
+  --hover-tint: rgba(238, 228, 201, 0.06);
+  --stripe: rgba(238, 228, 201, 0.03);
+  --accent-tint: rgba(217, 182, 84, 0.12);
+
+  --grad-hi: #2b2417;
+  --grad-lo: #120e08;
 }

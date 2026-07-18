@@ -25,12 +25,20 @@ export function Frontispiece({ size = 700, animate = true }: { size?: number; an
   const drawn = (len: number, delay: number) =>
     animate ? ({ strokeDasharray: len, strokeDashoffset: len, animation: `hx-draw 3s ease forwards ${delay}s` } as const) : undefined;
 
+  // After the draw completes, the instrument keeps living: the dashed ring and
+  // its constellation precess imperceptibly slowly (a full turn takes minutes).
+  const precess = animate
+    ? ({ transformOrigin: "350px 350px", animation: "hx-spin 240s linear infinite" } as const)
+    : undefined;
+
   return (
     <svg viewBox="0 0 700 700" width={size} height={size} style={{ color: "var(--ink)" }} aria-hidden>
       <g fill="none" stroke="currentColor" opacity="0.30">
         {/* orbital rings */}
         <circle cx="350" cy="350" r="300" strokeWidth="1.1" style={drawn(1885, 0.1)} />
-        <circle cx="350" cy="350" r="236" strokeWidth="1" strokeDasharray="3 9" />
+        <g style={precess}>
+          <circle cx="350" cy="350" r="236" strokeWidth="1" strokeDasharray="3 9" />
+        </g>
         <circle cx="350" cy="350" r="172" strokeWidth="1.1" style={drawn(1080, 0.5)} />
       </g>
       {/* double helix */}
@@ -41,12 +49,14 @@ export function Frontispiece({ size = 700, animate = true }: { size?: number; an
           <line key={i} x1={x1} y1={y} x2={x2} y2={y} stroke="var(--gilt)" strokeWidth="1" opacity="0.4" />
         ))}
       </g>
-      {/* orbit nodes (constellation), not stars */}
-      <g fill="var(--gilt)" opacity="0.5">
-        <circle cx="350" cy="50" r="3.2" />
-        <circle cx="650" cy="350" r="2.6" />
-        <circle cx="350" cy="650" r="2.6" />
-        <circle cx="50" cy="350" r="3.2" />
+      {/* orbit nodes (constellation), not stars — they ride the precession */}
+      <g style={precess}>
+        <g fill="var(--gilt)" opacity="0.5">
+          <circle cx="350" cy="50" r="3.2" />
+          <circle cx="650" cy="350" r="2.6" />
+          <circle cx="350" cy="650" r="2.6" />
+          <circle cx="50" cy="350" r="3.2" />
+        </g>
       </g>
     </svg>
   );

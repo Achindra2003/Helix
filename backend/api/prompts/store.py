@@ -75,6 +75,32 @@ class PromptStore:
             row = await s.get(PromptRow, prompt_id)
             return self._to_prompt(row) if row else None
 
+    async def update(
+        self, prompt_id: str, *, title: str, body: str, tags: list[str] | None = None
+    ) -> Prompt | None:
+        from .models import PromptRow
+
+        async with self._sf() as s:
+            row = await s.get(PromptRow, prompt_id)
+            if row is None:
+                return None
+            row.title = title
+            row.body = body
+            row.tags = json.dumps(_norm_tags(tags))
+            await s.commit()
+            return self._to_prompt(row)
+
+    async def delete(self, prompt_id: str) -> bool:
+        from .models import PromptRow
+
+        async with self._sf() as s:
+            row = await s.get(PromptRow, prompt_id)
+            if row is None:
+                return False
+            await s.delete(row)
+            await s.commit()
+            return True
+
     async def list(
         self, workspace_id: str, *, query: str | None = None, tag: str | None = None
     ) -> list[Prompt]:

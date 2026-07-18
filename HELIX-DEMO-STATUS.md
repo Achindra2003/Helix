@@ -8,9 +8,19 @@ and for each working feature — **what it does, why it matters, and how it actu
 > and any hard question can be *escalated* to a self-halting deep-reasoning engine, all under
 > role-based access control.
 
-**Ground truth as of this writing:** backend **43/43 tests passing**, frontend builds clean,
-both run live (React + Vite UI on `:5173`, FastAPI + SSE API on `:8000`) against a real LLM
-provider (Groq). Nothing in the demo is faked — every click hits the live API.
+**Ground truth as of this writing (branch `ui-standout`, the release codebase
+forked from `v2-complete`):** backend **261 tests passing** (hermetic — stub
+provider, no keys/network needed), frontend builds clean, both run live
+(React + Vite UI on `:5173`, FastAPI + SSE + WebSocket API on `:8000`) against
+a real LLM provider (Groq — chat on the fast 8B, deep reasoning on the 70B) or
+per-workspace BYO keys. Nothing in the demo is faked — every click hits the
+live API, and a scripted 2-user end-to-end (presence, live fan-out, guided
+steer) passes 15/15. Since `v2-complete`, this branch has also added: a
+workspace knowledge base with cited RAG grounding (chat **and** Deep
+Reasoning), server-side durable deep runs (survive a dropped tab), provider
+resilience (retry/circuit-breaker/fallback), run history with provenance,
+per-workspace BYO API keys, and **Agent mode** (a governed tool loop with an
+owner-managed allowlist and human-in-the-loop approval for sensitive calls).
 
 ---
 
@@ -43,6 +53,11 @@ A single ~8-minute flow that exercises every finished pillar:
    **self-halts (converged)** in ~7s. The **Kill switch** stops a run on command.
 6. **Replay & export.** Step back through the thread; **download** it as Markdown/JSON.
 7. **Roles.** Flip the role switch to **Observer** — the workspace goes read-only.
+8. **Knowledge base.** Rail → **DOCS**, upload a small `.md` → chip flips
+   processing → ready with a chunk count. Ask chat (or escalate to Deep
+   Reasoning) a question that shares terms with the doc — the reply carries
+   **⌘ filename.md §n** citation chips; an unrelated question shows none
+   (the relevance gate, not a bug).
 
 ---
 
@@ -54,20 +69,22 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
 |---|---|---|---|
 | FR-1 | Auth & accounts | ✅ | Register / sign in, session persists on reload |
 | FR-2 | Workspaces & multi-tenancy | ✅ | Create a workspace, members list |
-| FR-3 | Role-based access control | 🟡 | Roles + permission matrix; **enforced in the UI**, not yet server-side |
-| FR-4 | Shared & private conversations | ✅ | Shared streaming chat; **private is enforced** — only the author sees it |
-| FR-5 | Real-time sync & presence | ⬜ | *Not built* — no live "who's online" (needs WebSocket) |
+| FR-3 | Role-based access control | ✅ | Roles + permission matrix; **enforced server-side on every route** (Observer read-only at the API) |
+| FR-4 | Shared & private conversations | ✅ | Shared streaming chat; **private is enforced** — only the author sees it (lists, fetches, and the realtime room) |
+| FR-5 | Real-time sync & presence | ✅ | WebSocket room per workspace: live "who's online", teammates' turns stream into your open thread token-by-token |
 | FR-6 | Fork & branch tree | ✅ | Fork, branch lineage, context inheritance + isolation |
-| FR-7 | Shared prompt library | ✅ | Save / search / insert prompts |
-| FR-8 | LLM provider abstraction | ✅ | Provider label; swap groq/ollama/stub via config |
-| FR-9 | Deep Reasoning mode | ✅ | Escalate → recursive run that converges |
-| FR-10 | Deep Reasoning monitor | ✅ | Live trace, depth/energy/budget meters |
-| FR-11 | Run control — kill & steer | 🟡 | **Kill works**; **Steer** present-but-disabled (not over HTTP yet) |
+| FR-7 | Shared prompt library | ✅ | Save / search / insert prompts; teammates' saves appear live |
+| FR-8 | LLM provider abstraction | ✅ | Provider label; swap groq/ollama/stub via config; deep reasoning on its own 70B model |
+| FR-9 | Deep Reasoning mode | ✅ | Escalate → recursive run that converges (semantic MiniLM stability) |
+| FR-10 | Deep Reasoning monitor | ✅ | Live trace, depth/energy/budget meters; teammates can live-watch a shared run |
+| FR-11 | Run control — kill & steer | ✅ | **Kill works**; **⟂ guided** runs pause between cycles and resume with injected guidance over HTTP |
 | FR-12 | Budget meter & guardrails | ✅ | Budget bar; run bounded, halts before runaway |
-| FR-13 | History, replay & export | ✅ | Replay scrubber + Markdown/JSON download |
-| FR-14 | Tool permission layer | ⬜ | *Future* — per-role tool allowlist for Deep Reasoning |
+| FR-13 | History, replay & export | ✅ | Replay scrubber + authenticated Markdown/JSON download |
+| FR-14 | Tool permission layer | ✅ | **⚒ Agent** composer mode: owner-governed tool allowlist (TEAM → Agent tools), sensitive calls pause for **human approval** above the composer, tool ledger on every agent reply |
+| FR-15 | File grounding — workspace knowledge base (RAG) | ✅ | DOCS panel: upload → chunked/embedded server-side; chat **and** Deep Reasoning ground replies with citation chips when relevant |
+| FR-16 | Per-workspace provider settings (BYO key) | ✅ | TEAM → Provider panel: pick provider/model, paste an encrypted key, Test connection; retry/breaker/fallback on every call |
 
-**Score:** 10 fully done, 2 partial (with honest limits), 2 planned.
+**Score:** 16 of 16 fully done.
 
 ---
 
@@ -133,52 +150,65 @@ Legend: ✅ done & demoable · 🟡 partial (works, with a named limit) · ⬜ p
   The server streams `step` / `budget` / `token` / `complete` events; the monitor renders them
   live. Result: a real ~7s converging run, not a fixed canned animation.
 
-### 🟡 FR-11 — Run control: Kill works, Steer is staged
-- **What works:** A **Kill switch** stops a live run immediately.
-- **How:** Kill aborts the streaming `fetch` (`AbortController`); the server sees the dropped
-  stream and finalises the run as killed — a clean, cooperative stop.
-- **Limit:** **Steer** (pause → inject guidance → resume) is *proven in the engine* and shown
-  in the narrated backend demo, but isn't wired over HTTP yet, so its button is present-disabled.
+### ✅ FR-11 — Run control: Kill and Steer both work
+- **Kill:** deep runs now execute **server-side** — closing the tab or aborting the
+  stream no longer stops them. The monitor's **Stop** button calls
+  `POST /conversations/deep/runs/{id}/kill`, which halts the run cooperatively and
+  finalises it as `killed`. Reload the page mid-run and the monitor **reattaches**
+  (`GET .../stream?after=N`) instead of showing a dead panel.
+- **Steer (guided runs):** tick **⟂ guided** next to Deep Reasoning. The adaptive loop pauses
+  at a steer checkpoint between refinement cycles; the monitor opens a violet steer box —
+  type guidance (or "Continue as-is") and the run resumes from its LangGraph checkpoint over
+  `POST /conversations/deep/runs/{run_id}/steer`. Any Collaborator in the workspace can steer,
+  which makes a paused run a *team* decision point. Verified live: injecting a constraint
+  mid-run visibly pivoted the converged answer.
 
 ### ✅ FR-13 — History, replay & export
 - **What:** Persisted threads can be replayed step-by-step and exported.
 - **How:** `get_history` already yields the ordered nodes; a replay scrubber walks them
   client-side, and an export endpoint assembles the branch into Markdown or JSON for download.
 
-### 🟡 FR-3 — RBAC (Owner ⊃ Collaborator ⊃ Observer)
-- **What works:** Roles exist, a "policy as data" permission matrix is shown, and the role
-  switch **re-skins the UI to read-only for Observers**.
-- **How:** The client uses an RBAC policy map to hide/disable controls per role.
-- **Limit:** The **server doesn't yet enforce** these on the chat/prompt routes — so it's a
-  trustworthy *preview*, not a security boundary. (See "Planned" below.)
+### ✅ FR-3 — RBAC (Owner ⊃ Collaborator ⊃ Observer)
+- **What works:** Roles are a real **server-side security boundary**: every conversation and
+  prompt route derives identity from the JWT (client-supplied ids are gone from the wire),
+  checks workspace membership, and gates writes on Collaborator+. Private threads are
+  author-only; outsiders get 404s, never confirmation a resource exists. The UI's permission
+  matrix and Observer re-skin mirror what the server enforces.
+- **How:** shared `_require_membership` / `_require_conversation` guards on each route +
+  the same gate on the WebSocket room; invites carry a role (collaborator/observer).
+
+### ✅ FR-5 — Real-time presence + live fan-out (the WebSocket room)
+- **What:** One room per workspace at `/ws/workspaces/{id}` (JWT-gated). The presence bar
+  shows who's really online; a teammate's turn on the thread you have open **streams in
+  token-by-token**; new conversations, forks, references, and saved prompts appear without a
+  refresh. If a teammate runs Deep Reason on your open branch, your idle monitor
+  **live-watches their reasoning trace**.
+- **How:** the HTTP routes relay run events into the room (shared threads only — private
+  turns never leave their author's stream; the sender is excluded since their SSE already
+  carries everything). In-process rooms behind a two-function seam (`broadcast`/`roster`) —
+  a Redis pub/sub swap for multi-process scale touches one module.
 
 ---
 
-## What's planned — and why it isn't done yet
+## What's still future (say it plainly)
 
-These four are honestly incomplete. Three are one backend lane (the auth/real-time/run-control
-work); the frontend is already built with seams so they light up with **no UI rework**.
-
-| Item | Maps to | Why not yet / what's needed |
+| Item | Maps to | Status |
 |---|---|---|
-| **Auth-gate & enforce tenancy** on chat/prompt routes | FR-3, NFR-2/5 | Engine + auth exist separately; chat routes still run un-gated (the client passes `viewer_id`/`author_id` rather than the server reading the JWT). Private-conversation visibility is now filtered; the remaining work is server-side membership/role enforcement on each route. |
-| **Real-time presence + live-watch** | FR-5, NFR-1/7 | No WebSocket layer yet. Needs a presence channel to broadcast "who's online" and live message fan-out. This is the one *visibly* stubbed feature. |
-| **Server-side steer/resume over HTTP** | FR-11 (steer) | The engine supports pause→inject→resume; it isn't exposed as an HTTP run-control endpoint yet. Kill (abort) is the interim. |
-| **Per-role tool allowlist** for Deep Reasoning | FR-14 | Future: let an Owner restrict which tools a deep run may use, with approval. Not started. |
-
-**Why this framing is the right one for the panel:** the *hard* parts — the branchable shared
-context, the self-halting budgeted reasoning engine, the provider seam — are done and provable.
-The remaining items are mostly *integration/enforcement* plumbing on top of pieces that already
-exist, which is exactly the honest place to be at this milestone.
+| **Per-conversation model picker / connectors** | — | Provider is workspace-wide (FR-16), not per-conversation; external connectors are the next market-gap wave, deliberately post-launch. (The agent tool loop itself shipped — FR-14.) |
+| **Postgres row-level security + migrations** | NFR-2 | API-layer tenancy is enforced everywhere; RLS + Alembic are the hosted-instance hardening lane. |
+| **Redis-backed rooms** | NFR-4 | Needed only for multi-process deployment; the seam is ready. |
+| **Original-file blob store** | — | Ingestion keeps extracted text only; re-upload = re-ingest. Nothing reads raw bytes after ingest today. |
 
 ---
 
 ## Honest caveats (say these before someone finds them)
 - **Serve the UI on `:5173`** — the backend's CORS only allows that origin; `file://` is blocked.
-- **Roles are a UI preview, not yet a server boundary** — don't claim tenant security is enforced. (Private-conversation visibility *is* now enforced server-side; cross-route membership/role checks are the remaining gap.)
-- **No live presence** — "3 online" style indicators aren't real yet.
-- **Keep Deep Reasoning questions focused** so the converge lands in ~7s on the free Groq tier.
-- Verified via the live API + tests + the page serving; **do one real click-through** before presenting.
+- **Keep Deep Reasoning questions focused** so the converge lands fast on the free Groq tier
+  (deep runs use the 70B model; chat stays on the 8B).
+- Rooms are in-process: one API process for now (fine for the demo and small teams).
+- Verified via the live API + 261 tests + a scripted 2-user end-to-end (plus an
+  automated browser click-through, `frontend/app/e2e/smoke.mjs`); still **do one real
+  click-through** before presenting.
 
 ---
 

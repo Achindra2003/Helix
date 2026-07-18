@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listPrompts, savePrompt } from "@/lib/api";
+import { listPrompts, savePrompt, updatePrompt, deletePrompt } from "@/lib/api";
+import type { Prompt } from "@/lib/types";
+import { onRoomEvent } from "@/lib/realtime";
 import { usePendingInsert } from "@/store/insert";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { can } from "@/lib/rbac";
@@ -28,13 +30,15 @@ export function LibraryView() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const { push } = useToast();
-  const author = useSession((st) => st.user?.id ?? "u1");
+  const user = useSession((st) => st.user);
   const role = useEffectiveRole();
   const canWrite = can(role, "prompt.write");
   const request = usePendingInsert((st) => st.request);
 
   const [search, setSearch] = useState("");
   const [dlg, setDlg] = useState(false);
+  const [editId, setEditId] = useState<string | null>(null); // dialog edits instead of creating
+  const [confirmDel, setConfirmDel] = useState<Prompt | null>(null);
   const [title, setTitle] = useState("");
   const [body, setBody] = useState("");
   const [tags, setTags] = useState("");
@@ -47,12 +51,23 @@ export function LibraryView() {
   });
   const prompts = data?.prompts ?? [];
 
+  // Live fan-out: a teammate saving/editing/deleting a prompt refreshes in place.
+  useEffect(
+    () =>
+      onRoomEvent((ev) => {
+        if (ev.kind === "prompt.saved" || ev.kind === "prompt.deleted") {
+          qc.invalidateQueries({ queryKey: ["prompts", wid] });
+        }
+      }),
+    [wid, qc],
+  );
+
   // Seed a starter set the first time a workspace's library is empty (no LLM cost).
   useEffect(() => {
     if (!wid || isLoading || seeding || prompts.length > 0 || !canWrite) return;
     setSeeding(true);
     (async () => {
-      for (const p of STARTERS) await savePrompt(wid, p.title, p.body, p.tags, author).catch(() => {});
+      for (const p of STARTERS) await savePrompt(wid, p.title, p.body, p.tags).catch(() => {});
       await qc.invalidateQueries({ queryKey: ["prompts", wid] });
       setSeeding(false);
     })();
@@ -68,12 +83,30 @@ export function LibraryView() {
 
   async function doSave() {
     if (!wid || !title.trim() || !body.trim()) return;
+    const tagList = tags.split(",").map((t) => t.trim()).filter(Boolean);
     try {
-      await savePrompt(wid, title.trim(), body.trim(), tags.split(",").map((t) => t.trim()).filter(Boolean), author);
+      if (editId) await updatePrompt(editId, title.trim(), body.trim(), tagList);
+      else await savePrompt(wid, title.trim(), body.trim(), tagList);
       await qc.invalidateQueries({ queryKey: ["prompts", wid] });
-      setDlg(false); setTitle(""); setBody(""); setTags("");
-      push("Prompt saved");
+      setDlg(false); setEditId(null); setTitle(""); setBody(""); setTags("");
+      push(editId ? "Prompt updated" : "Prompt saved");
     } catch (e: any) { push(e?.message ?? "Save failed", "error"); }
+  }
+
+  function openEdit(p: Prompt) {
+    setEditId(p.id);
+    setTitle(p.title); setBody(p.body); setTags((p.tags ?? []).join(", "));
+    setDlg(true);
+  }
+
+  async function doDelete() {
+    if (!confirmDel) return;
+    try {
+      await deletePrompt(confirmDel.id);
+      await qc.invalidateQueries({ queryKey: ["prompts", wid] });
+      push("Prompt deleted");
+      setConfirmDel(null);
+    } catch (e: any) { push(e?.message ?? "Delete failed", "error"); }
   }
 
   function insert(id: string) {
@@ -83,7 +116,7 @@ export function LibraryView() {
   }
 
   return (
-    <div className={s.scroll}>
+    <div className={`${s.scroll} folio`}>
       <div className={s.inner}>
         <div className={s.head}>
           <div style={{ flex: 1 }}>
@@ -94,19 +127,20 @@ export function LibraryView() {
           </div>
           {canWrite && <Button variant="primary" onClick={() => setDlg(true)}>+ Save prompt</Button>}
         </div>
+        <div className="chapter-rule" aria-hidden>❦</div>
 
         <div className={s.search}>
           <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⌕</span>
           <input className={s.searchInput} placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink-faint)" }}>{filtered.length} prompts</span>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{filtered.length} prompts</span>
         </div>
 
         {isLoading || seeding ? <Spinner /> : filtered.length === 0 ? (
-          <EmptyState title="No prompts yet">Save a winning prompt and the whole team can reuse it.</EmptyState>
+          <EmptyState title="An empty library">Save a winning prompt — a page kept here can be inserted into any thread, by anyone on the team.</EmptyState>
         ) : (
           <div className={s.grid}>
             {filtered.map((p, i) => (
-              <div key={p.id} className={s.card}>
+              <div key={p.id} className={s.card} style={{ animationDelay: `${Math.min(i, 10) * 45}ms` }}>
                 <div className={s.cardHead}>
                   <span className={s.sigil}>{ORNAMENTS[i % ORNAMENTS.length]}</span>
                   <div className={s.cardTitle}>{p.title}</div>
@@ -115,6 +149,14 @@ export function LibraryView() {
                 <div className={s.cardFoot}>
                   {(p.tags ?? []).map((t) => <span key={t} className={s.tag}>{t}</span>)}
                   <div style={{ flex: 1 }} />
+                  {(p.author_id === user?.id || role === "owner") && (
+                    <>
+                      <button title="Edit prompt" onClick={() => openEdit(p)}
+                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13 }}>✎</button>
+                      <button title="Delete prompt" onClick={() => setConfirmDel(p)}
+                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--oxblood)", fontSize: 13 }}>✕</button>
+                    </>
+                  )}
                   {can(role, "message.send") && (
                     <Button onClick={() => insert(p.id)} style={{ padding: "4px 10px", fontSize: 12, color: "var(--oxblood)" }}>Insert →</Button>
                   )}
@@ -126,15 +168,28 @@ export function LibraryView() {
       </div>
 
       {dlg && (
-        <Dialog title="Save a prompt" onClose={() => setDlg(false)}
+        <Dialog title={editId ? "Edit prompt" : "Save a prompt"}
+          onClose={() => { setDlg(false); setEditId(null); setTitle(""); setBody(""); setTags(""); }}
           footer={<>
-            <Button variant="ghost" onClick={() => setDlg(false)}>Cancel</Button>
-            <Button variant="primary" onClick={doSave}>Save</Button>
+            <Button variant="ghost" onClick={() => { setDlg(false); setEditId(null); setTitle(""); setBody(""); setTags(""); }}>Cancel</Button>
+            <Button variant="primary" onClick={doSave}>{editId ? "Update" : "Save"}</Button>
           </>}>
           <Input autoFocus placeholder="Title" value={title} onChange={(e) => setTitle(e.target.value)} />
           <textarea placeholder="Prompt body" value={body} onChange={(e) => setBody(e.target.value)} rows={4}
             style={{ background: "var(--paper-3)", border: "1px solid var(--rule)", borderRadius: 9, padding: "10px 12px", fontFamily: "var(--font-read)", fontSize: 14, color: "var(--ink)", resize: "vertical" }} />
           <Input placeholder="Tags (comma-separated)" value={tags} onChange={(e) => setTags(e.target.value)} />
+        </Dialog>
+      )}
+      {confirmDel && (
+        <Dialog title={`Delete "${confirmDel.title}"?`} onClose={() => setConfirmDel(null)}
+          footer={<>
+            <Button variant="ghost" onClick={() => setConfirmDel(null)}>Cancel</Button>
+            <Button variant="oxblood" onClick={doDelete}>Delete</Button>
+          </>}>
+          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+            It disappears from the whole team's library. Turns already inserted from it stay in
+            their conversations.
+          </div>
         </Dialog>
       )}
     </div>

@@ -13,10 +13,13 @@ reuses winning prompts from a shared library, and escalates hard questions to a
 **Deep Reasoning** mode that self-halts when the answer stabilizes — all with
 role-based access and a live, controllable reasoning monitor.
 
-**State of the build (this milestone):** the backend engine + a real React frontend
-are working and wired together. **10 of 14 functional requirements are fully
-delivered**; the rest are partial or queued (live presence, server-side steer,
-route-level auth enforcement, tool permissions). Backend tests: **43 passing.**
+**State of the build (v2, branch `v2-complete`):** the backend engine + a real
+React frontend are working and wired together. **13 of 14 functional requirements
+are fully delivered** (FR-14 is a server-side policy flag; the per-role UI is
+future work) — including live presence + real-time fan-out over WebSockets,
+server-side RBAC on every route, and guided deep runs you can steer mid-flight.
+Backend tests: **64 passing**, plus a scripted 2-user live end-to-end (15/15).
+The `main` branch holds the earlier presentation version.
 
 ---
 
@@ -105,11 +108,17 @@ against Achindra's machine** in a screen-share.
 
 ## Know the gaps (so nobody over-promises)
 
-Don't demo or claim these — present them as the roadmap instead:
-- **Live presence / real-time multi-user** — WebSocket room not built yet (shows "you only").
-- **Steer** a Deep Reasoning run mid-flight — engine supports it; not wired over HTTP (button disabled).
-- **Server-enforced** role checks on chat routes — the UI enforces roles; server-side gating is next.
-- **Tool-permission layer** for Deep Reasoning — future.
+The four former gaps are now **closed on `v2-complete`** and demoable:
+- **Live presence / real-time multi-user** ✅ — WebSocket room per workspace;
+  open two browsers to show a teammate's reply streaming in live.
+- **Steer mid-flight** ✅ — tick "⟂ guided" on Deep Reasoning; it pauses between
+  cycles and anyone on the team can inject guidance.
+- **Server-enforced roles** ✅ — every conversation/prompt route checks the JWT +
+  membership + role; Observers are read-only at the API, not just the UI.
+- **Tool policy** 🟡 — web research is gated server-side
+  (`DEEP_REASONING_ALLOW_RESEARCH` + Tavily key required); a per-role allowlist
+  UI with approvals is the remaining future work. Also still future: Postgres
+  RLS, Redis-backed rooms for multi-process scale.
 
 ---
 

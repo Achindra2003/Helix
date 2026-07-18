@@ -13,11 +13,11 @@
    contrast against the parchment surfaces (gold-on-cream did not). This is the
    single hero action on any surface. */
 .primary {
-  background: linear-gradient(180deg, var(--oxblood-2), var(--oxblood));
-  color: #f4e9cf; border: 1px solid #6f2015; font-weight: 700;
-  box-shadow: inset 0 1px 0 rgba(255, 240, 215, 0.16), 0 2px 9px rgba(140, 43, 30, 0.28);
+  background: linear-gradient(180deg, var(--seal-from), var(--seal-to));
+  color: var(--seal-text); border: 1px solid var(--seal-border); font-weight: 700;
+  box-shadow: inset 0 1px 0 rgba(255, 240, 215, 0.16), 0 2px 9px rgba(143, 62, 19, 0.3);
 }
-.primary:hover:not(:disabled) { background: linear-gradient(180deg, var(--cinnabar), var(--oxblood-2)); }
+.primary:hover:not(:disabled) { filter: brightness(1.12); }
 .primary:active:not(:disabled) { box-shadow: inset 0 2px 5px rgba(80, 20, 12, 0.4); }
 
 /* gilt — brass *outline* accent. Kept as an outline (not a fill) because gold
@@ -29,18 +29,28 @@
 .gilt:hover:not(:disabled) { background: rgba(154, 122, 44, 0.1); border-color: var(--gilt-2); }
 
 .oxblood {
-  background: rgba(140, 43, 30, 0.1); border: 1px solid var(--oxblood); color: var(--oxblood); font-weight: 600;
+  background: rgba(143, 62, 19, 0.1); border: 1px solid var(--oxblood); color: var(--oxblood); font-weight: 600;
 }
-.oxblood:hover:not(:disabled) { background: rgba(140, 43, 30, 0.16); }
+.oxblood:hover:not(:disabled) { background: rgba(143, 62, 19, 0.16); }
 .ghost { background: transparent; border-color: var(--rule-soft); color: var(--ink-2); }
-.ghost:hover:not(:disabled) { background: rgba(36, 27, 18, 0.05); border-color: var(--rule); }
+.ghost:hover:not(:disabled) { background: var(--hover-tint); border-color: var(--rule); }
+
+/* day/night toggle — a small round instrument */
+.themeBtn {
+  width: 32px; height: 32px; border-radius: 50%; flex: 0 0 auto;
+  background: var(--paper); border: 1px solid var(--rule); color: var(--ink-2);
+  font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur-1), background var(--dur-1), transform var(--dur-1);
+}
+.themeBtn:hover { border-color: var(--gilt); background: var(--paper-3); transform: rotate(-12deg); }
+.themeBtnFloat { position: fixed; top: 18px; right: 20px; z-index: 40; box-shadow: 0 3px 12px rgba(0, 0, 0, 0.18); }
 
 .input {
-  background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius);
   padding: 12px 14px; color: var(--ink); font-size: 14px; outline: none; width: 100%;
-  transition: border-color 0.15s, box-shadow 0.15s;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
-.input:focus { border-color: var(--violet); box-shadow: 0 0 0 3px rgba(110, 90, 168, 0.18); }
+.input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 
@@ -54,16 +64,21 @@
   background: var(--paper); border: 1px solid var(--rule); border-radius: var(--radius-lg);
   box-shadow: 0 24px 70px rgba(21, 17, 11, 0.4); width: 100%; max-width: 440px;
   padding: 22px 24px; display: flex; flex-direction: column; gap: 14px;
+  position: relative;
+  animation: hx-rise var(--dur-2) var(--ease-quill) both;
 }
-.dialogTitle { font-family: var(--font-display); font-size: var(--t-card); color: var(--ink); }
+/* a single gilt hairline under the title carries the illumination — corner
+   brackets fought the border radius and read as stray marks, so they're gone */
+.dialogTitle {
+  font-family: var(--font-display); font-size: var(--t-card); color: var(--ink);
+  padding-bottom: 10px; border-bottom: 1px solid rgba(154, 122, 44, 0.4);
+}
 .dialogRow { display: flex; justify-content: flex-end; gap: 10px; }
 
-/* spinner */
-.spinner {
-  width: 18px; height: 18px; border-radius: 50%;
-  border: 2px solid var(--rule-soft); border-top-color: var(--oxblood);
-  animation: hx-spin 0.8s linear infinite;
-}
+/* orbital spinner */
+.spinner { display: block; }
+.spinSlow { animation: hx-spin-rev 4.2s linear infinite; }
+.spinFast { animation: hx-spin 1.4s linear infinite; }
 
 /* empty state */
 .empty {
@@ -78,7 +93,7 @@
   z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center;
 }
 .toast {
-  background: var(--char); color: var(--paper); border: 1px solid var(--gilt);
+  background: #15110b; color: #ede3c8; border: 1px solid var(--gilt);
   border-radius: var(--radius); padding: 10px 16px; font-size: 13px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); animation: hx-rise 0.2s ease both; max-width: 460px;
 }

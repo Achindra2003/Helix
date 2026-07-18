@@ -52,6 +52,19 @@ class OuroborosConfig(BaseModel):
     # parity (surfacing the raw synthesis); Helix turns it on for the chat surface.
     humanize: bool = False
 
+    # Guided mode: pause the *adaptive* refinement loop at the human steer
+    # checkpoint after each cycle (unless it is about to halt), so a person can
+    # inject guidance mid-flight — the injected text becomes the next thought.
+    # Off by default: an unguided adaptive run never pauses (the convergence
+    # controller is the whole point). Distinct from the non-adaptive
+    # `steer_interval`, which paces pauses in the mood/energy loop.
+    adaptive_steer: bool = False
+
+    # Tool permission (FR-14): whether the run may take the web-research detour
+    # at all. The host application sets this from its own policy; even when
+    # True, research still requires a live search backend (Tavily key).
+    allow_research: bool = True
+
 
 class SessionMeta(BaseModel):
     id: str

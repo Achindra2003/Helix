@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import random
 import re
 
@@ -80,6 +81,40 @@ def _get_prompt(mode: Mode, key: str) -> str:
     return preset.get(key, "")
 
 
+# Transient provider failures worth retrying: rate limits, 5xx, network blips.
+# Matched against the exception's type name + message so it works across the
+# Groq/OpenAI/httpx exception families without importing any of them.
+_RETRYABLE_MARKERS = (
+    "ratelimit", "rate limit", "rate_limit", "429",
+    "500", "502", "503", "504",
+    "timeout", "timed out", "connection", "overloaded",
+    "unavailable", "internal server",
+)
+
+
+def _is_retryable(exc: Exception) -> bool:
+    text = f"{type(exc).__name__} {exc}".lower()
+    return any(marker in text for marker in _RETRYABLE_MARKERS)
+
+
+async def _ainvoke_with_retry(
+    llm: BaseChatModel, messages, *, attempts: int = 4, base_delay: float = 1.5
+):
+    """`llm.ainvoke` with exponential backoff on transient failures.
+
+    A single 429/5xx blip must not masquerade as a reasoning signal (a static
+    fallback thought, or worse, a fake convergence). Non-transient errors and
+    exhausted retries re-raise so each node's own fallback policy applies.
+    """
+    for attempt in range(attempts):
+        try:
+            return await llm.ainvoke(messages)
+        except Exception as exc:
+            if not _is_retryable(exc) or attempt == attempts - 1:
+                raise
+            await asyncio.sleep(base_delay * (2 ** attempt))
+
+
 def ingest(state: OuroborosState) -> dict:
     seed = state.get("seed", "What am I?")
     return {
@@ -94,15 +129,27 @@ def make_think(llm: BaseChatModel, config: OuroborosConfig):
     async def think(state: OuroborosState) -> dict:
         recent = [m.content for m in state["messages"][-6:] if isinstance(m, AIMessage)]
         mems = state.get("memories", [])[-5:]
-        prompt = prompt_template.format(
-            mood=state.get("mood", "curious"),
-            depth=state.get("depth", 0),
-            recent="\n".join(recent[-3:]) or "(beginning)",
-            memories="\n".join(mems) or "(no memories yet)",
-            seed=state.get("seed", ""),
-        )
+        challenge = state.get("challenge", "")
+        if challenge:
+            # Perturb cycle: the controller found the answer stable but
+            # unconfident. This thought attacks the current best answer instead
+            # of extending it; the critique then flows through reflect/analyses
+            # into the next synthesis. Consumed once (cleared below).
+            prompt = (
+                f'You are stress-testing the current best answer to: '
+                f'"{state.get("seed", "")}"\n\n'
+                f"Current answer:\n{state.get('synthesis', '')}\n\n{challenge}"
+            )
+        else:
+            prompt = prompt_template.format(
+                mood=state.get("mood", "curious"),
+                depth=state.get("depth", 0),
+                recent="\n".join(recent[-3:]) or "(beginning)",
+                memories="\n".join(mems) or "(no memories yet)",
+                seed=state.get("seed", ""),
+            )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             new_thought = resp.content.strip()
         except Exception:
             new_thought = FALLBACK_THOUGHTS.get(
@@ -110,6 +157,7 @@ def make_think(llm: BaseChatModel, config: OuroborosConfig):
             )
         return {
             "thought": new_thought,
+            "challenge": "",
             "messages": [AIMessage(content=new_thought)],
             "energy": state.get("energy", config.starting_energy) - config.energy_drain_think,
             "tick": state.get("tick", 0) + 1,
@@ -128,7 +176,7 @@ def make_reflect(llm: BaseChatModel, config: OuroborosConfig):
             seed=state.get("seed", ""),
         )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             reflection = resp.content.strip()
         except Exception:
             reflection = random.choice(FALLBACK_REFLECTIONS)
@@ -182,7 +230,7 @@ def make_emotional_analysis(llm: BaseChatModel, config: OuroborosConfig):
                 "toward? One or two sentences."
             )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             reading = resp.content.strip()
         except Exception:
             reading = f"Emotional undertone: {new_mood}. {MOOD_READINGS.get(new_mood, '')}"
@@ -199,7 +247,7 @@ def make_logical_analysis(llm: BaseChatModel):
             "What is the blind spot?\n\nOne sentence."
         )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             reading = resp.content.strip()
         except Exception:
             reading = random.choice(FALLBACK_LOGICAL)
@@ -222,20 +270,32 @@ def memory_search(state: OuroborosState) -> dict:
 
 
 _CONFIDENCE_RE = re.compile(r"confidence\s*[:=]\s*([01](?:\.\d+)?|\.\d+)", re.IGNORECASE)
+# A bare number alone on the answer's final line — models sometimes drop the
+# "CONFIDENCE:" label but still emit the rating.
+_BARE_CONF_RE = re.compile(r"^\s*([01](?:\.\d+)?|\.\d+)\s*$")
 
 
-def _parse_confidence(text: str) -> tuple[str, float]:
+def _parse_confidence(text: str) -> tuple[str, float, bool]:
     """Split a trailing ``CONFIDENCE: <0-1>`` marker off an answer.
 
-    Returns ``(answer_without_marker, confidence)``; defaults to 0.5 when the
-    model omits or mangles the marker.
+    Returns ``(answer_without_marker, confidence, reported)``. ``reported`` is
+    False when the model omitted or mangled the marker — the 0.5 default is then
+    a *placeholder, not a signal*, and the controller/state must know that
+    (an unreported 0.5 must never count toward "converged").
     """
     match = _CONFIDENCE_RE.search(text)
-    if not match:
-        return text.strip(), 0.5
-    conf = max(0.0, min(1.0, float(match.group(1))))
-    answer = _CONFIDENCE_RE.sub("", text).strip().rstrip("\n").strip()
-    return answer, conf
+    if match:
+        conf = max(0.0, min(1.0, float(match.group(1))))
+        answer = _CONFIDENCE_RE.sub("", text).strip().rstrip("\n").strip()
+        return answer, conf, True
+    # Repair pass: a bare float alone on the last non-empty line.
+    lines = [ln for ln in text.strip().splitlines() if ln.strip()]
+    if len(lines) > 1:
+        bare = _BARE_CONF_RE.match(lines[-1])
+        if bare:
+            conf = max(0.0, min(1.0, float(bare.group(1))))
+            return "\n".join(lines[:-1]).strip(), conf, True
+    return text.strip(), 0.5, False
 
 
 # A labelled answer section ("IMPROVED answer:", "Revised answer:", "Final answer:")
@@ -283,7 +343,7 @@ def make_synthesize(llm: BaseChatModel, config: OuroborosConfig | None = None):
             "next? 2-3 sentences."
         )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             synthesis = resp.content.strip()
         except Exception:
             synthesis = " ".join(p for p in (emo, logic, mem) if p).strip()
@@ -323,26 +383,49 @@ async def _synthesize_adaptive(
         "- Answer the question directly and decisively — commit to a concrete "
         "recommendation with the reasoning, not a vague 'weigh the pros and cons'.\n"
         "- Stay strictly on the question. 2-4 sentences.\n"
-        'Then, on a new line, rate how settled it is as "CONFIDENCE: <0.0-1.0>".'
+        "The very last line of your output MUST be exactly "
+        '"CONFIDENCE: <0.0-1.0>" — the rating on its own line, nothing else on it.'
     )
+    new_depth = state.get("depth", 0) + 1
     try:
-        resp = await llm.ainvoke([{"role": "system", "content": prompt}])
-        answer, confidence = _parse_confidence(resp.content.strip())
+        resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
+        answer, confidence, reported = _parse_confidence(resp.content.strip())
         answer = _strip_answer_label(answer)
-    except Exception:
-        answer = prev or " ".join(p for p in (emo, logic, mem) if p).strip()
-        confidence = 0.5
+    except Exception as exc:
+        # A provider failure is an *infrastructure* signal, not a reasoning one.
+        # The old path kept the previous answer with an invented confidence of
+        # 0.5 — and answer_stability(prev, prev) == 1.0 then halted the run
+        # "no_marginal_gain", a rate-limit blip wearing a converged face. Halt
+        # honestly: keep the best answer we have and say why we stopped.
+        return {
+            "synthesis": prev or " ".join(p for p in (emo, logic, mem) if p).strip(),
+            "prev_synthesis": prev,
+            "confidence": float(state.get("confidence", 0.0) or 0.0),
+            "stability": float(state.get("stability", 0.0) or 0.0),
+            "confidence_reported": False,
+            "provider_error": f"{type(exc).__name__}: {exc}"[:300],
+            "should_halt": True,
+            "stop_reason": "provider_error",
+            "depth": new_depth,
+        }
 
     stability = answer_stability(prev, answer)
-    new_depth = state.get("depth", 0) + 1
+    # An unreported confidence is a placeholder, not evidence of settledness:
+    # never let it satisfy the convergence gate (0.0 for the decision only —
+    # the placeholder 0.5 is still recorded on state for the trace).
     decision = decide(
-        depth=new_depth, stability=stability, confidence=confidence, config=config
+        depth=new_depth,
+        stability=stability,
+        confidence=confidence if reported else 0.0,
+        config=config,
+        perturbed=bool(state.get("perturbed")),
     )
-    return {
+    out = {
         "synthesis": answer,
         "prev_synthesis": prev,
         "confidence": confidence,
         "stability": stability,
+        "confidence_reported": reported,
         "should_halt": decision.halt,
         "stop_reason": decision.reason,
         "depth": new_depth,
@@ -350,6 +433,19 @@ async def _synthesize_adaptive(
         # anchored to it (not to a drifting free-association).
         "messages": [AIMessage(content=answer)],
     }
+    if decision.reason == "perturb":
+        # Stable but unconfident: don't ship a possibly-stuck answer — attack it.
+        # `think` consumes this challenge next cycle; convergence only counts if
+        # the answer survives (or is fixed by) the attack.
+        out["perturbed"] = True
+        out["challenge"] = (
+            "The answer has stopped changing but is not yet confident. Stress-test "
+            "it: what is its weakest assumption or most likely failure mode, and "
+            "what concrete scenario would break it? If the critique holds, state "
+            "precisely what must change in the answer; if it does not hold, say "
+            "why the answer stands."
+        )
+    return out
 
 
 async def _voice_final_answer(llm: BaseChatModel, *, seed: str, answer: str) -> str:
@@ -374,7 +470,7 @@ async def _voice_final_answer(llm: BaseChatModel, *, seed: str, answer: str) -> 
         "the answer as if it were the natural thing to say."
     )
     try:
-        resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+        resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
         return resp.content.strip()
     except Exception:
         return ""
@@ -417,7 +513,7 @@ def make_surface(llm: BaseChatModel, config: OuroborosConfig):
             thought=state.get("thought", ""),
         )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             insight = resp.content.strip()
         except Exception:
             insight = random.choice(FALLBACK_INSIGHTS)
@@ -450,12 +546,18 @@ def make_breathe(config: OuroborosConfig):
         mood = state.get("mood", "curious")
         if mood in ("anxious", "obsessed"):
             mood = "curious" if random.random() < 0.6 else mood
-        return {
+        out = {
             "energy": energy,
             "mood": mood,
-            "depth": 0,
             "loop_guard": state.get("loop_guard", 0) + 1,
         }
+        # Legacy loop: depth counts one rumination between breathes, so it
+        # resets here. Adaptive mode ends right after breathe — resetting would
+        # erase the run's final cycle count from the state every consumer
+        # (harness, run records) reads it from.
+        if not config.adaptive:
+            out["depth"] = 0
+        return out
 
     return breathe
 
@@ -477,7 +579,7 @@ def make_plan_research(llm: BaseChatModel, config: OuroborosConfig):
             "or challenge an assumption. One query per line, no numbering or commentary."
         )
         try:
-            resp = await llm.ainvoke([{"role": "system", "content": prompt}])
+            resp = await _ainvoke_with_retry(llm, [{"role": "system", "content": prompt}])
             lines = [ln.strip("-•*0123456789. \t") for ln in resp.content.splitlines()]
             queries = [ln for ln in lines if ln][:3]
         except Exception:
@@ -525,6 +627,9 @@ def steer(state: OuroborosState) -> dict:
             "messages": [AIMessage(content=f"[steer] {human_input}")],
             "thought": human_input,
             "human_input": "",
+            # Human guidance supersedes any pending automatic challenge — the
+            # person is steering the next cycle, not the controller.
+            "challenge": "",
             "steer_count": state.get("steer_count", 0) + 1,
             "energy": min(100, state.get("energy", 0) + 15),
         }
@@ -532,6 +637,13 @@ def steer(state: OuroborosState) -> dict:
 
 
 def make_route_after_synthesis(config: OuroborosConfig):
+    from ouroboros.graph.tools import search_available
+
+    # Env doesn't change mid-run: decide once at graph-build time whether the
+    # research detour can produce real findings (Tavily key + client present)
+    # AND is permitted by the host's tool policy (FR-14).
+    can_research = search_available() and getattr(config, "allow_research", True)
+
     def route_after_synthesis(state: OuroborosState) -> str:
         # Adaptive mode: the metacognitive controller already decided in synthesize
         # (stored on state). Honour it; allow one research detour for grounded modes
@@ -541,8 +653,18 @@ def make_route_after_synthesis(config: OuroborosConfig):
                 return "surface"
             mode = state.get("mode", "explore")
             research_done = len(state.get("research_queries", []))
-            if mode in ("analyze", "solve") and research_done == 0 and state.get("depth", 0) >= 1:
+            if (
+                can_research
+                and mode in ("analyze", "solve")
+                and research_done == 0
+                and state.get("depth", 0) >= 1
+            ):
                 return "research"
+            # Guided mode: pause for human steer between refinement cycles.
+            # The graph interrupts before `steer`; on resume any injected
+            # guidance becomes the next thought (steer -> think).
+            if getattr(config, "adaptive_steer", False):
+                return "steer"
             return "think"
 
         energy = state.get("energy", config.starting_energy)
@@ -557,9 +679,9 @@ def make_route_after_synthesis(config: OuroborosConfig):
             return "surface"
         if depth > 2 and state.get("mood") in ("serene", "melancholic"):
             return "surface"
-        if mode in ("analyze", "solve") and research_done == 0 and depth >= 2:
+        if can_research and mode in ("analyze", "solve") and research_done == 0 and depth >= 2:
             return "research"
-        if random.random() < 0.2 and depth >= 1 and research_done < 2:
+        if can_research and random.random() < 0.2 and depth >= 1 and research_done < 2:
             return "research"
         return "think"
 

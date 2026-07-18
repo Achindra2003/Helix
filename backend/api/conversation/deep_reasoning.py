@@ -20,10 +20,12 @@ Two layers, deliberately split:
 """
 from __future__ import annotations
 
+import time
 from typing import Any, AsyncIterator, Callable
 
 from .context import render_seed
-from .events import Budget, Complete, Event, Step, Token, Waiting
+from .events import Budget, Complete, Event, Grounding, Step, Token, Waiting
+from .producer import Grounder
 
 # Fields worth surfacing to the monitor from a node's state delta / running state.
 _STEP_KEYS = (
@@ -36,6 +38,9 @@ _STEP_KEYS = (
     "insights",
     "stability",
     "confidence",
+    "confidence_reported",
+    "provider_error",
+    "challenge",
     "stop_reason",
     "loop_guard",
     "tick",
@@ -68,6 +73,8 @@ class DeepReasoningProducer:
         make_inputs: Callable[[str], dict[str, Any]] = _default_make_inputs,
         seed_builder: Callable[[list], str] = render_seed,
         should_stop: Callable[[], bool] | None = None,
+        deadline_s: float | None = None,
+        grounder: Grounder | None = None,
     ) -> None:
         self._graph = graph
         self._graph_config = graph_config
@@ -76,6 +83,8 @@ class DeepReasoningProducer:
         self._make_inputs = make_inputs
         self._seed_builder = seed_builder
         self._should_stop = should_stop
+        self._deadline_s = deadline_s
+        self._grounder = grounder
         self._state: dict[str, Any] = {}
         self._idx = 0
         self._answered = False
@@ -86,7 +95,18 @@ class DeepReasoningProducer:
                 self._state[key] = val
 
     def _payload(self) -> dict[str, Any]:
-        return {k: self._state[k] for k in _STEP_KEYS if k in self._state}
+        payload = {k: self._state[k] for k in _STEP_KEYS if k in self._state}
+        # The convergence target rides along with every step so the monitor can
+        # draw stability *against its threshold* (the sparkline + closing ring),
+        # not just as a bare number. `build_ouroboros_graph` stamps the resolved
+        # value into the config's metadata; absent (e.g. test fakes), the client
+        # falls back to its default.
+        threshold = (self._graph_config or {}).get("metadata", {}).get(
+            "stability_threshold"
+        )
+        if threshold is not None:
+            payload["stability_threshold"] = threshold
+        return payload
 
     def _budget_event(self) -> Budget | None:
         if self._usage_reader is None:
@@ -98,7 +118,18 @@ class DeepReasoningProducer:
     async def run(self, history: list) -> AsyncIterator[Event]:
         # Seed over the whole thread (recent context + the question), not just the
         # last line, so the engine reasons with the shared, branchable context.
+        # Same file grounding chat gets: relevant workspace-document chunks are
+        # folded into the seed and cited to the client before the run starts —
+        # a hard question escalated to Deep Reasoning should reason over the
+        # knowledge base too, not just the thread.
+        grounding_text = ""
+        if self._grounder is not None:
+            grounding_text, citations = await self._grounder(history)
+            if citations:
+                yield Grounding(items=citations)
         seed = self._seed_builder(history)
+        if grounding_text:
+            seed = f"{grounding_text}\n\n{seed}"
         self._idx = 0
         self._answered = False
         async for event in self._drive(self._make_inputs(seed)):
@@ -120,10 +151,22 @@ class DeepReasoningProducer:
 
     async def _drive(self, inputs) -> AsyncIterator[Event]:
         """Map one `astream` pass (fresh run or checkpoint resume) onto events."""
+        deadline = time.monotonic() + self._deadline_s if self._deadline_s else None
         try:
             async for mode, data in self._graph.astream(
                 inputs, config=self._graph_config, stream_mode=["updates", "messages"]
             ):
+                # Wall-clock safety cap: a rate-limited run can stretch for minutes
+                # under backoff retries. Halt cleanly with whatever surfaced so far,
+                # rather than holding the connection open indefinitely.
+                if deadline is not None and time.monotonic() > deadline:
+                    if not self._answered:
+                        partial = self._state.get("synthesis") or self._state.get("thought") or ""
+                        if partial:
+                            yield Token(text=partial)
+                    yield Complete(stop_reason="deadline", status="done")
+                    return
+
                 # Cooperative kill: stop the run between events (RBAC-gated at the
                 # endpoint). Persists whatever answer surfaced so far.
                 if self._should_stop is not None and self._should_stop():
@@ -193,10 +236,15 @@ def build_ouroboros_graph(
     mode: str = "analyze",
     adaptive: bool = True,
     compute_budget: int = 6,
+    min_cycles: int | None = None,
     temperature: float = 0.7,
     stability_threshold: float | None = None,
     confidence_threshold: float | None = None,
     steer_interval: int | None = None,
+    adaptive_steer: bool = False,
+    allow_research: bool = True,
+    humanize: bool = True,
+    extra_callbacks: list | None = None,
 ):
     """Construct a real, isolated Ouroboros graph + the wiring the producer needs.
 
@@ -228,17 +276,33 @@ def build_ouroboros_graph(
         "compute_budget": compute_budget,
         "temperature": temperature,
         # Helix surfaces answers to a human in chat: rewrite the converged synthesis
-        # into a warm, conversational, streamed final answer (the benchmark leaves
-        # this off to preserve raw-synthesis output parity).
-        "humanize": True,
+        # into a warm, conversational, streamed final answer. The eval harness turns
+        # this off to preserve raw-synthesis output parity across arms.
+        "humanize": humanize,
+        # Guided mode: pause the adaptive loop at the steer checkpoint between
+        # refinement cycles so the caller can inject guidance over HTTP.
+        "adaptive_steer": adaptive_steer,
+        # Tool policy (FR-14), enforced at graph build: no web research unless
+        # the host allows it (and a search backend exists).
+        "allow_research": allow_research,
     }
     # Convergence thresholds are tunable so the controller can halt on a real
     # `converged` / `no_marginal_gain` signal (the answer has stopped moving)
-    # rather than always exhausting the budget. Calibrated to the active embedder.
-    if stability_threshold is not None:
-        overrides["stability_threshold"] = stability_threshold
+    # rather than always exhausting the budget. `None` auto-calibrates to the
+    # active embedder: neural MiniLM cosines between successive drafts of the
+    # same answer sit far higher than the lexical fallback's token-overlap
+    # scores, so a lexical-calibrated threshold would halt neural runs on the
+    # first refinement.
+    if stability_threshold is None:
+        embedder_name = getattr(ouroboros.memory.get_embedder(), "name", "lexical-fallback")
+        stability_threshold = 0.78 if embedder_name.startswith("lexical") else 0.90
+    overrides["stability_threshold"] = stability_threshold
     if confidence_threshold is not None:
         overrides["confidence_threshold"] = confidence_threshold
+    if min_cycles is not None:
+        # min_cycles == compute_budget pins the loop to exactly N cycles — the
+        # fixed-N baseline arms of the eval harness.
+        overrides["min_cycles"] = min_cycles
     if steer_interval is not None:
         # Non-adaptive runs pause for human steer every `steer_interval` cycles;
         # a small value makes a steer demo pause promptly instead of after many cycles.
@@ -251,7 +315,13 @@ def build_ouroboros_graph(
     usage_handler = new_usage_handler()
     graph_config = {
         "configurable": {"thread_id": thread_id},
-        "callbacks": [usage_handler],
+        # LangGraph propagates this list into every LLM invocation the graph
+        # makes — the token-usage handler and any tracing callbacks observe
+        # each reason/reflect/synthesize call without the engine knowing.
+        "callbacks": [usage_handler, *(extra_callbacks or [])],
+        # Resolved convergence target (auto-calibration applied above): the
+        # producer copies it onto step payloads for the monitor's convergence viz.
+        "metadata": {"stability_threshold": stability_threshold},
     }
 
     def make_inputs(seed: str) -> dict[str, Any]:
@@ -277,6 +347,8 @@ def build_ouroboros_graph(
             "research_findings": [],
             "human_input": "",
             "steer_count": 0,
+            "perturbed": False,
+            "challenge": "",
         }
 
     def usage_reader() -> int:

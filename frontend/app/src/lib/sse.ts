@@ -14,16 +14,31 @@ export function streamSSE(
   body: unknown,
   onEvent: (ev: RunEvent) => void,
 ): StreamHandle {
+  return openSSE(path, { method: "POST", body }, onEvent);
+}
+
+/** GET variant — the deep-run (re)attach path: replay a server-side run's
+ *  event log from a seq, then follow live. Closing it detaches only. */
+export function attachSSE(path: string, onEvent: (ev: RunEvent) => void): StreamHandle {
+  return openSSE(path, { method: "GET" }, onEvent);
+}
+
+function openSSE(
+  path: string,
+  opts: { method: "GET" | "POST"; body?: unknown },
+  onEvent: (ev: RunEvent) => void,
+): StreamHandle {
   const ctrl = new AbortController();
   const token = getToken();
-  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  const headers: Record<string, string> = {};
+  if (opts.method === "POST") headers["Content-Type"] = "application/json";
   if (token) headers["Authorization"] = `Bearer ${token}`;
 
   const done = (async () => {
     const res = await fetch(API_BASE + path, {
-      method: "POST",
+      method: opts.method,
       headers,
-      body: JSON.stringify(body),
+      body: opts.method === "POST" ? JSON.stringify(opts.body) : undefined,
       signal: ctrl.signal,
     });
     if (!res.ok || !res.body) {

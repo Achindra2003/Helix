@@ -43,6 +43,10 @@ class OuroborosState(TypedDict):
     # config.adaptive is on. All replace-semantics, written solely by synthesize.
     prev_synthesis: str  # previous cycle's answer, for stability measurement
     confidence: float  # synthesizer's self-reported settledness (0-1)
+    confidence_reported: bool  # False = the model omitted the marker; 0.5 is a placeholder
     stability: float  # cosine similarity between this and the previous answer
     should_halt: bool  # controller's halt decision (read by the router)
     stop_reason: str  # why the controller halted (converged | budget | ...)
+    provider_error: str  # set when a run halts on LLM-provider failure (429/5xx after retries)
+    perturbed: bool  # one stress-test challenge has been issued this run
+    challenge: str  # pending self-challenge for the next think cycle ("" = none)

@@ -12,15 +12,20 @@ body {
 }
 #root { overflow: hidden; }
 
-::selection { background: rgba(140, 43, 30, 0.22); color: var(--ink); }
+::selection { background: rgba(143, 62, 19, 0.22); color: var(--ink); }
 ::-webkit-scrollbar { width: 11px; height: 11px; }
 ::-webkit-scrollbar-thumb { background: rgba(36,27,18,0.22); border: 3px solid transparent; background-clip: content-box; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(36,27,18,0.38); background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
 textarea::placeholder, input::placeholder { color: var(--ink-faint); font-style: italic; }
 
-button { font-family: inherit; cursor: pointer; color: inherit; }
-input, textarea { font-family: inherit; }
+/* Type discipline — two voices, never mixed:
+   READING voice (IM Fell): message bodies, prose, epigraphs — inherits from body.
+   INSTRUMENT voice (Inter): anything you operate — buttons, inputs, selects.
+   (The composer textarea opts back into the reading voice via its own class.) */
+button { font-family: var(--font-ui); cursor: pointer; color: inherit; }
+input, select { font-family: var(--font-ui); }
+textarea { font-family: var(--font-ui); }
 a { color: var(--oxblood); }
 
 :focus-visible {
@@ -40,6 +45,19 @@ a { color: var(--oxblood); }
   color: var(--ink-3); font-weight: 600;
 }
 
+/* every route enters like a page being turned — one shared beat, one easing */
+.folio { animation: hx-rise var(--dur-3) var(--ease-quill) both; }
+
+/* chapter ornament: a hairline rule meeting a fleuron, under page titles */
+.chapter-rule {
+  display: flex; align-items: center; gap: 14px;
+  margin: 18px 0 6px; color: var(--gilt-1); font-size: 13px; line-height: 1;
+  user-select: none;
+}
+.chapter-rule::before, .chapter-rule::after { content: ""; flex: 1; height: 1px; }
+.chapter-rule::before { background: linear-gradient(90deg, transparent, var(--rule)); }
+.chapter-rule::after { background: linear-gradient(90deg, var(--rule), transparent); }
+
 /* keyframes */
 @keyframes hx-grain { 0%,100%{transform:translate(0,0);}20%{transform:translate(-3%,2%);}40%{transform:translate(2%,-2%);}60%{transform:translate(-2%,1%);}80%{transform:translate(1%,3%);} }
 @keyframes hx-spin { to { transform: rotate(360deg); } }
@@ -55,7 +73,17 @@ a { color: var(--oxblood); }
    clickable; z-index stays below modals (scrim 50) and toasts (60). */
 .tex-grain { position: fixed; inset: -12%; width: 124%; height: 124%; pointer-events: none; opacity: .07; mix-blend-mode: multiply; z-index: 6; animation: hx-grain 9s steps(5) infinite; }
 .tex-vig { position: fixed; inset: 0; pointer-events: none; z-index: 5; background: radial-gradient(125% 105% at 50% 38%, rgba(230,220,194,0) 52%, rgba(60,42,22,0.20) 100%); }
-.tex-warm { position: fixed; inset: 0; pointer-events: none; z-index: 4; background: radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%), radial-gradient(50% 40% at 88% 90%, rgba(140,43,30,0.05), transparent 60%); }
+.tex-warm { position: fixed; inset: 0; pointer-events: none; z-index: 4; background: radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%), radial-gradient(50% 40% at 88% 90%, rgba(143,62,19,0.05), transparent 60%); }
+
+/* nocturne texture: grain becomes faint candle-light speckle; the vignette
+   deepens toward true dark; selection & scrollbars flip to cream */
+:root[data-theme="dark"] .tex-grain { mix-blend-mode: screen; opacity: 0.045; }
+:root[data-theme="dark"] .tex-vig {
+  background: radial-gradient(125% 105% at 50% 38%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.55) 100%);
+}
+:root[data-theme="dark"] ::selection { background: rgba(221, 138, 80, 0.35); color: var(--ink); }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(238, 228, 201, 0.24); background-clip: content-box; }
+:root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(238, 228, 201, 0.4); background-clip: content-box; }
 
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {

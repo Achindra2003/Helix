@@ -1,14 +1,19 @@
 import type { Conversation } from "@/lib/types";
+import { colorFor } from "@/lib/format";
 import s from "./chat.module.css";
 
 export function ConversationList({
-  conversations, activeId, canCreate, onSelect, onNew,
+  conversations, activeId, canCreate, onSelect, onNew, viewers, unread,
 }: {
   conversations: Conversation[];
   activeId: string | null;
   canCreate: boolean;
   onSelect: (id: string) => void;
   onNew: () => void;
+  // conversation id -> teammates reading it right now (from live presence)
+  viewers?: Record<string, { email: string }[]>;
+  // conversation id -> new activity this session (cleared when opened)
+  unread?: Record<string, true>;
 }) {
   return (
     <>
@@ -26,11 +31,23 @@ export function ConversationList({
               <div className={s.convTitle} style={{ fontWeight: c.id === activeId ? 600 : 400 }}>{c.title}</div>
               <div className={s.convMeta}>{c.visibility}</div>
             </div>
+            {unread?.[c.id] && c.id !== activeId && (
+              <span className={s.rowDot} style={{ background: "var(--oxblood)" }}
+                title="New activity since you last looked" />
+            )}
+            {(viewers?.[c.id] ?? []).slice(0, 3).map((u) => (
+              <span
+                key={u.email}
+                className={s.rowDot}
+                style={{ background: colorFor(u.email) }}
+                title={`${u.email} is reading this`}
+              />
+            ))}
           </div>
         ))}
         {conversations.length === 0 && (
-          <div style={{ padding: "8px 10px", color: "var(--ink-faint)", fontStyle: "italic", fontSize: 13 }}>
-            No conversations yet.
+          <div style={{ padding: "8px 10px", color: "var(--ink-3)", fontStyle: "italic", fontSize: 13 }}>
+            Nothing is written yet.
           </div>
         )}
       </div>

@@ -1,21 +1,24 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse, StreamingResponse
-from pydantic import BaseModel
+from fastapi.responses import FileResponse, JSONResponse
 
-from . import db
+from . import db, telemetry
 from .config import settings
+from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
+from .documents.router import router as documents_router
 from .prompts.router import router as prompts_router
-from .providers import get_provider
+from .realtime import router as realtime_router
 from .routers import auth, workspaces
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
     yield
     await db.disconnect()
@@ -53,7 +56,10 @@ async def validation_handler(_: Request, exc: RequestValidationError):
 app.include_router(auth.router)
 app.include_router(workspaces.router)
 app.include_router(conversation_router)
+app.include_router(map_router)
 app.include_router(prompts_router)
+app.include_router(documents_router)
+app.include_router(realtime_router)
 
 
 @app.get("/health")
@@ -63,18 +69,41 @@ async def health():
     return {"status": "ok", "db_time": db_time, "provider": settings.llm_provider}
 
 
-class ChatRequest(BaseModel):
-    prompt: str
+# --- Serve the built frontend (production image only) -------------------------
+# The Docker build drops the Vite bundle at backend/static. When that directory
+# exists, the API also serves the UI, so a self-hoster runs one container on one
+# port instead of standing up a separate web server. In dev the directory is
+# absent and this block is skipped entirely — `npm run dev` on :5173 is
+# unaffected.
+#
+# Registered last, on purpose: every API router above is matched first, so the
+# catch-all can never shadow a real endpoint.
+_STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 
+if _STATIC_DIR.is_dir():
 
-@app.post("/chat/stream")
-async def chat_stream(req: ChatRequest):
-    """Stream a reply token-by-token as SSE. Week-0 slice; grows into contract §7."""
-    provider = get_provider()
+    @app.get("/{full_path:path}", include_in_schema=False)
+    async def spa(full_path: str):
+        """Serve a real file if it exists, else index.html.
 
-    async def event_stream():
-        async for chunk in provider.stream(req.prompt):
-            yield f"data: {chunk}\n\n"
-        yield "data: [DONE]\n\n"
+        Helix is a single-page app: the browser owns routes like
+        /w/<id>/map, and no such file exists on disk. Returning index.html
+        lets React Router resolve them — that is what makes a deep link or a
+        page refresh work instead of 404ing.
+        """
+        # Unknown /api and /ws paths must stay JSON 404s. Without this they
+        # would fall through and answer with the HTML page, which turns a
+        # typo'd endpoint into a confusing parse error in the client.
+        if full_path.startswith(("api/", "ws/")):
+            raise HTTPException(status_code=404, detail="Not Found")
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+        candidate = (_STATIC_DIR / full_path).resolve()
+        # Path-traversal guard: a request for ../../etc/passwd resolves outside
+        # the static root, and is_relative_to catches exactly that.
+        if (
+            full_path
+            and candidate.is_file()
+            and candidate.is_relative_to(_STATIC_DIR)
+        ):
+            return FileResponse(candidate)
+        return FileResponse(_STATIC_DIR / "index.html")

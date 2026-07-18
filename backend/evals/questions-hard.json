@@ -1,0 +1,45 @@
+{
+  "description": "The frontier set: questions engineered so a single pass plausibly FAILS — interacting constraints that punish the first coherent-sounding answer, checkable structures where an unverified guess is usually wrong, and specs whose requirements conflict unless noticed. This is the set FINDINGS.md's next-experiment #1 calls for: refinement can only show a quality win where fixed-1 actually breaks. Run: python -m evals.harness --questions evals/questions-hard.json --arms fixed-1,fixed-4,adaptive",
+  "questions": [
+    {
+      "id": "hf-sched",
+      "tier": "hard",
+      "question": "Schedule these five talks into two rooms across three consecutive hour slots (9, 10, 11): A and B share a speaker; C must be before E (any room); D must be at 10; B must not be at 9; A needs the larger room 1. Give the full room/slot assignment and verify every constraint explicitly."
+    },
+    {
+      "id": "hf-rate",
+      "tier": "hard",
+      "question": "A service calls an upstream API limited to 100 requests/minute with a burst bucket of 20. Traffic arrives at a steady 90 req/min but every 5 minutes a batch job adds 60 requests within one 10-second window. Will requests be dropped, and if so how many per batch window? Show the bucket arithmetic step by step, then propose the smallest change that eliminates drops."
+    },
+    {
+      "id": "hf-migrate",
+      "tier": "hard",
+      "question": "Design a zero-downtime migration for renaming a heavily-written `orders.status` column to `state` on Postgres, where three services deploy independently and one of them cannot be updated for two weeks. Every step must keep all three services working; call out the step where naive plans break and why yours doesn't."
+    },
+    {
+      "id": "hf-logic",
+      "tier": "hard",
+      "question": "Four engineers (P, Q, R, S) each own exactly one service (auth, billing, search, exports). P doesn't own auth or billing. If Q owns billing, then R owns search. S owns exports only if P owns search. Exactly one of Q and S owns billing. R does not own exports. Derive who owns what, showing the deduction chain and checking it against every rule."
+    },
+    {
+      "id": "hf-cap",
+      "tier": "hard",
+      "question": "A team wants strong consistency for account balances, five-nines availability for reads, tolerance of a full region outage, and single-digit-millisecond global read latency. Which combination is impossible and why, exactly? Then design the closest achievable system, stating precisely which requirement you weakened and by how much."
+    },
+    {
+      "id": "hf-cache2",
+      "tier": "hard",
+      "question": "A cache-aside setup has: TTL 60s, ~2000 reads/s per hot key, a 300ms recompute, and a business rule that data older than 5s must never be served after a price change event. The team proposes 'just lower TTL to 5s'. Quantify the recompute stampede that causes at steady state, then design a scheme satisfying the freshness rule without the stampede (name the exact mechanisms and their failure modes)."
+    },
+    {
+      "id": "hf-api",
+      "tier": "hard",
+      "question": "Design a pagination contract for an activity feed where items can be inserted *and deleted* between page fetches, clients may cache pages for hours, ordering is by (score, recency) not pure time, and the same item must never appear twice across pages a client stitches together. Offset, simple cursor, and snapshot approaches each break at least one requirement — identify which breaks what, then give a contract that satisfies all four."
+    },
+    {
+      "id": "hf-budget",
+      "tier": "hard",
+      "question": "You have a $200/month cloud budget and must run: a Postgres instance with 50GB and daily backups, a web API at ~30 req/s sustained, background workers processing 2M jobs/month averaging 400ms CPU each, and log retention of 30 days at 5GB/day. Produce a concrete allocation with real-world price arithmetic (state your assumed unit prices), verify the total is under budget, and identify the single line item most likely to blow up first."
+    }
+  ]
+}

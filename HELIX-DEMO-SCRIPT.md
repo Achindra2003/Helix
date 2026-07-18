@@ -122,9 +122,12 @@ A segment-by-segment runbook for the live demo. Total target: **~10–12 minutes
    - the live **step trace**.
 3. It **converges** (~7s) — point to **`converged`** and the crystallized answer.
    "It decided it was done."
-4. Run it again and hit **◼ Kill switch** mid-flight → "stopped on command."
-5. Note honestly: *Steer (pause → inject guidance → resume) is built into the engine;
-   wiring it through the live API is the next step.*
+4. Run it again and hit **◼ Stop run** mid-flight → "stopped on command — the run
+   actually lives server-side now, so closing the tab wouldn't have stopped it;
+   only this button does."
+5. Tick **⟂ guided** and escalate again → the run **pauses** at a steer checkpoint;
+   type a constraint into the steer box → it resumes and visibly pivots. "Any
+   Collaborator can steer, which makes a paused run a team decision, not a solo one."
 
 ---
 
@@ -147,18 +150,19 @@ thread), then **↓ md** / **↓ json** to download.
 > frontend streaming over SSE. The Deep Reasoning engine is a separate recursive
 > graph behind one clean interface."
 
-**Show:** `REQUIREMENTS-COVERAGE.md` — "Up to this milestone: **10 of 14 functional
-requirements fully delivered**, the rest partial or in progress." Scroll the matrix.
+**Show:** `REQUIREMENTS-COVERAGE.md` — "**16 of 16 functional requirements fully
+delivered**." Scroll the matrix.
 
 ---
 
 ## 9. What's next (honest roadmap)  ·  Speaker: **M**  ·  ~45s
 
 **Say:**
-> "Remaining work is one backend lane, and the frontend already has the seams for it:
-> (1) enforce auth/tenancy on the chat routes, (2) WebSocket presence + live-watch so
-> you see teammates typing in real time, (3) server-side steer for Deep Reasoning,
-> (4) a tool-permission layer. Then containerise and deploy."
+> "What's left is packaging and a couple of named, deliberate seams — not core
+> product gaps: a per-conversation model picker (today the provider is
+> workspace-wide), external connectors beyond the built-in tool catalog, and
+> the launch motion — a hardened container, Postgres migrations, and a public
+> hosted instance."
 
 ---
 
@@ -169,14 +173,72 @@ team knowledge — with a reasoning mode you can actually trust and control. Tha
 
 ---
 
+## NEW BEAT (added July 8, `ui-standout`) — Cited knowledge base: upload → grounded answer
+*Slot it after the fork segment. Speaker: **R** · ~90s · proves the RAG lane (P1+P2)*
+
+**Say:**
+> "One more thing no competitor shows in one product: give the workspace a memory.
+> I upload our spec once — for the whole team, no per-chat attach — and from then on,
+> any question that touches it gets an answer *grounded on the document, with
+> citations*. And because conversations are shared, my teammate watches those
+> citations appear live in their browser."
+
+**Show / click:**
+1. Rail → **DOCS**: drag a small `.md` spec in → chip flips *⟳ processing* →
+   *✓ ready* with a chunk count ("ingested: chunked and embedded, server-side").
+2. Try the **knowledge-base search box** with a phrase from the doc — ranked
+   chunks with relevance scores. "This is the exact ranking chat grounding uses."
+3. Back to **CHAT**: ask a question that shares real terms with the doc → the
+   reply streams in wearing **⌘ file.md §n** chips; hover one — the tooltip is
+   the grounded excerpt. In the **second browser**, the same chips appear on the
+   watcher's copy of the turn.
+4. Ask something unrelated → **no chips**. Say why out loud: *"an unrelated
+   question must not drag the knowledge base into every prompt — that's the
+   relevance gate, not a bug."*
+
+**Also worth flashing (P3, if time):** start a Deep Reasoning run, **reload the
+page mid-run** — the monitor reattaches and the answer still lands ("the run
+lives on the server now; closing the tab doesn't kill it — the **Stop** button
+does").
+
+---
+
+## NEW BEAT (added July 15, `ui-standout`) — Agent mode: governed tools + human approval
+*Slot it right after the knowledge-base beat (it builds on the same docs). Speaker: **A** · ~90s · proves FR-14*
+
+**Say:**
+> "So far the model answers from what it's given. Agent mode lets it *go
+> looking* — but under governance, which is the part enterprises actually ask
+> about. The owner decides which tools exist for this workspace; anything
+> unchecked is never even offered to the model — there's no door to jailbreak,
+> the door doesn't exist. And any tool that leaves the workspace pauses for a
+> human before every single call."
+
+**Show / click:**
+1. **TEAM → Agent tools**: the catalog — knowledge-base search and
+   conversation search on by default; **web_search** marked *⚿ needs
+   approval* (and greyed *unavailable* unless the server has a Tavily key —
+   "the UI tells you *why*, not just *no*").
+2. Back to **CHAT**: hit **⚒ Agent** with a question the docs can answer →
+   the reply's **tool ledger** appears line by line: *⚒ search_knowledge_base
+   ("…") ✓* — "you watch it decide what to look up, then answer grounded in
+   what it found."
+3. If a Tavily key is configured: enable web_search, ask something current →
+   the run **pauses** with an approval bar naming the exact call and its
+   arguments; click **Approve** (or **Deny** — the model then answers without
+   it and says what it couldn't check). "The pause is a server-side
+   checkpoint, not a spinner — the run costs nothing while it waits."
+
+---
+
 ## Q&A — likely questions & who answers
 
 - **"Is the AI real or scripted?"** (A) — fully live Groq; show the streaming again, or the network tab.
 - **"How is a fork instant on a long conversation?"** (M/A) — branches are *pointers* into a shared node tree; we copy no history (O(1) write, O(depth) read).
 - **"What stops Deep Reasoning running forever / costing a fortune?"** (A) — a compute-budget halting controller + convergence thresholds + the kill switch (FR-12, NFR-6).
-- **"Can you swap the model / run offline?"** (M) — one provider interface; flip Groq↔Ollama in config, no code change (FR-8, NFR-9).
+- **"Can you swap the model / run offline?"** (M) — one provider interface; flip Groq↔Ollama in config, or paste a workspace's own key/model under TEAM → Provider — no code change (FR-8, FR-16, NFR-9).
 - **"Is data isolated between teams?"** (M) — every resource is workspace-scoped; production adds Postgres Row-Level Security (FR-2, NFR-2).
-- **"Why does presence show only me?"** (M) — the WebSocket room is the next backend task; the UI seam is already in place.
+- **"What happens if I close the tab mid deep-run?"** (A) — nothing: the run executes server-side and keeps going; reload and the monitor reattaches to the live stream. Only the Stop button actually halts it.
 
 ---
 
@@ -186,9 +248,11 @@ team knowledge — with a reasoning mode you can actually trust and control. Tha
 2. Open `demo_artifacts/demo_transcript.txt` (a captured end-to-end run), **or**
 3. Run the narrated script: `cd backend && ./.venv/Scripts/python.exe -m api.demo_helix`
    (`Option A` in `HELIX-DEMO.md`) — same story, no UI dependency.
-4. Backend tests as proof of correctness: `pytest -q` → 43 passing.
+4. Backend tests as proof of correctness: `pytest -q` → 261 passing (hermetic —
+   stub provider, no keys or network needed).
 
 ## Don't-click list (avoid dead ends on stage)
-- Don't rely on **Steer** in the monitor (button is disabled — not wired over HTTP yet).
-- Don't expect **live presence** of a second user (no WebSocket yet) — describe it instead.
 - Keep Deep Reasoning questions **short**; the bounded config is tuned for a ~7s converge.
+- **⚒ Agent** runs need the workspace's Groq key (same as Deep Reasoning); web_search stays greyed out in TEAM → Agent tools unless the server has a Tavily key — that's the availability layer working, point at it proudly.
+- Don't expect a **per-conversation model picker** — the provider/model is set once per workspace (TEAM → Provider), not per chat.
+- A **process restart** loses any in-flight deep run (its durable record survives) — not a concern for a single demo session, worth knowing if the API restarts mid-panel.

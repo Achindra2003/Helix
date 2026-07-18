@@ -9,11 +9,15 @@ function depthOf(b: Branch, byId: Map<string, Branch>): number {
 }
 
 export function BranchTree({
-  branches, activeId, onSelect,
+  branches, activeId, onSelect, onRename, onDelete,
 }: {
   branches: Branch[];
   activeId: string | null;
   onSelect: (id: string) => void;
+  // Fork-branch housekeeping (Collaborator+). Main never shows these; the
+  // server additionally refuses deleting anything something forked from.
+  onRename?: (b: Branch) => void;
+  onDelete?: (b: Branch) => void;
 }) {
   const byId = new Map(branches.map((b) => [b.id, b]));
   return (
@@ -26,13 +30,22 @@ export function BranchTree({
       {branches.map((b) => {
         const on = b.id === activeId;
         const depth = depthOf(b, byId);
+        const fork = b.parent_branch_id !== null;
         return (
           <div key={b.id} className={`${s.branchRow} ${on ? s.branchOn : ""}`} onClick={() => onSelect(b.id)}>
             <span className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", width: depth * 14, display: "inline-block", textAlign: "right" }}>
               {depth ? "└" : ""}
             </span>
-            <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(140,43,30,0.14)" : "none" }} />
-            <span className={s.branchName} style={{ color: on ? "var(--ink)" : "var(--ink-3)" }}>{b.name}</span>
+            <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(143,62,19,0.16)" : "none" }} />
+            <span className={s.branchName} style={{ color: on ? "var(--ink)" : "var(--ink-3)", flex: 1, minWidth: 0 }}>{b.name}</span>
+            {fork && onRename && (
+              <button className={s.branchAct} title="Rename branch"
+                onClick={(e) => { e.stopPropagation(); onRename(b); }}>✎</button>
+            )}
+            {fork && onDelete && (
+              <button className={s.branchAct} style={{ color: "var(--oxblood)" }} title="Delete branch"
+                onClick={(e) => { e.stopPropagation(); onDelete(b); }}>✕</button>
+            )}
           </div>
         );
       })}

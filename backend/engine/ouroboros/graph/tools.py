@@ -5,6 +5,22 @@ import os
 from langchain_core.tools import tool
 
 
+def search_available() -> bool:
+    """True when live web search can actually return results.
+
+    Routing checks this before taking the research detour: without a Tavily key
+    (or the client library) the workers would only feed "[Web search unavailable]"
+    placeholders back into the reasoning loop — pure latency and token cost.
+    """
+    if not os.environ.get("TAVILY_API_KEY", ""):
+        return False
+    try:
+        import tavily  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
 @tool
 def web_search(query: str) -> str:
     """Search the web for information about a topic. Returns relevant snippets."""

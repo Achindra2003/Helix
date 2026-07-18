@@ -53,7 +53,10 @@ Everything above this layer is written against **one interface**: an
 `LLMProvider` that can `stream_messages(messages)` and yield text chunks. There are
 three implementations:
 
-- **`groq`** — the real cloud model (`llama-3.1-8b-instant` for chat).
+- **`groq`** — the real cloud models. Chat and deep reasoning are deliberately
+  split: chat runs the fast small model (`GROQ_MODEL`, e.g. `llama-3.1-8b-instant`)
+  while the recursive reasoning loop — whose whole value is reasoning quality —
+  runs the strongest one (`DEEP_REASONING_MODEL`, default `llama-3.3-70b-versatile`).
 - **`ollama`** — a local model, for offline / no-API-key runs.
 - **`stub`** — a deterministic fake used by the test suite (no network), so every
   layer above can be tested end-to-end with zero cost.
@@ -227,25 +230,62 @@ A naïve reflection loop spends a **fixed** amount of compute (N iterations, or 
 coin flip). Ouroboros replaces that with a **principled stop decision** from cheap
 internal signals (controller.py):
 
-- **answer stability** — cosine similarity between successive refined answers. High
-  stability ⇒ the loop has stopped changing its mind; more cycles buy little.
-- **self-confidence** — the synthesizer's own 0–1 estimate of how settled it is.
+- **answer stability** — semantic similarity between successive refined answers,
+  over **real neural embeddings** (sentence-transformers MiniLM; a lexical
+  bag-of-words fallback keeps it working offline). High stability ⇒ the loop has
+  stopped changing its mind; more cycles buy little. The threshold
+  **auto-calibrates to the active embedder** (0.90 neural / 0.78 lexical) because
+  MiniLM cosines run far hotter than token-overlap scores. Long drafts are
+  **chunk-embedded and mean-pooled** (MiniLM truncates at 256 tokens — untreated,
+  a contradiction past the cutoff scored 1.0000 similarity), and stability blends
+  the pooled score with a **least-anchored-sentence floor**, so a flipped
+  conclusion or deleted section anywhere in a long answer buys another cycle.
+- **self-confidence** — the synthesizer's own 0–1 estimate of how settled it is,
+  parsed with a repair pass and **flagged when the model failed to report it** —
+  an unreported placeholder can never satisfy the convergence gate.
 
-`decide(...)` halts when, in precedence order: a hard **compute budget** is hit, or
-the answer is **stable *and* confident** (`converged`), or it's stable but not yet
-confident (`no_marginal_gain` — it's stopped moving regardless). It's a pure
-function of scalars, so it's fully unit-testable.
+`decide(...)` halts when, in precedence order: a hard **compute budget** is hit,
+or the answer is **stable *and* confident** (`converged`). Stable-but-unconfident
+— what a *stuck* loop looks like, not just a finished one — triggers
+**perturb-on-stall**: the first stall issues a self-challenge (the next cycle
+attacks the answer's weakest assumption) and only convergence after the
+challenge, or a second stall (`no_marginal_gain`), is accepted. Repetition is
+weak evidence; surviving an attack is real evidence. It's a pure function of
+scalars, so it's fully unit-testable.
+
+**Failure honesty:** transient provider errors (429/5xx/timeouts) retry with
+backoff at every LLM call site; a hard failure in the synthesizer halts the run
+with its own `provider_error` stop reason instead of masquerading as
+convergence (the old path kept the previous answer, and
+`stability(prev, prev) == 1.0` halted the run "no_marginal_gain" — a rate-limit
+blip wearing a converged face).
 
 **The dual payoff:** halting early is both the *product virtue* (you don't watch it
 spin) and the way it stays inside free-tier rate limits — and it's the *research
-claim* (adaptive test-time compute: spend more on hard problems, less on easy
-ones). The two are the same mechanism.
+claim* (adaptive test-time compute: spend more where the answer is still moving,
+less where it has settled). One measured nuance from the July 5 pilot
+(`backend/evals/FINDINGS.md`): cycle spend tracks answer *instability*, which is
+not always the same thing as question *difficulty* — say it that precisely.
 
 Alongside convergence, the run is bounded by **guards** surfaced in the monitor:
 an **energy** meter (drains as it thinks, recovers on `breathe`), a **depth** cap,
 a **loop-guard**, and a **token budget** meter. **Kill** stops the run cooperatively
-between steps and persists whatever surfaced; **Steer** pauses at the `steer`
-interrupt (`Waiting`) and resumes with injected human guidance.
+between steps and persists whatever surfaced.
+
+**Guided runs (steer over HTTP, FR-11).** With the composer's `⟂ guided` toggle,
+the adaptive loop routes to the `steer` interrupt **between refinement cycles**
+(`config.adaptive_steer`): the stream ends on a `waiting` event with a `run_id`
+handle, the monitor opens a steer box, and
+`POST /conversations/deep/runs/{run_id}/steer` resumes the run from its LangGraph
+checkpoint with the injected guidance as the next thought — any Collaborator in
+the workspace can steer, and convergence is re-measured on the steered answer.
+`engine.ResumableRun` persists the user node up front and the assistant node only
+on true completion, so a paused run never leaves an empty reply.
+
+Two cost/quality guards worth naming: the **web-research detour is skipped
+entirely** when there is no search backend (`TAVILY_API_KEY`) or the host policy
+forbids it (`DEEP_REASONING_ALLOW_RESEARCH`, FR-14) — previously the workers
+burned LLM calls feeding "[search unavailable]" placeholders back into the loop.
 
 ---
 
@@ -313,17 +353,88 @@ backend/engine/ouroboros/
 
 ---
 
+### The empirical layer (July 4)
+
+The AI stack now has the discipline that separates demo-grade from
+production-grade:
+
+- **Context is managed, not truncated** (`context.py`): the window is
+  token-budgeted as well as turn-capped; elided turns are admitted in a system
+  note and the ones relevant to the current question come back via **semantic
+  recall** over the engine's embedder; reference transcripts are per-turn
+  truncated under a shared budget.
+- **Prompt-injection defenses for the multiplayer surface**: referenced
+  threads and recalled turns ride inside `<quoted-context>` boundaries with
+  explicit data-not-instructions rules; titles are sanitized; the system frame
+  declares author prefixes system-attached so in-message `[admin]` spoofs carry
+  no authority.
+- **Every deep run leaves a durable record** (`run_log.py`, `deep_runs` table):
+  question, answer, stop reason, signal trajectories, steers, token cost, and a
+  compact step trace — readable via `GET /conversations/{id}/deep/runs` and
+  `/conversations/deep/runs/{run_id}/record`. Yesterday's weird run is a query,
+  not a shrug.
+- **An eval harness** (`backend/evals/`): an 18-question golden set, fixed-N
+  baseline arms vs the adaptive controller (same production wiring, output
+  parity), and a blind absolute LLM judge — the experiment that tests the
+  research claim instead of asserting it.
+- **And its first measured result** (pilot, July 5 — full analysis in
+  `backend/evals/FINDINGS.md`): all six adaptive runs halted on genuine
+  convergence (never the budget cap), and the controller **dominated the
+  fixed-4 "just think longer" baseline on every tier at 29% fewer tokens**
+  (8.17 vs 8.00 mean score, 5.4k vs 7.6k mean tokens). The honest other half:
+  single-pass won the pilot outright (8.83 at 1.6k tokens) — on questions a
+  70B model already answers well, extra refinement dilutes more than it
+  deepens. So the defensible claim is narrower and better: *if you iterate,
+  converge — don't count*; the next experiment is a question set hard enough
+  that single-pass actually fails (`evals/questions-hard.json` is that set,
+  authored and waiting for its run).
+
+### The production layer (July 6)
+
+The AI lane was then completed for scale and robustness — five commits, each
+one tested (`351137c` → `bd0b95e`, 177 tests). The full integration contract
+for the frontend and DB lanes is **`AI-LANE-CONTRACTS.md`** (repo root); the
+one-paragraph version:
+
+- **Provider resilience**: retry/backoff before the first token, per-endpoint
+  circuit breakers, safe fallback to the server provider (never onto a hosted
+  operator's key), a model-capability registry, and a wall-clock deadline per
+  deep-run segment.
+- **Durable deep runs**: runs execute server-side in background tasks — a
+  dropped connection no longer kills a three-minute run; reconnect
+  (`GET /deep/runs/{id}/stream?after=N`), status, kill, and a visible
+  per-workspace queue protect BYO-key rate limits.
+- **A persisted retrieval substrate**: every node embedded once
+  (version-stamped rows; embedder upgrades re-embed lazily); semantic recall
+  reads stored vectors instead of re-embedding threads per send.
+- **File grounding (the market validation's #1 gap)**: a workspace knowledge
+  base — upload → chunk → embed; chat turns ground on relevant chunks inside
+  the same quoted-data boundaries, with `grounding` citation events for the
+  UI. Retrieval is dense-vector on the shared embedder, a decision argued in
+  `api/documents/service.py`'s docstring.
+- **Provenance + rituals**: every run stamps model/thresholds/embedder; an
+  adversarial injection regression corpus runs on every commit (it already
+  caught and fixed a real gap in the recall path); calibration readout in
+  `evals/calibration.py`.
+
 ### Known rough edges (be honest in Q&A)
 
-- **Reply formatting / "voice."** *Addressed.* Chat now gets an explicit
-  conversational system-prompt voice, the Ouroboros surface answer gets a
-  humanize rewrite (§6), and the UI renders replies as **Markdown**
-  (`components/common/Markdown.tsx`) so bold/lists/code render instead of showing
-  literal `**`/`-`. Remaining polish is subjective tuning, not a gap.
-- **Rigidity.** Deep-reasoning mode, budgets, and thresholds are largely fixed per
-  preset right now; making them feel more fluid/interactive is future work.
-- **Server-side RBAC.** Roles are enforced in the UI; the chat routes don't yet
-  re-check membership/role server-side (private-conversation visibility *is*
-  enforced).
+- **Reply formatting / "voice."** *Addressed.* Conversational system-prompt
+  voice, the Ouroboros humanize rewrite (§6), and Markdown rendering in the UI.
+- **Server-side RBAC.** *Addressed.* Every conversation/prompt route derives
+  identity from the JWT and checks membership + role server-side; private
+  threads are author-only; the realtime room is gated the same way.
+- **Rigidity.** *Largely addressed* by guided runs (steer between cycles) and
+  embedder-aware thresholds; per-run budget/mode controls in the UI are still
+  future work.
+- **Self-reported confidence.** *Mitigated, not eliminated.* Unreported ratings
+  are flagged and can't satisfy the convergence gate, and perturb-on-stall stops
+  a stuck loop from shipping on stability alone — but calibration (does 0.9 mean
+  right 90% of the time?) is not yet *measured*; the instrument now exists
+  (`python -m evals.calibration --judge` over the accumulating run records) and
+  just needs data volume.
+- **Energy/mood are telemetry theater** — interpretable meters from the
+  engine's introspection origins, not measured signals. Say so if asked.
+- **FR-14** is a server-side policy flag today, not a per-role allowlist UI.
 
 *These are the things to say out loud rather than hide — they're scoped and known.*

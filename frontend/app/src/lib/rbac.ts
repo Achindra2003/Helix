@@ -7,9 +7,11 @@ export type Action =
   | "message.send"
   | "branch.fork"
   | "prompt.write"
+  | "document.write" // upload / delete-own (owner deletes any)
   | "run.escalate"
   | "run.control" // steer / kill
   | "member.manage"
+  | "workspace.manage" // rename / delete the workspace itself
   | "permission.edit";
 
 const MATRIX: Record<Action, Record<Role, boolean>> = {
@@ -17,9 +19,11 @@ const MATRIX: Record<Action, Record<Role, boolean>> = {
   "message.send": { owner: true, collaborator: true, observer: false },
   "branch.fork": { owner: true, collaborator: true, observer: false },
   "prompt.write": { owner: true, collaborator: true, observer: false },
+  "document.write": { owner: true, collaborator: true, observer: false },
   "run.escalate": { owner: true, collaborator: true, observer: false },
   "run.control": { owner: true, collaborator: true, observer: false },
   "member.manage": { owner: true, collaborator: false, observer: false },
+  "workspace.manage": { owner: true, collaborator: false, observer: false },
   "permission.edit": { owner: true, collaborator: false, observer: false },
 };
 
@@ -32,9 +36,11 @@ export const PERMISSION_ROWS: { key: string; action: Action }[] = [
   { key: "message.send", action: "message.send" },
   { key: "branch.fork", action: "branch.fork" },
   { key: "prompt.write", action: "prompt.write" },
+  { key: "document.upload / delete", action: "document.write" },
   { key: "run.escalate", action: "run.escalate" },
   { key: "run.steer / run.kill", action: "run.control" },
   { key: "member.invite / role", action: "member.manage" },
+  { key: "workspace.rename / delete", action: "workspace.manage" },
   { key: "permission.edit", action: "permission.edit" },
 ];
 

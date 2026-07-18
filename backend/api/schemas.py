@@ -26,8 +26,17 @@ class AuthResponse(BaseModel):
     token: str
 
 
+class ChangePasswordRequest(BaseModel):
+    current_password: str
+    new_password: str = Field(min_length=6, max_length=200)
+
+
 # --- Workspaces (§5) ---
 class WorkspaceCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=120)
+
+
+class WorkspaceRename(BaseModel):
     name: str = Field(min_length=1, max_length=120)
 
 

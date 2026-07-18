@@ -7,6 +7,7 @@ import { Button } from "@/components/common/Button";
 import { Field, Input } from "@/components/common/Input";
 import { Logo } from "@/components/brand/Logo";
 import { Frontispiece } from "@/components/brand/Frontispiece";
+import { ThemeToggle } from "@/components/common/ThemeToggle";
 import s from "./auth.module.css";
 
 export function AuthPage() {
@@ -44,6 +45,7 @@ export function AuthPage() {
 
   return (
     <div className={s.wrap}>
+      <ThemeToggle floating />
       <div className={s.frontispiece}>
         <Frontispiece size={760} />
         <div className={s.epigraph}>"One shared context — many branching minds."</div>

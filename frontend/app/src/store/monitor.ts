@@ -7,7 +7,7 @@ export interface TraceStep {
   text: string;
 }
 
-export type RunStatus = "idle" | "live" | "done" | "killed" | "error";
+export type RunStatus = "idle" | "queued" | "live" | "waiting" | "done" | "killed" | "error";
 
 export interface RunState {
   status: RunStatus;
@@ -17,6 +17,10 @@ export interface RunState {
   loopGuard: number;
   stability: number;
   confidence: number;
+  // Convergence made visible: every per-cycle stability reading, plus the
+  // run's resolved halting threshold (delivered on step payloads; 0.90 default).
+  stabilityHistory: number[];
+  threshold?: number;
   budgetPct: number;
   tokensUsed: number;
   steps: TraceStep[];
@@ -25,6 +29,14 @@ export interface RunState {
   abort?: () => void;
   conversationId?: string;
   branchId?: string;
+  // Guided runs (FR-11): the server-side run handle, and the callback the
+  // monitor invokes to resume a paused run with (optional) human guidance.
+  runId?: string;
+  onSteer?: (guidance: string) => void;
+  // Waiting behind the workspace's concurrency cap (the `queued` frame).
+  queuePosition?: number;
+  // False on watch-only runs (a teammate's) — hides the Stop control.
+  canControl?: boolean;
 }
 
 interface MonitorStore {

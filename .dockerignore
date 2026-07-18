@@ -1,0 +1,65 @@
+# What Docker must NOT copy into the build.
+#
+# Everything here is either useless in the image, harmful in it, or just slow
+# to send. Docker copies the whole project folder ("build context") to the
+# daemon before it runs a single instruction, so an unignored .venv or
+# node_modules costs a gigabyte on every build.
+
+# --- Harmful: host-built, platform-specific ---
+# The venv is compiled for macOS/arm64. Inside a Linux container it is not
+# just dead weight (~1.1 GB, torch alone is 533 MB) — if it shadowed the
+# container's own site-packages the app would fail in confusing ways.
+backend/.venv/
+backend/venv/
+**/node_modules/
+
+# --- Secrets: never bake credentials into an image layer ---
+# Image layers are readable by anyone who pulls the image. Config arrives at
+# *run* time via compose env_file, never at build time.
+.env
+**/.env
+!.env.example
+
+# --- Local state: the container makes its own ---
+*.db
+*.sqlite
+*.sqlite3
+backend/helix.db
+
+# --- Build output: stage 1 rebuilds this from source ---
+frontend/app/dist/
+frontend/dist/
+
+# --- Dev-only: the baton says keep e2e and Playwright out of the image ---
+frontend/app/e2e/
+**/.pytest_cache/
+**/__pycache__/
+*.py[cod]
+**/.mypy_cache/
+**/.ruff_cache/
+
+# --- Version control & CI ---
+.git/
+.github/
+.gitignore
+
+# --- Editor / OS noise ---
+.vscode/
+.idea/
+.DS_Store
+**/.DS_Store
+
+# --- Documentation & coursework: none of it runs ---
+# ~12 MB of reports, zips and design mockups. Kept in the repo on purpose,
+# but there is no reason to ship them inside a running server.
+*.md
+!README.md
+*.docx
+*.pdf
+*.zip
+UIUX design request/
+Helix-LaTeX/
+docs/
+demo_artifacts/
+*.html
+read.txt

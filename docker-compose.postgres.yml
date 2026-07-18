@@ -1,0 +1,59 @@
+# Helix on Postgres — for the hosted instance, or any deployment that wants a
+# real database server, concurrent writers, and pg_dump backups.
+#
+#   docker compose -f docker-compose.postgres.yml up
+#
+# Self-hosters do not need this. The default docker-compose.yml (SQLite) is
+# the supported zero-infra install.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-helix}
+      POSTGRES_DB: ${POSTGRES_DB:-helix}
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    # No published port: only the app needs the database, and exposing 5432 to
+    # the host is an unnecessary attack surface. Add a ports: mapping only if
+    # you want to connect with a local client.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helix}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helix:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: helix:latest
+    restart: unless-stopped
+    ports:
+      - "8000:8000"
+    environment:
+      # NOTE the "+asyncpg" driver. api/db.py uses SQLAlchemy's async engine,
+      # which cannot drive a plain "postgresql://" URL — that form selects the
+      # synchronous psycopg2 driver, which is not installed, and the app dies
+      # on startup. The previous compose file had exactly that bug.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helix}:${POSTGRES_PASSWORD:-helix}@postgres:5432/${POSTGRES_DB:-helix}
+      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+    depends_on:
+      postgres:
+        # Wait for the database to actually accept connections, not merely for
+        # its container to exist — otherwise the app races it and crashes.
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+volumes:
+  postgres-data:

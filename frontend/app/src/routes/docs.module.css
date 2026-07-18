@@ -1,0 +1,65 @@
+.scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 30px 40px 50px; }
+.inner { max-width: 980px; margin: 0 auto; }
+.headRow { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; }
+
+/* upload drop zone — a dashed bookplate awaiting a document */
+.drop {
+  margin: 24px 0 14px; border: 1.5px dashed var(--rule); border-radius: 12px;
+  background: var(--paper); padding: 26px 20px; text-align: center; cursor: pointer;
+  color: var(--ink-3); transition: border-color 0.15s, background 0.15s;
+  display: flex; flex-direction: column; align-items: center; gap: 7px;
+}
+.drop:hover, .dropActive { border-color: var(--gilt); background: var(--paper-3); }
+.dropGlyph { font-size: 22px; color: var(--gilt-1); }
+.dropHint { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
+
+/* knowledge-base search (same ranking chat grounding uses) */
+.search {
+  display: flex; align-items: center; gap: 10px; background: var(--paper);
+  border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; margin: 14px 0;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
+}
+.search:focus-within { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.14); }
+.searchInput { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); }
+
+.hit {
+  background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 11px;
+  padding: 13px 17px; display: flex; flex-direction: column; gap: 7px;
+}
+.hitHead { display: flex; align-items: baseline; gap: 10px; }
+.hitScoreBar { height: 3px; border-radius: 2px; background: var(--rule-soft); flex: 0 0 72px; overflow: hidden; }
+.hitScoreFill { height: 100%; background: var(--gilt); }
+.hitBody { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
+
+.list { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 38px; }
+.row {
+  background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 11px;
+  padding: 13px 17px; display: flex; align-items: center; gap: 14px;
+}
+.docGlyph {
+  width: 40px; height: 40px; border-radius: 9px; flex: 0 0 auto;
+  display: flex; align-items: center; justify-content: center;
+  font-family: var(--font-mono); font-size: 11px; font-weight: 600; letter-spacing: 0.04em;
+  background: var(--paper-3); border: 1px solid var(--rule-soft); text-transform: uppercase;
+}
+.docName { font-size: 15px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.docMeta { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.docError { font-size: 12.5px; color: var(--oxblood); margin-top: 3px; }
+
+.status { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--rule); border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
+.statusReady { color: var(--verde); border-color: rgba(70, 98, 76, 0.45); }
+.statusProcessing { color: var(--gilt-1); border-color: rgba(154, 122, 44, 0.5); animation: hx-breathe 1.6s ease-in-out infinite; }
+.statusError { color: var(--oxblood); border-color: rgba(143, 62, 19, 0.45); }
+@keyframes hx-breathe { 0%, 100% { opacity: 1; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .statusProcessing { animation: none; } }
+
+.delete {
+  background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 6px;
+  font-size: 12px; padding: 3px 9px; cursor: pointer; flex: 0 0 auto;
+}
+.delete:hover { border-color: var(--oxblood); color: var(--oxblood); }
+
+@media (max-width: 760px) {
+  .scroll { padding: 20px 16px 40px; }
+  .docMeta { gap: 7px; }
+}

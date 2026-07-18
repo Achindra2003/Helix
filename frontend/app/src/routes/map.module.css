@@ -1,0 +1,151 @@
+/* The Map — the workspace's reasoning graph on a parchment canvas. */
+
+.wrap {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+.toolbar {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 22px 10px;
+  border-bottom: 1px solid var(--rule-soft);
+}
+
+.title {
+  font-family: var(--font-display);
+  font-size: 17px;
+  letter-spacing: 0.06em;
+  color: var(--ink);
+}
+
+.legend {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: var(--ink-3);
+}
+
+.legend span { display: inline-flex; align-items: center; gap: 5px; }
+
+.canvas {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  cursor: grab;
+  touch-action: none;
+  position: relative;
+}
+
+.canvas:active { cursor: grabbing; }
+
+.svg { width: 100%; height: 100%; display: block; }
+
+.cartouche {
+  cursor: pointer;
+}
+.cartouche:hover .cartoucheBox { stroke: var(--oxblood); }
+
+.cartoucheBox {
+  fill: var(--paper-2);
+  stroke: var(--rule);
+  stroke-width: 1;
+}
+
+.cartoucheText {
+  font-family: var(--font-display);
+  font-size: 13px;
+  fill: var(--ink);
+  letter-spacing: 0.04em;
+}
+
+.branchLabel {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  fill: var(--ink-3);
+}
+
+.node { cursor: pointer; }
+.node:hover { stroke-width: 2.5; }
+
+.spine { stroke: var(--rule); stroke-width: 1.4; fill: none; }
+.forkEdge { stroke: var(--oxblood); stroke-width: 1.3; fill: none; opacity: 0.75; }
+.refEdge {
+  stroke: var(--gilt);
+  stroke-width: 1.4;
+  fill: none;
+  stroke-dasharray: 5 5;
+  opacity: 0.85;
+}
+
+/* presence dots breathe gently; stand still if the reader prefers */
+.presenceDot { animation: breathe 2.4s ease-in-out infinite; }
+@keyframes breathe {
+  0%, 100% { opacity: 0.95; }
+  50% { opacity: 0.45; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .presenceDot { animation: none; }
+}
+
+/* zoom controls — discoverable pan/zoom for anyone who doesn't reach for the wheel */
+.zoomCtl {
+  position: absolute; right: 16px; bottom: 16px; z-index: 10;
+  display: flex; flex-direction: column; gap: 5px;
+}
+.zoomCtl button {
+  width: 32px; height: 32px; border-radius: 8px;
+  background: var(--paper); border: 1px solid var(--rule); color: var(--ink-2);
+  font-size: 15px; line-height: 1; display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 2px 8px rgba(36, 27, 18, 0.12);
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.zoomCtl button:hover { border-color: var(--gilt); background: var(--paper-3); }
+
+/* floating parchment excerpt card (screen-space, above the canvas) */
+.hoverCard {
+  position: fixed;
+  z-index: 60;
+  max-width: 340px;
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: var(--radius);
+  box-shadow: 0 6px 24px rgba(36, 27, 18, 0.22);
+  padding: 10px 13px;
+  pointer-events: none;
+}
+
+.hoverRole {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--ink-3);
+  margin-bottom: 4px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.hoverBody {
+  font-family: var(--font-read);
+  font-size: 13.5px;
+  color: var(--ink-2);
+  line-height: 1.45;
+  display: -webkit-box;
+  -webkit-line-clamp: 6;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.empty {
+  flex: 1;
+  display: grid;
+  place-items: center;
+  text-align: center;
+  padding: 40px;
+}

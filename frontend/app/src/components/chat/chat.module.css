@@ -3,21 +3,38 @@
 /* ---- left pane: conversations + lineage ---- */
 .left { background: var(--paper); border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; }
 .leftHead { padding: 15px 16px 11px; display: flex; align-items: center; justify-content: space-between; }
-.plus { background: none; border: none; color: var(--oxblood); font-size: 20px; line-height: 1; }
+.plus {
+  width: 24px; height: 24px; border-radius: 50%; flex: 0 0 auto;
+  background: transparent; border: 1px solid var(--rule); color: var(--oxblood);
+  font-size: 15px; line-height: 1; display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.plus:hover { border-color: var(--oxblood); background: var(--hover-tint); }
 .scrollList { overflow-y: auto; flex: 1; padding: 0 9px 12px; }
 .convRow { display: flex; gap: 9px; padding: 9px 8px; border-radius: 8px; cursor: pointer; border-left: 2px solid transparent; transition: background 0.12s; }
 .convRow:hover { background: var(--paper-3); }
-.convOn { background: var(--paper-3); border-left-color: var(--oxblood); }
+.convOn { background: var(--accent-tint); border-left-color: var(--oxblood); }
 .convTitle { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.convMeta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+.convMeta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 2px; }
+/* live presence on a conversation row: a teammate is reading this thread now */
+.rowDot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; align-self: center; animation: hx-breathe 2.4s ease-in-out infinite; }
+@keyframes hx-breathe { 0%, 100% { opacity: 0.95; } 50% { opacity: 0.45; } }
+@media (prefers-reduced-motion: reduce) { .rowDot { animation: none; } }
 .divider { margin: 16px 7px 8px; height: 1px; background: var(--rule-soft); }
 .lineHead { padding: 4px 7px 10px; display: flex; align-items: center; gap: 7px; }
 .branchRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
 .branchRow:hover { background: var(--paper-3); }
-.branchOn { background: var(--paper-3); box-shadow: inset 2px 0 0 var(--oxblood); }
+.branchOn { background: var(--accent-tint); box-shadow: inset 2px 0 0 var(--oxblood); }
 .branchDot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
 .branchName { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-.leftFoot { padding: 11px 16px; border-top: 1px solid var(--rule-soft); font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-faint); display: flex; align-items: center; gap: 7px; }
+/* branch housekeeping (rename/delete) — visible only when the row is touched */
+.branchAct {
+  background: none; border: none; color: var(--ink-3); font-size: 11.5px; padding: 0 3px;
+  cursor: pointer; opacity: 0; transition: opacity .15s; flex: 0 0 auto;
+}
+.branchRow:hover .branchAct { opacity: 1; }
+.branchAct:hover { color: var(--oxblood); }
+.leftFoot { padding: 11px 16px; border-top: 1px solid var(--rule-soft); font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
 .liveDot { width: 6px; height: 6px; border-radius: 50%; background: var(--verde); }
 
 /* ---- center stage ---- */
@@ -31,14 +48,54 @@
 
 /* message bubble */
 .msg { display: flex; gap: 14px; align-items: flex-start; animation: hx-rise 0.25s ease both; }
+/* author-colored margin rule on user turns (transparent on assistant turns,
+   so every bubble keeps the same left alignment) */
+.msgQuill { border-left: 2px solid transparent; padding-left: 12px; }
 .avatar { width: 34px; height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #f2e8ce; font-family: var(--font-display); }
 .avatarUser { border-radius: 50%; background: var(--gilt); }
-.avatarAsst { border-radius: 9px; background: linear-gradient(135deg, var(--oxblood), #5e1d14); }
+.avatarAsst { border-radius: 9px; background: linear-gradient(135deg, var(--oxblood), #5f2c0a); }
 .msgHead { display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; }
 .msgName { font-size: 13.5px; font-weight: 600; }
-.msgTime { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); }
+.msgTime { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 .msgBody { font-size: 15.5px; line-height: 1.62; color: var(--ink); white-space: pre-wrap; }
-.msgTokens { font-family: var(--font-mono); font-size: 11px; color: var(--ink-faint); margin-top: 7px; }
+.msgTokens { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 7px; }
+/* the thread's first assistant reply opens like a chapter */
+.dropCap p:first-of-type::first-letter {
+  font-family: var(--font-display);
+  font-size: 3.1em;
+  line-height: 0.82;
+  float: left;
+  color: var(--oxblood);
+  padding: 3px 8px 0 0;
+}
+/* an always-visible margin mark where branches split off */
+.forkMark {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--oxblood);
+  border: 1px solid rgba(143, 62, 19, 0.38);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+/* grounding citations: which knowledge-base chunks this reply drew on */
+.groundRow { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 9px; }
+.groundLabel { font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-3); }
+.groundChip {
+  font-family: var(--font-mono); font-size: 11px; color: var(--gilt-1);
+  border: 1px solid rgba(154, 122, 44, 0.45); border-radius: 5px; padding: 1px 7px;
+  background: rgba(154, 122, 44, 0.06); cursor: help;
+}
+
+/* token/provider line as a small centered colophon */
+.colophon {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  text-align: center;
+  margin-top: 12px;
+}
 .forkTag { font-family: var(--font-mono); font-size: 10.5px; color: var(--violet); border: 1px solid rgba(110,90,168,0.4); border-radius: 4px; padding: 1px 6px; }
 .cursor { display: inline-block; width: 8px; height: 17px; background: var(--oxblood); margin-left: 3px; vertical-align: text-bottom; animation: hx-blink 1s step-end infinite; }
 .forkHere { background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 5px; font-size: 11px; padding: 1px 7px; opacity: 0; transition: opacity .15s; }
@@ -46,15 +103,55 @@
 
 /* composer */
 .composerWrap { padding: 14px 26px 20px; border-top: 1px solid var(--rule-soft); position: relative; }
-.composer { background: var(--paper); border: 1px solid var(--rule); border-radius: 13px; padding: 12px 14px; display: flex; flex-direction: column; gap: 10px; box-shadow: 0 4px 22px rgba(36,27,18,0.10); }
+/* live attribution while a teammate's turn streams into this thread */
+.remoteBanner { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); margin-bottom: 9px; }
+.remoteBanner .rowDot { width: 8px; height: 8px; }
+.composer {
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 13px;
+  padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
+  box-shadow: 0 4px 22px rgba(36,27,18,0.10);
+  transition: border-color var(--dur-1), box-shadow var(--dur-2);
+}
+/* the page answers the quill: writing focus warms the frame */
+.composer:focus-within {
+  border-color: rgba(180, 95, 42, 0.6);
+  box-shadow: 0 6px 26px rgba(36, 27, 18, 0.14), 0 0 0 3px rgba(180, 95, 42, 0.12);
+}
 .ta { background: none; border: none; outline: none; resize: none; color: var(--ink); font-size: 15px; font-family: var(--font-read); line-height: 1.5; width: 100%; }
 .composerRow { display: flex; align-items: center; gap: 10px; }
-.sendBtn { background: linear-gradient(180deg, var(--oxblood-2), var(--oxblood)); color: #f4e9cf; border: 1px solid #6f2015; border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,240,215,0.16), 0 2px 9px rgba(140,43,30,0.26); transition: background 0.15s; }
-.sendBtn:hover:not(:disabled) { background: linear-gradient(180deg, var(--cinnabar), var(--oxblood-2)); }
+.sendBtn { background: linear-gradient(180deg, var(--seal-from), var(--seal-to)); color: var(--seal-text); border: 1px solid var(--seal-border); border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,240,215,0.16), 0 2px 9px rgba(143,62,19,0.28); transition: filter 0.15s; }
+.sendBtn:hover:not(:disabled) { filter: brightness(1.12); }
 .sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
 .readonly { background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 13px; padding: 14px 18px; display: flex; align-items: center; gap: 12px; color: var(--ink-3); }
+
+/* agent tool ledger (FR-14): what the model did before it answered — one
+   marginal line per tool call, like an apparatus criticus under the text */
+.toolLedger { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 9px; }
+.toolRow {
+  font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2);
+  display: flex; align-items: baseline; gap: 7px;
+  border-left: 2px solid var(--rule-soft); padding: 2px 0 2px 9px; min-width: 0;
+}
+.toolArgs { color: var(--ink-3); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; }
+.toolStatus { flex: 0 0 auto; }
+
+/* a sensitive tool call is holding for a human verdict */
+.approveBar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  font-size: 13px; color: var(--ink-2); margin-bottom: 9px; padding: 9px 13px;
+  background: var(--paper); border: 1px solid var(--gilt); border-radius: 11px;
+}
 
 @media (max-width: 1100px) {
   .grid { grid-template-columns: 1fr; }
   .left, :global(.monitor-pane) { display: none; }
+}
+
+/* small-screen pass (LAUNCH-PLAN): the stage header wraps instead of clipping,
+   and the canvas/composer breathe with tighter gutters */
+@media (max-width: 760px) {
+  .stageHead { flex-wrap: wrap; padding: 12px 14px 10px; gap: 9px; }
+  .canvas { padding: 16px 14px 10px; }
+  .composerWrap { padding: 10px 14px 14px; }
+  .stageTitle { font-size: 20px; }
 }

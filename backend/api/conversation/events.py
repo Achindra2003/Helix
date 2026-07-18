@@ -63,6 +63,85 @@ class Done:
 
 # --- Deep-reasoning extension events (Ouroboros runs — wired in E3/E4) ---
 @dataclass
+class DeepRunRegistered:
+    """First frame of every deep run: the handle for run control.
+
+    The client keeps `run_id` to steer a paused guided run
+    (POST /conversations/deep/runs/{run_id}/steer), to kill a runaway one,
+    and — since runs execute server-side — to *reconnect* to the live stream
+    (GET /conversations/deep/runs/{run_id}/stream) after a dropped connection.
+    """
+
+    run_id: str
+    kind: str = field(default="deep_run", init=False)
+
+
+@dataclass
+class RunQueued:
+    """The run is waiting behind others in this workspace (concurrency cap).
+
+    Emitted when a deep run can't start immediately; the stream stays open and
+    the run starts automatically when a slot frees up. `position` is 1-based.
+    """
+
+    position: int
+    kind: str = field(default="queued", init=False)
+
+
+@dataclass
+class Grounding:
+    """Documents this turn was grounded on (file RAG citations).
+
+    Emitted before the reply's tokens when workspace documents cleared the
+    relevance gate. Each item: {document_id, filename, chunk_index, score,
+    excerpt} — enough for the UI to render "grounded on: spec.pdf §3" and
+    link to the document.
+    """
+
+    items: list[dict[str, Any]] = field(default_factory=list)
+    kind: str = field(default="grounding", init=False)
+
+
+# --- Agent (tool-loop) extension events (FR-14 — api/tools/agent.py) ---
+@dataclass
+class AgentRunRegistered:
+    """First frame of every agent run: the handle for run control.
+
+    Agent runs share the deep-run control surface (reconnect via
+    GET /conversations/deep/runs/{run_id}/stream, status, kill); approval of
+    a paused sensitive tool call goes to
+    POST /conversations/agent/runs/{run_id}/approve.
+    """
+
+    run_id: str
+    kind: str = field(default="agent_run", init=False)
+
+
+@dataclass
+class ToolCall:
+    """The model requested a tool call. `sensitive` calls pause the run for
+    approval right after this frame (`waiting`, reason="approval")."""
+
+    id: str
+    name: str
+    arguments: dict[str, Any] = field(default_factory=dict)
+    sensitive: bool = False
+    kind: str = field(default="tool_call", init=False)
+
+
+@dataclass
+class ToolResult:
+    """A tool call resolved. `content` is a preview for the UI — the model
+    sees the full result. status: ok | error | denied."""
+
+    id: str
+    name: str
+    content: str
+    status: str = "ok"
+    kind: str = field(default="tool_result", init=False)
+
+
+@dataclass
 class Step:
     """One reasoning transition (reason / reflect / synthesize / ...)."""
 
@@ -102,7 +181,10 @@ class Complete:
 
 
 Event = (
-    UserNode | Token | AssistantNode | Done | Step | Budget | Waiting | Complete
+    UserNode | Token | AssistantNode | Done
+    | DeepRunRegistered | RunQueued | Grounding
+    | AgentRunRegistered | ToolCall | ToolResult
+    | Step | Budget | Waiting | Complete
 )
 
 

@@ -76,7 +76,10 @@ def create_ouroboros_graph(
     builder.add_conditional_edges(
         "synthesize",
         make_route_after_synthesis(config),
-        {"think": "think", "research": "plan_research", "surface": "surface"},
+        # `steer` is reachable here only in guided adaptive mode
+        # (config.adaptive_steer): the loop pauses for human input between
+        # refinement cycles, then steer -> think continues with the guidance.
+        {"think": "think", "research": "plan_research", "surface": "surface", "steer": "steer"},
     )
 
     # Send-based map-reduce: plan_research fans out to one worker per sub-query,

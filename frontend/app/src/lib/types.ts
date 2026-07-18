@@ -35,6 +35,15 @@ export interface Invite {
   expires_at: string;
 }
 
+// An outstanding (unexpired) invite, from the owner-only list endpoint.
+export interface InviteSummary {
+  token: string;
+  role: Role;
+  created_at: string;
+  expires_at: string;
+  url: string;
+}
+
 export interface Conversation {
   id: string;
   workspace_id: string;
@@ -80,6 +89,154 @@ export interface Prompt {
   tags: string[];
 }
 
+// --- Workspace Map (GET /workspaces/{wid}/map): the reasoning graph ---
+// Lean node skeleton — no content; excerpts load lazily via getHistory.
+export interface MapNode {
+  id: string;
+  branch_id: string;
+  parent_id: string | null;
+  seq: number;
+  role: "user" | "assistant" | "system";
+  author_id: string | null;
+}
+
+export interface MapConversation {
+  id: string;
+  title: string;
+  visibility: Visibility;
+  author_id: string;
+  default_branch_id: string;
+  branches: Branch[];
+  nodes: MapNode[];
+  references: string[]; // conversation ids this one draws live context from
+}
+
+// --- workspace documents (the knowledge base; AI-LANE-CONTRACTS §2.3) ---
+export interface WorkspaceDocument {
+  id: string;
+  filename: string;
+  mime: string;
+  size_bytes: number;
+  status: "processing" | "ready" | "error";
+  error: string | null;
+  text_chars: number;
+  chunk_count: number;
+  author_id: string;
+  created_at: string;
+}
+
+// One grounded source behind a reply — arrives as a `grounding` frame before
+// the reply's tokens (SSE and the WS run_event relay alike).
+export interface GroundingItem {
+  document_id: string;
+  filename: string;
+  chunk_index: number;
+  score: number;
+  excerpt: string;
+}
+
+// A ranked chunk from POST /documents/search — the same scoring chat grounding uses.
+export interface DocumentSearchHit {
+  document_id: string;
+  filename: string;
+  chunk_index: number;
+  score: number;
+  content: string;
+}
+
+// --- deep-run archive (endpoints live since July 4; P4 gives them a face) ---
+export interface DeepRunSummary {
+  id: string;
+  question: string;
+  status: string; // done | killed | error
+  stop_reason: string;
+  depth: number;
+  stability: number;
+  confidence: number;
+  tokens_used: number;
+  duration_ms: number;
+  created_at: string;
+}
+
+// One persisted trace entry (compact excerpts, not archival replay).
+export interface DeepRunTraceStep {
+  idx: number;
+  node: string;
+  depth: number;
+  stability?: number;
+  confidence?: number;
+  thought?: string;
+  synthesis?: string;
+  surfaced_insight?: string;
+  challenge?: string;
+  [k: string]: unknown;
+}
+
+export interface DeepRunRecord extends DeepRunSummary {
+  conversation_id: string;
+  branch_id: string;
+  author_id: string;
+  answer: string;
+  trace: { steps: DeepRunTraceStep[]; stability_history: number[]; steers: string[] };
+  // The trust story: what produced this run (model, thresholds, embedder, key source).
+  model: string;
+  provenance: Record<string, unknown>;
+}
+
+// --- cross-conversation search (POST /api/workspaces/{wid}/search) ---
+// Semantic hits over the workspace's conversation history — shared threads
+// plus the caller's own private ones (the server enforces visibility).
+export interface WorkspaceSearchHit {
+  node_id: string;
+  conversation_id: string;
+  conversation_title: string;
+  branch_id: string;
+  role: "user" | "assistant" | "system";
+  excerpt: string;
+  score: number;
+  author_id: string | null;
+  created_at: string;
+}
+
+// --- workspace usage (GET /api/workspaces/{wid}/usage) ---
+// chat_tokens_approx is a streamed chunk count, not a real tokenizer count —
+// label it as approximate wherever it renders. deep_run_tokens is measured.
+// `calls` is the usage ledger: provider-reported tokens per (kind, model),
+// with cost estimated from a static price table (null = model not listed).
+export interface LlmCallAggregate {
+  kind: "chat" | "deep";
+  provider: string;
+  model: string;
+  calls: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number | null;
+}
+
+export interface WorkspaceUsage {
+  chat_tokens_approx: number;
+  deep_run_tokens: number;
+  calls?: LlmCallAggregate[];
+  estimated_cost_usd?: number | null;
+}
+
+// --- agent tools (FR-14; GET/PUT /api/workspaces/{wid}/settings/tools) ---
+// `available` = can work in this deployment (e.g. web search needs a server
+// key); `allowed` = the owner permits it here. The model is only ever offered
+// tools that are both — everything else stays out of its world entirely.
+export interface ToolCatalogItem {
+  name: string;
+  description: string;
+  sensitive: boolean; // sensitive ⇒ every call pauses for human approval
+  available: boolean;
+  allowed: boolean;
+}
+
+export interface ToolSettings {
+  allowed: string[];
+  items: ToolCatalogItem[];
+}
+
 export interface Health {
   status: string;
   db_time: string;
@@ -89,8 +246,17 @@ export interface Health {
 // --- SSE event frames (the engine's run contract; `kind` tags the type) ---
 export type RunEvent =
   | { kind: "user_node"; node: Node }
+  | { kind: "grounding"; items: GroundingItem[] }
   | { kind: "token"; text: string }
   | { kind: "assistant_node"; node: Node }
+  | { kind: "deep_run"; run_id: string }
+  // Agent (tool-loop) frames — FR-14. `agent_run` is the control handle;
+  // a sensitive `tool_call` is followed by waiting(reason="approval") until
+  // POST /conversations/agent/runs/{run_id}/approve decides it.
+  | { kind: "agent_run"; run_id: string }
+  | { kind: "tool_call"; id: string; name: string; arguments: Record<string, unknown>; sensitive: boolean }
+  | { kind: "tool_result"; id: string; name: string; content: string; status: "ok" | "error" | "denied" }
+  | { kind: "queued"; position: number }
   | { kind: "step"; idx: number; node: string; depth: number; energy: number; payload: Record<string, unknown> }
   | { kind: "budget"; tokens_used: number; tokens_budget: number; pct: number }
   | { kind: "waiting"; reason: string }

@@ -1,0 +1,15 @@
+{
+ "description": "The frontier set: questions engineered so a single pass plausibly FAILS \u00e2\u20ac\u201d interacting constraints that punish the first coherent-sounding answer, checkable structures where an unverified guess is usually wrong, and specs whose requirements conflict unless noticed. This is the set FINDINGS.md's next-experiment #1 calls for: refinement can only show a quality win where fixed-1 actually breaks. Run: python -m evals.harness --questions evals/questions-hard.json --arms fixed-1,fixed-4,adaptive",
+ "questions": [
+  {
+   "id": "hf-api",
+   "tier": "hard",
+   "question": "Design a pagination contract for an activity feed where items can be inserted *and deleted* between page fetches, clients may cache pages for hours, ordering is by (score, recency) not pure time, and the same item must never appear twice across pages a client stitches together. Offset, simple cursor, and snapshot approaches each break at least one requirement \u00e2\u20ac\u201d identify which breaks what, then give a contract that satisfies all four."
+  },
+  {
+   "id": "hf-budget",
+   "tier": "hard",
+   "question": "You have a $200/month cloud budget and must run: a Postgres instance with 50GB and daily backups, a web API at ~30 req/s sustained, background workers processing 2M jobs/month averaging 400ms CPU each, and log retention of 30 days at 5GB/day. Produce a concrete allocation with real-world price arithmetic (state your assumed unit prices), verify the total is under budget, and identify the single line item most likely to blow up first."
+  }
+ ]
+}

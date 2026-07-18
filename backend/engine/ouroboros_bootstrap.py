@@ -26,6 +26,7 @@ def load_ouroboros():
 
     import ouroboros
     import ouroboros.graph  # noqa: F401  (exposes create_ouroboros_graph)
+    import ouroboros.memory  # noqa: F401  (exposes get_embedder, for threshold calibration)
     import ouroboros.models  # noqa: F401
     import ouroboros.presets  # noqa: F401
     import ouroboros.usage  # noqa: F401

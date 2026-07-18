@@ -1,0 +1,145 @@
+"""Workspace realtime rooms — presence + live fan-out (FR-5, NFR-1/7).
+
+One WebSocket room per workspace. Members connect at
+``/ws/workspaces/{workspace_id}?token=<jwt>`` (browsers can't set headers on a
+WebSocket, so the JWT rides a query param and is verified exactly like the
+Authorization header). The room then does two jobs:
+
+- **Presence** — every join/leave broadcasts the current roster, so the UI can
+  show who is actually here, live.
+- **Fan-out** — the HTTP routes call :func:`broadcast` when something changes
+  (a turn streaming on a shared thread, a new conversation, a fork, a saved
+  prompt), and every *other* member's client updates without a refresh. The
+  sender is excluded: their own SSE stream / mutation response already carries
+  the change.
+
+Scale note (NFR-4): rooms are in-process dicts — exactly right for one API
+process. Multi-process deployment swaps this module for a Redis pub/sub with
+the same two functions; nothing above this seam changes.
+"""
+from __future__ import annotations
+
+import json
+from collections import defaultdict
+
+import jwt as pyjwt
+from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
+from sqlalchemy import select
+
+from .db import SessionLocal
+from .models import Membership, User
+from .security import decode_token
+
+router = APIRouter(tags=["realtime"])
+
+# workspace_id -> { WebSocket: {"user_id", "email"} }
+_rooms: dict[str, dict[WebSocket, dict]] = defaultdict(dict)
+
+
+def roster(workspace_id: str) -> list[dict]:
+    """Unique online users in a workspace (one entry even with several tabs).
+
+    `viewing` is the branch the user has open right now (client-reported, see
+    the read loop) — with several tabs, any tab that *is* viewing a branch wins
+    over an idle one, so the Map's presence dot doesn't flicker off when a
+    second tab opens.
+    """
+    seen: dict[str, dict] = {}
+    for info in _rooms.get(workspace_id, {}).values():
+        prev = seen.get(info["user_id"])
+        entry = {
+            "user_id": info["user_id"],
+            "email": info["email"],
+            "viewing": info.get("viewing"),
+            "viewing_conversation": info.get("viewing_conversation"),
+        }
+        if entry["viewing"] is None and prev and prev["viewing"] is not None:
+            entry["viewing"] = prev["viewing"]
+            entry["viewing_conversation"] = prev["viewing_conversation"]
+        seen[info["user_id"]] = entry
+    return sorted(seen.values(), key=lambda u: u["email"])
+
+
+async def broadcast(
+    workspace_id: str, payload: dict, exclude_user: str | None = None
+) -> None:
+    """Send `payload` to every room member (minus `exclude_user`'s sockets).
+
+    Never raises: a dead socket is dropped, not propagated — realtime is an
+    overlay, and a broken listener must not break the sender's request.
+    """
+    room = _rooms.get(workspace_id)
+    if not room:
+        return
+    message = json.dumps(payload)
+    for ws, info in list(room.items()):
+        if exclude_user is not None and info["user_id"] == exclude_user:
+            continue
+        try:
+            await ws.send_text(message)
+        except Exception:
+            room.pop(ws, None)
+
+
+async def _broadcast_presence(workspace_id: str) -> None:
+    await broadcast(
+        workspace_id,
+        {"kind": "presence", "workspace_id": workspace_id, "users": roster(workspace_id)},
+    )
+
+
+@router.websocket("/ws/workspaces/{workspace_id}")
+async def workspace_room(
+    ws: WebSocket, workspace_id: str, token: str = Query(default="")
+):
+    # Same identity + membership gate as the HTTP routes (custom close codes
+    # live in the 4000-4999 app range).
+    try:
+        user_id = decode_token(token)
+    except pyjwt.PyJWTError:
+        await ws.close(code=4401)
+        return
+    async with SessionLocal() as session:
+        user = await session.get(User, user_id)
+        member = user and await session.scalar(
+            select(Membership).where(
+                Membership.workspace_id == workspace_id,
+                Membership.user_id == user.id,
+            )
+        )
+    if not member:
+        await ws.close(code=4403)
+        return
+
+    await ws.accept()
+    _rooms[workspace_id][ws] = {"user_id": user.id, "email": user.email}
+    await _broadcast_presence(workspace_id)
+
+    try:
+        # The read loop keeps the connection alive (ping/pong for proxies) and
+        # accepts one client-reported fact: which branch this user is viewing
+        # (`{"kind": "viewing", "branch_id": ...|null}`), folded into presence
+        # so the Map can put live dots on the branches teammates have open.
+        while True:
+            text = await ws.receive_text()
+            if text == "ping":
+                await ws.send_text(json.dumps({"kind": "pong"}))
+                continue
+            try:
+                msg = json.loads(text)
+            except ValueError:
+                continue
+            if isinstance(msg, dict) and msg.get("kind") == "viewing":
+                branch_id = msg.get("branch_id")
+                conv_id = msg.get("conversation_id")
+                info = _rooms[workspace_id][ws]
+                info["viewing"] = branch_id if isinstance(branch_id, str) else None
+                info["viewing_conversation"] = (
+                    conv_id if isinstance(conv_id, str) and info["viewing"] else None
+                )
+                await _broadcast_presence(workspace_id)
+    except WebSocketDisconnect:
+        pass
+    finally:
+        _rooms[workspace_id].pop(ws, None)
+        await _broadcast_presence(workspace_id)
