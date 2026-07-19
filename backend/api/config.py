@@ -33,6 +33,50 @@ class Settings(BaseSettings):
     # it (an intermittent failure that only appears under concurrency).
     db_pooled: bool = False
 
+    # Give every new account a populated example workspace (api/onboarding.py):
+    # a forked thread, a reference edge, a finished deep-run trace, and an
+    # ingested document. Static content, so it costs no tokens and works before
+    # a provider key is pasted — which is the point, since the features worth
+    # seeing are the ones that otherwise need a key.
+    seed_example_workspace: bool = True
+
+    # --- Public instance notice -------------------------------------------------
+    # Text for the banner a hosted demo shows on every page ("data may be wiped
+    # with notice; self-host for keeps"). Empty (the default) means no banner,
+    # which is right for a self-hosted install: it is *their* instance and their
+    # data, so the warning would be a lie. Served unauthenticated because the
+    # login screen has to show it too — keep it to a notice, never anything
+    # that would matter to a stranger.
+    public_notice: str = ""
+    # Where the notice's "self-host" link points. Separate from the text so an
+    # operator can retarget it to their own fork without rewriting the sentence.
+    public_notice_link: str = "https://github.com/Achindra2003/Helix"
+
+    # --- Crash reporting (api/monitoring.py) ------------------------------------
+    # Unset (the default) = no reporting, no SDK, no network client. A
+    # self-hoster's errors are theirs, not ours.
+    sentry_dsn: str = ""
+    sentry_environment: str = "production"
+    # Errors are always reported; performance traces are sampled separately and
+    # default to off, because tracing on a free tier consumes the quota that
+    # error reporting actually needs.
+    sentry_traces_sample_rate: float = 0.0
+
+    # --- Transactional email (api/email.py) -------------------------------------
+    # Unset = no email sent; the reset link is logged instead, which is what a
+    # self-hoster and a local developer both want. Email *verification* is
+    # deliberately not implemented: BYO keys mean a fake account cannot spend
+    # anything, so it would be friction without safety.
+    resend_api_key: str = ""
+    # Must be an address on a domain verified in your Resend account, or Resend
+    # rejects the send.
+    email_from: str = "Helix <onboarding@resend.dev>"
+    # Short by design: a reset link is a bearer credential sitting in an inbox.
+    # Long enough to survive slow mail delivery, short enough that a forwarded
+    # or leaked message goes stale quickly. Completing a reset invalidates the
+    # link immediately regardless (see security.make_reset_token).
+    password_reset_ttl_minutes: int = 30
+
     jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_alg: str = "HS256"
     jwt_ttl_hours: int = 24 * 7

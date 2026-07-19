@@ -31,6 +31,16 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=200)
 
 
+class ForgotPasswordRequest(BaseModel):
+    email: EmailStr
+
+
+class ResetPasswordRequest(BaseModel):
+    token: str
+    # Same floor as registration: a reset must not be a way around the policy.
+    new_password: str = Field(min_length=6, max_length=200)
+
+
 # --- Workspaces (§5) ---
 class WorkspaceCreate(BaseModel):
     name: str = Field(min_length=1, max_length=120)

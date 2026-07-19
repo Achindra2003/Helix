@@ -125,9 +125,17 @@ def limit_for(method: str, path: str) -> _Window | None:
     if not settings.rate_limit_enabled or method.upper() not in {"POST", "PUT", "PATCH"}:
         return None
 
-    # Account creation and login: keyed by IP in practice, since neither
-    # carries a token. Guards both mass-signup and password guessing.
-    if path in ("/api/auth/register", "/api/auth/login"):
+    # Account creation, login, and the reset flow: keyed by IP in practice,
+    # since none of them carries a token. Guards mass-signup, password
+    # guessing, and — for forgot-password — an open endpoint that makes the
+    # server send email to an address of the caller's choosing, which is both a
+    # billing problem and a way to have your sending domain reported as spam.
+    if path in (
+        "/api/auth/register",
+        "/api/auth/login",
+        "/api/auth/forgot-password",
+        "/api/auth/reset-password",
+    ):
         return _Window("auth", settings.rate_limit_auth_per_hour, 3600.0)
 
     if path.startswith("/conversations"):

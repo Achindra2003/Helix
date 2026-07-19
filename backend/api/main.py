@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, rate_limit, telemetry
+from . import db, monitoring, rate_limit, telemetry
 from .config import secure_jwt_secret, settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
@@ -23,6 +23,9 @@ async def lifespan(app: FastAPI):
     # Assigned back onto `settings` because security.py and provider_settings.py
     # read `settings.jwt_secret` at call time.
     settings.jwt_secret = secure_jwt_secret()
+    # Crash reporting first, so a failure during the rest of startup is itself
+    # reported. No-op unless SENTRY_DSN is set.
+    monitoring.init_monitoring()
     telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
     yield
@@ -161,6 +164,25 @@ async def health():
     """Proves all three tiers: process up, DB round-trips, provider selected."""
     db_time = await db.db_ping()
     return {"status": "ok", "db_time": db_time, "provider": settings.llm_provider}
+
+
+@app.get("/api/public-config")
+async def public_config():
+    """The few settings the UI needs before anyone has logged in.
+
+    Unauthenticated on purpose: the notice belongs on the login screen, which is
+    the one page a prospective user sees before deciding to trust the instance
+    with a password. That also makes this endpoint a standing invitation to leak
+    something — so it returns exactly the notice and nothing else. Anything
+    added here is readable by the entire internet.
+
+    Empty `notice` (the default) means self-hosted: no banner, because on your
+    own instance a warning about data being wiped would simply be false.
+    """
+    return {
+        "notice": settings.public_notice,
+        "notice_link": settings.public_notice_link,
+    }
 
 
 # --- Serve the built frontend (production image only) -------------------------

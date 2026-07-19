@@ -19,6 +19,12 @@ os.environ["JWT_SECRET"] = "test-secret"
 # test_rate_limit.py), so the behaviour is still covered — just not imposed on
 # every other test.
 os.environ["RATE_LIMIT_ENABLED"] = "0"
+# Example-workspace seeding off by default too: the suite registers hundreds of
+# users, most of them to test something unrelated, and a seeded workspace would
+# add embedding work to each one and change what "a new user's workspaces"
+# means for every test that counts them. api/tests/test_onboarding.py turns it
+# back on explicitly.
+os.environ["SEED_EXAMPLE_WORKSPACE"] = "0"
 
 # Fresh DB per test session (delete up front; leave the file behind afterwards
 # for post-mortem inspection).
