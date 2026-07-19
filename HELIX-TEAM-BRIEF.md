@@ -3,7 +3,8 @@
 **Who this is for:** every team member, before the presentation. Last time the
 professor picked a random person and asked a random question from the slides.
 This file exists so that never costs us marks again — read it once end-to-end
-(~25 minutes), then skim §12 (rapid-fire Q&A) the night before.
+(~25 minutes), then skim §12 (the countable facts) and §13 (rapid-fire Q&A)
+the night before.
 
 **How this fits the other docs:** this is the *breadth* doc — everything, one
 level deep. When you want depth on one thing: `HELIX-FEATURE-TRACES.md` (how
@@ -313,7 +314,93 @@ Open items: Mansoor's P2–P4 (P1 landed July 19); and three human items — the
 **license file** (the one legal blocker for open-source launch), the **demo
 GIF**, and the first **real users**.
 
-## 12. Rapid-fire Q&A — the questions a professor actually asks
+## 12. The countable facts — "how many X? name them"
+
+The exam-style inventory questions. These numbers are extracted from the
+code on `ui-standout` (July 19) — if the code changes, re-count before
+presenting.
+
+### Database: 15 tables (in 6 model files)
+
+| Group | Tables |
+|---|---|
+| Identity & tenancy (5) | `users`, `workspaces`, `workspace_settings`, `memberships`, `invites` |
+| Conversation core (5) | `conversations`, `branches`, `nodes`, `conversation_references`, `deep_runs` |
+| Knowledge & retrieval (3) | `documents`, `document_chunks`, `node_embeddings` |
+| Library & telemetry (2) | `prompts`, `llm_calls` |
+
+How they relate, in one breath: a **user** joins a **workspace** through a
+**membership** (which carries the role) or an **invite**; the workspace's
+BYO key and tool allowlist live in **workspace_settings**. A workspace has
+**conversations**; each conversation has **branches**; branches point into
+the shared immutable **node** tree (that's why forks are O(1));
+**conversation_references** are the cross-thread links drawn on the Map.
+Every node gets a row in **node_embeddings** (powers search, resurfacing,
+agent recall). Uploaded **documents** are split into embedded
+**document_chunks** (powers RAG citations). **deep_runs** archives every
+deep/agent run with provenance; **llm_calls** logs every provider call for
+the usage endpoint; **prompts** is the shared library.
+
+### Backend: 6 packages + 7 mounted routers, 66 routes
+
+Packages under `backend/api/` (each owns one concern):
+
+1. **`conversation/`** — the heart: `engine.py` (the shared send spine),
+   `producer.py` (chat producer), `deep_reasoning.py` (deep producer),
+   `runs.py` (server-side run registry), `store.py` (the
+   `ConversationStore` Protocol: memory + DB implementations),
+   `embeddings.py` (the node-embedding substrate), `events.py` (the SSE
+   event contract), `context.py` (token-budgeted context assembly),
+   `map.py`, `run_log.py`, `router.py`.
+2. **`documents/`** — RAG: ingestion `service.py`, `lexical.py` fallback
+   ranking, models, router.
+3. **`prompts/`** — the library (models, store, router).
+4. **`providers/`** — the LLM seam: `base.py` interface, `groq.py`,
+   `ollama.py`, `stub.py`, wrapped by `resilient.py`
+   (retry/circuit-breaker/fallback), plus `capabilities.py`, `pricing.py`.
+5. **`tools/`** — FR-14 agent mode: `builtin.py` (the tool catalog),
+   `agent.py` (the LangGraph tool loop with the approval gate).
+6. **`routers/`** — `auth.py`, `workspaces.py`.
+
+Top-level modules: `main.py`, `db.py`, `models.py`, `config.py`, `deps.py`,
+`security.py`, `schemas.py`, `realtime.py` (WS rooms), `telemetry.py`,
+`provider_settings.py` (key encryption), `errors.py`. The deep-reasoning
+engine itself is vendored separately at `backend/engine/ouroboros/`.
+
+Seven routers mounted in `main.py`: **auth, workspaces, conversations, map,
+prompts, documents, realtime**. Route count: **66 total — 65 HTTP endpoints
++ 1 WebSocket** (`/ws/workspaces/{id}`).
+
+### Frontend: 11 views, 5 component groups, 6 stores
+
+- **Views** (`src/routes/`): AuthPage, WorkspacePicker, WorkspaceLayout,
+  ChatView, DocsView, LibraryView, MapView, MembersView (TEAM), AccountView,
+  ProviderPanel, ToolsPanel.
+- **Component groups** (`src/components/`): `chat/` (Composer, MessageList,
+  BranchTree, ConversationList, ReplayBar), `monitor/`
+  (DeepReasoningMonitor, RunHistory), `shell/` (Rail, TopBar,
+  SearchOverlay), `common/` (Button, Dialog, Input, Markdown, Toast,
+  ThemeToggle, Feedback), `brand/` (Logo, Frontispiece, GrainOverlay).
+- **State stores** (zustand, `src/store/`): session, presence, monitor,
+  notifications, unread, insert.
+- **Lib layer** (`src/lib/`): api, sse, realtime, auth, rbac, theme,
+  format, types.
+
+### The other small numbers
+
+- **Roles: 3** — owner ⊃ collaborator ⊃ observer.
+- **LLM providers: 3** — groq, ollama, stub (tests) — behind one interface.
+- **Builtin agent tools: 3** — `search_knowledge_base`,
+  `search_conversations`, `web_search` (greyed out without a Tavily key).
+- **Requirements: 16 FRs** (14 original + 2 added: RAG, BYO keys), **9
+  NFRs** (6 delivered, 3 partial: Postgres RLS, Redis fan-out, container
+  exercised — the partials are Mansoor's lane).
+- **Tests: 261** hermetic backend + a 10-step browser e2e + a 15-check
+  2-user live e2e.
+- **Eval: 3 arms × 8 hard questions = 24 runs**; fixed-1 8.75, adaptive
+  8.63 (converged 8/8), fixed-4 8.13.
+
+## 13. Rapid-fire Q&A — the questions a professor actually asks
 
 **Q: What is Helix in one sentence?**
 A shared, branchable AI workspace for teams — "Git for your team's AI work" —
@@ -410,7 +497,7 @@ P1 (production container) shipped; P2–P4 remain. UI/UX direction and design
 system: Rajnish.
 Lanes hand off through written contract docs, like real teams do.
 
-## 13. Reading map (if you want to go deeper)
+## 14. Reading map (if you want to go deeper)
 
 1. `README.md` — the public face: identity, screenshots, status.
 2. `HELIX-FEATURE-TRACES.md` — every feature's execution path through the
