@@ -6,7 +6,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, telemetry
+from . import db, rate_limit, telemetry
 from .config import secure_jwt_secret, settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
@@ -95,6 +95,37 @@ async def limit_request_size(request: Request, call_next):
                         }
                     },
                 )
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def enforce_rate_limits(request: Request, call_next):
+    """Throttle account creation, logins, messages, and runs (P2).
+
+    Registered after the size cap (middleware runs bottom-up in Starlette, so
+    this one is entered first): a request should be counted against its budget
+    before its body is examined, or an attacker gets unlimited attempts as long
+    as each one is oversized.
+    """
+    window = rate_limit.limit_for(request.method, request.url.path)
+    if window is not None:
+        retry_after = window.hit(rate_limit.identity_for(request))
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                # Retry-After is what makes a 429 actionable rather than a
+                # mystery: clients (and humans) learn when to come back.
+                headers={"Retry-After": str(max(1, int(retry_after) + 1))},
+                content={
+                    "error": {
+                        "code": "rate_limited",
+                        "message": (
+                            f"Too many requests. Try again in "
+                            f"{max(1, int(retry_after) + 1)}s."
+                        ),
+                    }
+                },
+            )
     return await call_next(request)
 
 

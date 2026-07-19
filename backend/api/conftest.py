@@ -13,6 +13,12 @@ os.environ["LLM_PROVIDER"] = "stub"
 os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_helix.db"
 os.environ["GROQ_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-secret"
+# Rate limiting off by default: the suite registers hundreds of users from one
+# client, which is indistinguishable from the abuse the limiter exists to stop.
+# The limiter's own tests switch it back on explicitly (api/tests/
+# test_rate_limit.py), so the behaviour is still covered — just not imposed on
+# every other test.
+os.environ["RATE_LIMIT_ENABLED"] = "0"
 
 # Fresh DB per test session (delete up front; leave the file behind afterwards
 # for post-mortem inspection).

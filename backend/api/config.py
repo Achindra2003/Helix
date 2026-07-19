@@ -77,6 +77,28 @@ class Settings(BaseSettings):
     max_request_bytes: int = 12 * 1024 * 1024
     max_message_bytes: int = 64 * 1024
 
+    # --- Rate limits (P2; see api/rate_limit.py) ---
+    # Sliding windows per user (or per IP when unauthenticated). The threat is
+    # database spam and run floods, not token theft — BYO keys mean a flood
+    # burns the workspace's own provider quota. Any limit set to 0 is disabled;
+    # rate_limit_enabled=False turns the whole mechanism off.
+    rate_limit_enabled: bool = True
+    # Registration and login share this one: it guards both mass-signup and
+    # password guessing, neither of which carries a token, so both key on IP.
+    rate_limit_auth_per_hour: int = 20
+    # Ordinary chat. Well above human typing speed, low enough that a script
+    # cannot fill the node table.
+    rate_limit_messages_per_minute: int = 30
+    # Deep and agent runs: each fans out into many model and tool calls, so
+    # they get a tighter budget than plain messages.
+    rate_limit_runs_per_minute: int = 10
+    # Document uploads: the heaviest write path (a file up to
+    # document_max_bytes, then a chunk row per ~220 words and an embedding per
+    # chunk). Requires membership, so this bounds a member rather than the open
+    # internet — hence per-hour, and set generously enough that a real bulk
+    # import of a reference folder still goes through in one sitting.
+    rate_limit_uploads_per_hour: int = 120
+
     # --- Workspace documents / file grounding ---
     document_max_bytes: int = 8 * 1024 * 1024  # upload cap
     document_max_chars: int = 500_000  # extracted-text cap per document
