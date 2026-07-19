@@ -52,10 +52,11 @@ The project was split into lanes with formal handoff files ("batons"):
   delivered, 261 backend tests green, browser-level end-to-end smoke passing.
   Lives on branch `ui-standout`.
 - **Infra, DB & hardening lane (Mansoor)** — the production install, security
-  hardening, schema migrations, and the hosted instance. **In progress:** the
-  full work plan is `BATON-MANSOOR.md` (P1–P5, detailed in §9 below). This
-  lane is what turns "finished product" into "something strangers can run,
-  trust, and host."
+  hardening, schema migrations, and the hosted instance. **In progress:** P1
+  (the one-command production container) landed July 19; the remaining plan
+  is `BATON-MANSOOR.md` (P2–P5, detailed in §9 below). This lane is what
+  turns "finished product" into "something strangers can run, trust, and
+  host."
 - **UI/UX direction (Rajnish)** — the design language: light parchment,
   scholarly-manuscript look, oxblood primary buttons, gilt outlines, the helix
   motif; role legible at a glance; deliberately free of occult symbolism.
@@ -242,8 +243,8 @@ defensible claim is the credibility feature no competitor demo has.
 
 ## 9. Mansoor's lane — install, hardening, migrations, hosting
 
-**Status: the plan is fully specified and unblocked (`BATON-MANSOOR.md`,
-July 17); execution is in progress. P1+P2 are the launch threshold.**
+**Status: P1 shipped July 19 (commit `8d691bc`); P2 is next and completes
+the launch threshold. The full plan is `BATON-MANSOOR.md` (July 17).**
 
 What already exists on his side of the fence (don't double-claim): JWT auth,
 server-side RBAC, invite expiry, the async DB layer with the
@@ -252,14 +253,20 @@ in-process realtime rooms.
 
 The four work packages, in priority order:
 
-- **P1 — the production container.** Multi-stage Dockerfile that builds the
-  frontend and serves it from FastAPI; non-root user; healthcheck; compose
-  files for SQLite (default) and Postgres. GitHub Actions runs the test suite
-  on PRs and publishes the image on tags. Acceptance: a clean machine goes
-  from `git clone` to a registered user with **one command**. A "slim image"
-  build option (deep-reasoning deps excluded) is required for the free-tier
-  VM's 1 GB RAM — with the known tradeoff that the slim image degrades
-  resurfacing to the lexical fallback embedder.
+- **P1 — the production container (✅ landed July 19).** Multi-stage
+  Dockerfile that builds the frontend and serves it from FastAPI on one port;
+  non-root user; healthcheck; SQLite on a named volume by default, a separate
+  compose file for Postgres. A clean machine goes from `git clone` to a
+  registered user with **one command**. Making a clean install work also
+  surfaced and fixed real defects: the Postgres URL lacked the async driver
+  (`postgresql+asyncpg://`) so that path could never have booted, a pinned
+  `pydantic-settings` was silently unsatisfiable next to the engine deps, and
+  on Linux torch pulled ~4.5 GB of unusable CUDA libraries (now the CPU
+  build — 2.5 GB image instead of ~7 GB). Still open from the P1 spec: the
+  GitHub Actions CI + GHCR publish, and the "slim image" build option
+  (deep-reasoning deps excluded) that the free-tier VM's 1 GB RAM needs —
+  with the known tradeoff that slim degrades resurfacing to the lexical
+  fallback embedder.
 - **P2 — secure-by-default.** Refuse to boot with the dev JWT secret (unless
   explicitly in dev mode); rate limits on signup and the message/deep/agent
   routes; modest caps (workspaces per user, members, message length, invite
@@ -293,16 +300,18 @@ finishes P1+P2 first; then that exact compose file deploys to the VM
 ## 11. Branches, history, and what's still open
 
 - **`ui-standout`** — the release branch; everything current lives here.
-- **`main`** — frozen at the 25% presentation version. Never commit to it.
+- **`main`** — was frozen at the 25% presentation version until July 19,
+  when PR #2 merged `ui-standout` into it; it now tracks the release. Still:
+  build on `ui-standout`, not directly on `main`.
 - **`v2-complete`** — the earlier finished v2 (kept as a milestone record).
 - Git history was **rewritten on July 16** (attribution trailers stripped,
   every hash changed). Anyone with an old clone must `git fetch` +
   `git reset --hard origin/<branch>` — **never `git pull`**, which would
   merge the old history back.
 
-Open items: Mansoor's P1–P4; and three human items — the **license file**
-(the one legal blocker for open-source launch), the **demo GIF**, and the
-first **real users**.
+Open items: Mansoor's P2–P4 (P1 landed July 19); and three human items — the
+**license file** (the one legal blocker for open-source launch), the **demo
+GIF**, and the first **real users**.
 
 ## 12. Rapid-fire Q&A — the questions a professor actually asks
 
@@ -383,9 +392,9 @@ network — run anywhere, including CI with no secrets), a browser-level
 real HTTP + WS + Groq.
 
 **Q: What's NOT done? (answer honestly)**
-The production install and hardening (Mansoor's P1–P2, in progress), Alembic
-migrations and the hosted kit (P3–P4), the license file, the demo GIF, and
-real users. Known deferrals, on purpose: Postgres RLS, Redis multi-instance
+Security hardening (Mansoor's P2 — next up; P1's install shipped July 19),
+Alembic migrations and the hosted kit (P3–P4), the license file, the demo
+GIF, and real users. Known deferrals, on purpose: Postgres RLS, Redis multi-instance
 fan-out, blob storage for original files, restart-surviving runs.
 
 **Q: What's the business/launch model?**
@@ -396,8 +405,9 @@ threat model is ordinary web hygiene, not token theft.
 
 **Q: Who did what?**
 Product + AI lane (features, engine, frontend, tests, evals): Achindra —
-complete. Infra lane (install, hardening, migrations, hosting): Mansoor — in
-progress, plan fully specified. UI/UX direction and design system: Rajnish.
+complete. Infra lane (install, hardening, migrations, hosting): Mansoor —
+P1 (production container) shipped; P2–P4 remain. UI/UX direction and design
+system: Rajnish.
 Lanes hand off through written contract docs, like real teams do.
 
 ## 13. Reading map (if you want to go deeper)
