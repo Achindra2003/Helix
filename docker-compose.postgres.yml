@@ -42,6 +42,12 @@ services:
       # Unset = generated once and persisted to the data volume. See the note
       # in docker-compose.yml.
       JWT_SECRET: ${JWT_SECRET:-}
+      # Tables are created at boot, which keeps this file a one-command install
+      # like the SQLite one. If you would rather review and order schema changes
+      # yourself, set this to false and run `alembic upgrade head` from backend/
+      # as a deploy step — the two build the same schema, and the suite checks
+      # that they still agree.
+      DB_AUTO_CREATE: ${DB_AUTO_CREATE:-true}
       LLM_PROVIDER: ${LLM_PROVIDER:-stub}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       TAVILY_API_KEY: ${TAVILY_API_KEY:-}

@@ -19,6 +19,20 @@ class Settings(BaseSettings):
     #   postgresql+asyncpg://helix:helix@postgres:5432/helix
     database_url: str = "sqlite+aiosqlite:///./helix.db"
 
+    # Create tables at boot (api/db.py) instead of running migrations. Default
+    # True so the self-hosted install stays one command; the hosted instance
+    # sets DB_AUTO_CREATE=0 and runs `alembic upgrade head` as a deploy step.
+    # Both build the same schema — migrations/env.py explains the split, and
+    # the baseline is verified against create_all.
+    db_auto_create: bool = True
+
+    # Set when DATABASE_URL points at a transaction-mode connection pooler
+    # rather than straight at Postgres — Supabase's port 6543, or any PgBouncer
+    # in transaction mode. It disables asyncpg's prepared-statement caching,
+    # which such a pooler cannot support. See api/db.py for what breaks without
+    # it (an intermittent failure that only appears under concurrency).
+    db_pooled: bool = False
+
     jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_alg: str = "HS256"
     jwt_ttl_hours: int = 24 * 7

@@ -11,6 +11,10 @@ pydantic==2.10.4
 # Docker build) fails with ResolutionImpossible. 2.14.2 is what every existing
 # environment has actually been running, and what the 261-test suite passes on.
 pydantic-settings==2.14.2
+# Schema migrations for the hosted instance. Self-hosters keep boot-time
+# create_all (api/db.py) so the zero-infra install stays one command; see
+# migrations/env.py.
+alembic==1.14.0
 email-validator==2.2.0
 pyjwt==2.10.1
 bcrypt==4.2.1
