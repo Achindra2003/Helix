@@ -62,10 +62,10 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
       className={`${s.msg} ${s.msgQuill}`}
       style={{ borderLeftColor: !asst && m.authorColor ? m.authorColor : "transparent" }}
     >
-      <div className={`${s.avatar} ${asst ? s.avatarAsst : s.avatarUser}`}>
+      <div className={`${s.avatar} ${asst ? s.avatarAsst : s.avatarUser} ${asst && m.typing ? s.avatarThinking : ""}`}>
         {asst ? "⟳" : initialOf(m.authorName)}
       </div>
-      <div style={{ minWidth: 0, flex: 1 }}>
+      <div className={asst ? s.leaf : s.userBody} style={{ minWidth: 0, flex: 1 }}>
         <div className={s.msgHead}>
           <span className={s.msgName} style={{ color: asst ? "var(--oxblood)" : "var(--ink)" }}>
             {asst ? "Helix" : m.authorName}

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { login, register, listWorkspaces, getHealth } from "@/lib/api";
 import { useSession } from "@/store/session";
 import { useToast } from "@/components/common/Toast";
@@ -12,6 +13,7 @@ import s from "./auth.module.css";
 
 export function AuthPage() {
   const nav = useNavigate();
+  const reduce = useReducedMotion();
   const { push } = useToast();
   const { setSession, setWorkspaces } = useSession();
   const [mode, setMode] = useState<"signin" | "signup">("signin");
@@ -61,10 +63,16 @@ export function AuthPage() {
           </div>
 
           <div className={s.tabs} role="tablist">
-            <button type="button" role="tab" aria-selected={mode === "signin"}
-              className={mode === "signin" ? s.tabOn : s.tab} onClick={() => setMode("signin")}>Sign in</button>
-            <button type="button" role="tab" aria-selected={mode === "signup"}
-              className={mode === "signup" ? s.tabOn : s.tab} onClick={() => setMode("signup")}>Create account</button>
+            {(["signin", "signup"] as const).map((m) => (
+              <button key={m} type="button" role="tab" aria-selected={mode === m}
+                className={mode === m ? s.tabOn : s.tab} onClick={() => setMode(m)}>
+                {mode === m && (
+                  <motion.span layoutId="authTabPill" className={s.tabPill}
+                    transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 520, damping: 38 }} />
+                )}
+                <span className={s.tabLabel}>{m === "signin" ? "Sign in" : "Create account"}</span>
+              </button>
+            ))}
           </div>
 
           <Field label="Email">

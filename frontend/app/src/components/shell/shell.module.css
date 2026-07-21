@@ -7,13 +7,21 @@
 }
 .railLogo { margin-bottom: 12px; background: none; border: none; }
 .navBtn, .navOn {
+  position: relative;
   display: flex; flex-direction: column; align-items: center; gap: 3px; width: 48px; padding: 8px 0;
   border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--ink-3);
+  transition: color var(--dur-2);
 }
-.navOn { border-color: var(--rule); background: var(--accent-tint); color: var(--oxblood); }
-.navGlyph { font-size: 18px; line-height: 1; }
-.navLabel { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; }
-.navBtn:hover { color: var(--ink-2); background: rgba(36, 27, 18, 0.05); }
+.navOn { color: var(--oxblood); }
+/* the active highlight is a single element that slides between rail items */
+.navPill {
+  position: absolute; inset: 0; z-index: 0;
+  border-radius: 9px; border: 1px solid var(--rule); background: var(--accent-tint);
+}
+.navGlyph { position: relative; z-index: 1; font-size: 18px; line-height: 1; }
+.navLabel { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.08em; }
+.navBtn:hover { color: var(--ink-2); }
+.navBtn:hover .navGlyph { transform: translateY(-1px); transition: transform var(--dur-1); }
 .avatar {
   width: 36px; height: 36px; border-radius: 50%; background: var(--gilt); color: #1a1404;
   display: flex; align-items: center; justify-content: center; font-weight: 700;

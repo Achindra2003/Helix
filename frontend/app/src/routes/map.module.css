@@ -42,21 +42,34 @@
   cursor: grab;
   touch-action: none;
   position: relative;
+  /* a faint drafting-table dot grid under the stemma */
+  background-image: radial-gradient(var(--rule-soft) 1px, transparent 1px);
+  background-size: 26px 26px;
 }
 
 .canvas:active { cursor: grabbing; }
 
 .svg { width: 100%; height: 100%; display: block; }
 
+/* the whole stemma fades up when the map first draws */
+.mapEnter { animation: mapfade 0.55s var(--ease-quill) both; }
+@keyframes mapfade { from { opacity: 0; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .mapEnter { animation: none; } }
+
 .cartouche {
   cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  transition: transform var(--dur-2) var(--ease-quill);
 }
+.cartouche:hover { transform: translateY(-2.5px); }
 .cartouche:hover .cartoucheBox { stroke: var(--oxblood); }
 
 .cartoucheBox {
-  fill: var(--paper-2);
+  fill: var(--paper);
   stroke: var(--rule);
   stroke-width: 1;
+  filter: drop-shadow(0 3px 7px rgba(36, 27, 18, 0.16));
 }
 
 .cartoucheText {
@@ -72,8 +85,14 @@
   fill: var(--ink-3);
 }
 
-.node { cursor: pointer; }
-.node:hover { stroke-width: 2.5; }
+.node {
+  cursor: pointer;
+  transform-box: fill-box;
+  transform-origin: center;
+  filter: drop-shadow(0 1px 2px rgba(36, 27, 18, 0.22));
+  transition: transform var(--dur-1) var(--ease-quill), filter var(--dur-1);
+}
+.node:hover { transform: scale(1.55); filter: drop-shadow(0 2px 5px rgba(36, 27, 18, 0.3)); }
 
 .spine { stroke: var(--rule); stroke-width: 1.4; fill: none; }
 .forkEdge { stroke: var(--oxblood); stroke-width: 1.3; fill: none; opacity: 0.75; }

@@ -4,6 +4,7 @@ import { getToken } from "@/lib/auth";
 import { me, listWorkspaces, getHealth } from "@/lib/api";
 import { useSession } from "@/store/session";
 import { Spinner } from "@/components/common/Feedback";
+import { Landing } from "@/routes/Landing";
 import { AuthPage } from "@/routes/AuthPage";
 import { WorkspacePicker } from "@/routes/WorkspacePicker";
 import { AccountView } from "@/routes/AccountView";
@@ -16,6 +17,7 @@ import { MapView } from "@/routes/MapView";
 
 function ApiHealthBanner() {
   const [down, setDown] = useState(false);
+  const loc = useLocation();
   useEffect(() => {
     let alive = true;
     const ping = () => getHealth().then(() => alive && setDown(false)).catch(() => alive && setDown(true));
@@ -23,7 +25,8 @@ function ApiHealthBanner() {
     const t = setInterval(ping, 15_000);
     return () => { alive = false; clearInterval(t); };
   }, []);
-  if (!down) return null;
+  // the public landing is not a place to show a "start uvicorn" dev notice
+  if (!down || loc.pathname === "/") return null;
   return (
     <div style={{
       position: "fixed", top: 0, left: 0, right: 0, zIndex: 70, textAlign: "center",
@@ -77,6 +80,7 @@ export function App() {
     <div style={{ position: "relative", zIndex: 1, height: "100%" }}>
       <ApiHealthBanner />
       <Routes>
+        <Route path="/" element={<Landing />} />
         <Route path="/auth" element={user ? <Navigate to="/workspaces" replace /> : <AuthPage />} />
         <Route path="/workspaces" element={<RequireAuth><WorkspacePicker /></RequireAuth>} />
         <Route path="/account" element={<RequireAuth><AccountView /></RequireAuth>} />

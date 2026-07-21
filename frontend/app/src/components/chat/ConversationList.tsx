@@ -1,5 +1,7 @@
+import { motion } from "framer-motion";
 import type { Conversation } from "@/lib/types";
 import { colorFor } from "@/lib/format";
+import { stagger, rise } from "@/lib/motion";
 import s from "./chat.module.css";
 
 export function ConversationList({
@@ -21,9 +23,10 @@ export function ConversationList({
         <span className="eyebrow">Conversations</span>
         {canCreate && <button className={s.plus} title="New conversation" onClick={onNew}>+</button>}
       </div>
-      <div>
+      <motion.div variants={stagger} initial="hidden" animate="show">
         {conversations.map((c) => (
-          <div key={c.id} className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`} onClick={() => onSelect(c.id)}>
+          <motion.div key={c.id} variants={rise} whileHover={{ x: 2 }}
+            className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`} onClick={() => onSelect(c.id)}>
             <span style={{ fontSize: 13, color: c.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)", marginTop: 1 }}>
               {c.visibility === "private" ? "◍" : "⊙"}
             </span>
@@ -43,14 +46,14 @@ export function ConversationList({
                 title={`${u.email} is reading this`}
               />
             ))}
-          </div>
+          </motion.div>
         ))}
         {conversations.length === 0 && (
           <div style={{ padding: "8px 10px", color: "var(--ink-3)", fontStyle: "italic", fontSize: 13 }}>
             Nothing is written yet.
           </div>
         )}
-      </div>
+      </motion.div>
     </>
   );
 }

@@ -1,4 +1,5 @@
 import { useNavigate, useParams } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { Logo } from "@/components/brand/Logo";
 import { useSession } from "@/store/session";
 import { initialOf } from "@/lib/format";
@@ -15,6 +16,7 @@ const NAV = [
 export function Rail({ active, onSearch }: { active: string; onSearch: () => void }) {
   const nav = useNavigate();
   const { wid } = useParams();
+  const reduce = useReducedMotion();
   const user = useSession((st) => st.user);
   return (
     <div className={s.rail}>
@@ -24,11 +26,16 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
       {NAV.map((n) => {
         const on = active === n.key;
         return (
-          <button key={n.key} className={on ? s.navOn : s.navBtn} title={n.label}
+          <motion.button key={n.key} className={on ? s.navOn : s.navBtn} title={n.label}
+            whileTap={{ scale: 0.9 }} transition={{ type: "spring", stiffness: 500, damping: 22 }}
             onClick={() => nav(n.key ? `/w/${wid}/${n.key}` : `/w/${wid}`)}>
+            {on && (
+              <motion.span layoutId="railActive" className={s.navPill}
+                transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 460, damping: 36 }} />
+            )}
             <span className={s.navGlyph}>{n.glyph}</span>
             <span className={s.navLabel}>{n.label}</span>
-          </button>
+          </motion.button>
         );
       })}
       <button className={s.navBtn} title="Search every conversation (Ctrl+K)" onClick={onSearch}>

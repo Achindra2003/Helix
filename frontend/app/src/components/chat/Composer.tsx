@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/common/Button";
 import s from "./chat.module.css";
 
@@ -25,6 +26,7 @@ export function Composer({
   onDraftConsumed?: () => void;
 }) {
   const [text, setText] = useState("");
+  const reduce = useReducedMotion();
   // Guided mode (FR-11): the deep run pauses between refinement cycles so you
   // can steer it mid-flight from the monitor. Off = classic self-halting run.
   const [guided, setGuided] = useState(false);
@@ -97,7 +99,10 @@ export function Composer({
           </span>
         )}
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>☁ {provider}</span>
-        <button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)">↑</button>
+        <motion.button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)"
+          whileHover={reduce || busy ? undefined : { scale: 1.08, y: -1 }}
+          whileTap={{ scale: 0.9 }}
+          transition={{ type: "spring", stiffness: 500, damping: 20 }}>↑</motion.button>
       </div>
     </div>
   );

@@ -378,6 +378,7 @@ export function MapView() {
         >
           <svg className={s.svg}>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
+              <g className={s.mapEnter}>
               {/* gilt reference threads first, behind everything */}
               {layout.refEdges.map((d, i) => (
                 <path key={`ref-${i}`} className={s.refEdge} d={d} />
@@ -451,6 +452,7 @@ export function MapView() {
                   <title>{d.email} is reading here</title>
                 </circle>
               ))}
+              </g>
             </g>
           </svg>
 

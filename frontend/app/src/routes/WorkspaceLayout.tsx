@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Outlet, useLocation, useParams } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { Rail } from "@/components/shell/Rail";
 import { TopBar } from "@/components/shell/TopBar";
 import { SearchOverlay } from "@/components/shell/SearchOverlay";
@@ -14,6 +15,7 @@ export function WorkspaceLayout() {
   const { wid } = useParams();
   const loc = useLocation();
   const role = useEffectiveRole();
+  const reduce = useReducedMotion();
   const { activeWorkspaceId, setActiveWorkspace } = useSession();
   const [searchOpen, setSearchOpen] = useState(false);
 
@@ -82,9 +84,17 @@ export function WorkspaceLayout() {
       <Rail active={active} onSearch={() => setSearchOpen(true)} />
       <div className={`${s.main} ${role === "observer" ? s.dim : ""}`}>
         <TopBar viewLabel={viewLabel} />
-        <div style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}>
+        {/* each interior view turns in like a page; keyed on the view (not the
+            conversation) so switching threads inside chat doesn't re-animate */}
+        <motion.div
+          key={active || "chat"}
+          initial={reduce ? false : { opacity: 0, y: 10 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.32, ease: [0.22, 0.61, 0.21, 1] }}
+          style={{ flex: 1, minHeight: 0, display: "flex", flexDirection: "column" }}
+        >
           <Outlet />
-        </div>
+        </motion.div>
       </div>
       {searchOpen && wid && <SearchOverlay wid={wid} onClose={() => setSearchOpen(false)} />}
     </div>

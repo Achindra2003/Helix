@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { createWorkspace, acceptInvite, listWorkspaces, leaveWorkspace } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 import { useSession } from "@/store/session";
@@ -15,6 +16,7 @@ import s from "./picker.module.css";
 
 export function WorkspacePicker() {
   const nav = useNavigate();
+  const reduce = useReducedMotion();
   const { push } = useToast();
   const { user, workspaces, setWorkspaces, setActiveWorkspace, logout } = useSession();
   const [dialog, setDialog] = useState<null | "create" | "invite">(null);
@@ -89,8 +91,12 @@ export function WorkspacePicker() {
 
         <div className={s.grid}>
           {workspaces.map((w, i) => (
-            <div key={w.id} className={s.card} role="button" tabIndex={0}
-              style={{ animationDelay: `${Math.min(i, 8) * 55}ms` }}
+            <motion.div key={w.id} className={s.card} role="button" tabIndex={0}
+              initial={{ opacity: 0, y: reduce ? 0 : 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(i, 8) * 0.05, duration: 0.45, ease: [0.22, 0.61, 0.21, 1] }}
+              whileHover={reduce ? undefined : { y: -4 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => enter(w.id)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(w.id); } }}>
               <div className={s.watermark} aria-hidden><Logo size={120} /></div>
@@ -107,7 +113,7 @@ export function WorkspacePicker() {
                   </button>
                 )}
               </div>
-            </div>
+            </motion.div>
           ))}
           <div className={s.actions} style={{ animationDelay: `${Math.min(workspaces.length, 8) * 55}ms` }}>
             <Button variant="primary" onClick={() => { setText(""); setDialog("create"); }}>+ New workspace</Button>
