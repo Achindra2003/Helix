@@ -51,7 +51,7 @@ frontend/app/    React + TS + Vite (the UI)
 backend/api/     FastAPI: auth, workspaces, conversations, prompts, documents, realtime
   conversation/  engine (send/ResumableRun), producers, SSE contract, store
   documents/     file grounding (RAG): ingestion, chunking, DocumentIndex
-  providers/     LLM seam: groq | openai_compatible | ollama | stub
+  providers/     LLM seam: groq | ollama | stub
   realtime.py    workspace WebSocket rooms (presence + fan-out)
 backend/engine/  vendored Ouroboros deep-reasoning engine (LangGraph)
 backend/evals/   eval harness + question sets + calibration

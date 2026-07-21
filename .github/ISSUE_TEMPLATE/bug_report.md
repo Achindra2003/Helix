@@ -18,7 +18,7 @@ What you expected to happen instead.
 
 **Environment**
 - Helix version/commit:
-- Provider (stub / groq / ollama / openai_compatible):
+- Provider (stub / groq / ollama):
 - Self-hosted or the hosted demo instance:
 - Browser (if frontend):
 
