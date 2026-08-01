@@ -9,6 +9,12 @@ REM  Provider is set in backend\.env (LLM_PROVIDER). Use stub for keyless
 REM  exploring, or groq + GROQ_API_KEY for real replies.
 REM ---------------------------------------------------------------------------
 
+REM Free ports 8000/5173 if a previous run left orphaned processes holding them
+REM (closing the windows on Windows doesn't always kill uvicorn/vite children).
+REM Without this, the backend/frontend fail with "address/port already in use".
+echo Freeing ports 8000 and 5173 if a previous run left them busy ...
+powershell -NoProfile -Command "Get-NetTCPConnection -LocalPort 8000,5173 -State Listen -ErrorAction SilentlyContinue | ForEach-Object { Stop-Process -Id $_.OwningProcess -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+
 echo Starting Helix backend on http://localhost:8000 ...
 cd /d "%~dp0backend"
 if not exist ".venv\Scripts\python.exe" (
@@ -17,7 +23,14 @@ if not exist ".venv\Scripts\python.exe" (
     exit /b 1
 )
 REM HELIX_DEV=1 lets it boot on the dev secret (P2 secure-boot check).
-start "Helix backend" cmd /k "set HELIX_DEV=1 && .venv\Scripts\python.exe -m uvicorn api.main:app --port 8000 --reload"
+REM Set it on its OWN line with quotes: "set VAR=1 && cmd" would capture the
+REM space before && into the value ("1 "), which fails pydantic's bool parse.
+REM The new window inherits this environment.
+set "HELIX_DEV=1"
+REM No --reload: on Windows its worker child gets orphaned when the window
+REM closes, then holds port 8000 and breaks the next launch. A demo doesn't
+REM need hot-reload; single-process dies cleanly.
+start "Helix backend" cmd /k ".venv\Scripts\python.exe -m uvicorn api.main:app --port 8000"
 
 echo Starting Helix frontend on http://localhost:5173 ...
 cd /d "%~dp0frontend\app"
