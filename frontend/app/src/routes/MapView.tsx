@@ -19,6 +19,7 @@ import { useSession } from "@/store/session";
 import type { Branch, MapConversation, MapNode, Node } from "@/lib/types";
 import { colorFor } from "@/lib/format";
 import { Frontispiece } from "@/components/brand/Frontispiece";
+import { DecisionLedger } from "@/components/map/DecisionLedger";
 import s from "./map.module.css";
 
 // --- deterministic stemma layout ------------------------------------------
@@ -227,6 +228,8 @@ interface Hover {
 
 export function MapView() {
   const { wid } = useParams();
+  // "structure" is the stemma; "decisions" is the ledger of recorded verdicts.
+  const [mode, setMode] = useState<"stemma" | "decisions">("stemma");
   const nav = useNavigate();
   const qc = useQueryClient();
   const user = useSession((st) => st.user);
@@ -360,9 +363,26 @@ export function MapView() {
     <div className={`${s.wrap} folio`}>
       <div className={s.toolbar}>
         <div className={s.title}>The Map</div>
+        {/* Two readings of the same record: the shape the thinking took, and
+            what it concluded. A mode here rather than a seventh rail item —
+            both answer "what has this team been doing", and the ledger would
+            be undiscoverable anywhere else. */}
+        <div className={s.modes} role="tablist" aria-label="Map view">
+          <button role="tab" aria-selected={mode === "stemma"}
+            className={`${s.modeBtn} ${mode === "stemma" ? s.modeOn : ""}`}
+            onClick={() => setMode("stemma")}>⎇ structure</button>
+          <button role="tab" aria-selected={mode === "decisions"}
+            className={`${s.modeBtn} ${mode === "decisions" ? s.modeOn : ""}`}
+            onClick={() => setMode("decisions")}>⚖ decisions</button>
+        </div>
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
-          drag to pan · scroll to zoom · click a node to enter
+          {mode === "stemma"
+            ? "drag to pan · scroll to zoom · click a node to enter"
+            : "what the team decided, and why · newest first"}
         </span>
+        {/* Rendered conditionally, not `hidden`: .legend sets display:flex,
+            which outranks the UA stylesheet's [hidden] { display: none }. */}
+        {mode === "stemma" && (
         <div className={s.legend}>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--ink-2)" /></svg> you ask</span>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--paper)" stroke="var(--ink-2)" strokeWidth="1.5" /></svg> Helix answers</span>
@@ -370,9 +390,12 @@ export function MapView() {
           <span><svg width="22" height="12"><path d="M 2 6 L 20 6" stroke="var(--gilt)" strokeWidth="1.5" strokeDasharray="4 4" /></svg> reference</span>
           <span><svg width="12" height="12" className={s.presenceDot}><circle cx="6" cy="6" r="4" fill="var(--verde)" /></svg> teammate here</span>
         </div>
+        )}
       </div>
 
-      {isEmpty ? (
+      {mode === "decisions" ? (
+        <DecisionLedger wid={wid!} />
+      ) : isEmpty ? (
         <div className={s.empty}>
           <div>
             <Frontispiece size={280} animate={false} />

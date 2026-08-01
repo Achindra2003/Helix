@@ -946,3 +946,62 @@ def test_export_of_an_open_branch_states_no_verdict(make_workspace):
         assert "**Exploring:** fixed chunks" in body
         assert "Adopted" not in body and "Abandoned" not in body
         assert "recorded by" not in body
+
+
+def test_decisions_ledger_lists_verdicts_newest_first(make_workspace):
+    """The catch-up surface: what did the team decide, and why."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        _, first = _seeded_fork(client, headers, wid, intent="fixed chunks")
+        client.post(
+            f"/conversations/branches/{first}/resolve",
+            json={"status": "adopted", "resolution": "better recall"},
+            headers=headers,
+        )
+        _, second = _seeded_fork(client, headers, wid, intent="semantic chunks")
+        client.post(
+            f"/conversations/branches/{second}/resolve",
+            json={"status": "abandoned", "resolution": "too slow"},
+            headers=headers,
+        )
+
+        r = client.get(f"/workspaces/{wid}/decisions", headers=headers)
+        assert r.status_code == 200, r.text
+        items = r.json()["items"]
+        # Only resolved branches — the open `main` spines are not decisions.
+        assert len(items) == 2
+        assert {i["status"] for i in items} == {"adopted", "abandoned"}
+        newest = items[0]
+        assert newest["resolution"] == "too slow"
+        assert newest["intent"] == "semantic chunks"
+        assert newest["resolved_by_email"].endswith("@example.com") or "@" in newest["resolved_by_email"]
+        assert newest["conversation_title"] == "demo"
+
+
+def test_decisions_ledger_hides_another_members_private_thread(make_workspace, join_workspace):
+    """Scoped exactly like the conversation list — a private verdict stays private."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        created = _create_conv(client, owner_headers, wid, visibility="private")
+        cid, branch_id = created["conversation_id"], created["branch_id"]
+        client.post(
+            f"/conversations/{branch_id}/messages", json={"prompt": "seed"}, headers=owner_headers
+        )
+        client.post(
+            f"/conversations/branches/{branch_id}/resolve",
+            json={"status": "adopted", "resolution": "my own call"},
+            headers=owner_headers,
+        )
+
+        mate_headers, _ = join_workspace(client, owner_headers, wid)
+        mine = client.get(f"/workspaces/{wid}/decisions", headers=owner_headers).json()["items"]
+        theirs = client.get(f"/workspaces/{wid}/decisions", headers=mate_headers).json()["items"]
+        assert [d["resolution"] for d in mine] == ["my own call"]
+        assert theirs == []
+
+
+def test_decisions_ledger_needs_membership(make_workspace, make_user):
+    with TestClient(app) as client:
+        _, _, wid = make_workspace(client)
+        outsider, _ = make_user(client)
+        assert client.get(f"/workspaces/{wid}/decisions", headers=outsider).status_code == 404

@@ -273,3 +273,18 @@ export type RunEvent =
   | { kind: "waiting"; reason: string }
   | { kind: "complete"; stop_reason: string; status: "done" | "killed" | "error" }
   | { kind: "done" };
+
+/** One recorded verdict, as the decisions ledger reads it. */
+export interface Decision {
+  branch_id: string;
+  branch_name: string;
+  conversation_id: string;
+  conversation_title: string;
+  visibility: "shared" | "private";
+  intent: string;
+  status: Exclude<BranchStatus, "open">;
+  resolution: string;
+  resolved_by: string | null;
+  resolved_by_email: string;
+  resolved_at: string | null;
+}

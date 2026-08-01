@@ -5,7 +5,7 @@ import { useSession } from "@/store/session";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, BranchStatus, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
-  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings,
+  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings, Decision,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -257,6 +257,10 @@ export const getDeepRunRecord = (runId: string) =>
 // --- workspace map (the whole reasoning graph in one read) ---
 export const getWorkspaceMap = (wid: string) =>
   request<{ conversations: MapConversation[] }>(`/workspaces/${wid}/map`);
+// Every verdict the caller may see, newest first — the catch-up surface for
+// "what did the team decide, and why".
+export const listDecisions = (wid: string) =>
+  request<{ items: Decision[] }>(`/workspaces/${wid}/decisions`);
 
 // --- cross-conversation references (link another shared thread as live context) ---
 export const listReferences = (cid: string) =>

@@ -27,7 +27,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from .db import SessionLocal
-from .models import Membership, User
+from .models import ROLE_COLLABORATOR, ROLE_RANK, Membership, User
 from .security import decode_token
 
 router = APIRouter(tags=["realtime"])
@@ -145,7 +145,15 @@ async def workspace_room(
         return
 
     await ws.accept()
-    _rooms[workspace_id][ws] = {"user_id": user.id, "email": user.email}
+    # The role is kept on the socket so the drafting gate can check it without
+    # a second read: an Observer may watch the room but may never send a
+    # message, so announcing that they are "drafting" would be telling the
+    # team about work that cannot happen.
+    _rooms[workspace_id][ws] = {
+        "user_id": user.id,
+        "email": user.email,
+        "role": member.role,
+    }
     await _broadcast_presence(workspace_id)
 
     try:
@@ -179,6 +187,11 @@ async def workspace_room(
                 info = _rooms[workspace_id][ws]
                 conv_id = msg.get("conversation_id")
                 active = bool(msg.get("active")) and isinstance(conv_id, str)
+                # An Observer can never send the message they would be drafting,
+                # so the room must not be told they are composing one. Checked
+                # first: it is free, and it short-circuits the store read below.
+                if ROLE_RANK[info["role"]] < ROLE_RANK[ROLE_COLLABORATOR]:
+                    active = False
                 if active and conv_id != info.get("_drafting_checked"):
                     # One DB read per conversation per socket, not per keystroke:
                     # the client debounces, and the answer cannot change while

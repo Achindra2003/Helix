@@ -23,6 +23,62 @@ from . import router as conversation_router_mod
 router = APIRouter(tags=["map"])
 
 
+@router.get("/workspaces/{workspace_id}/decisions")
+async def workspace_decisions(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Every verdict this caller may see, newest first.
+
+    The Map answers "what shape did our thinking take". This answers the
+    question a person actually arrives with after a week away: *what did the
+    team decide, and why*. Without it the record exists but has no reader —
+    you would have to open every conversation and inspect every branch.
+
+    Scoped exactly like the conversation list: shared threads, plus the
+    caller's own private ones. Resolved branches only; an open exploration is
+    not a decision.
+    """
+    store = conversation_router_mod._store
+    await conversation_router_mod._require_membership(workspace_id, user, session)
+
+    emails: dict[str, str] = {}
+
+    async def _who(user_id: str | None) -> str:
+        if not user_id:
+            return ""
+        if user_id not in emails:
+            row = await session.get(User, user_id)
+            emails[user_id] = row.email if row else user_id
+        return emails[user_id]
+
+    out = []
+    for conv in await store.list_conversations(workspace_id, user.id):
+        for b in await store.list_branches(conv.id):
+            if b.status == "open":
+                continue
+            out.append(
+                {
+                    "branch_id": b.id,
+                    "branch_name": b.name,
+                    "conversation_id": conv.id,
+                    "conversation_title": conv.title,
+                    "visibility": conv.visibility,
+                    "intent": b.intent,
+                    "status": b.status,
+                    "resolution": b.resolution,
+                    "resolved_by": b.resolved_by,
+                    "resolved_by_email": await _who(b.resolved_by),
+                    "resolved_at": b.resolved_at.isoformat() if b.resolved_at else None,
+                }
+            )
+    # Newest decision first; anything without a timestamp sorts last rather
+    # than crashing the sort (older rows predate the column).
+    out.sort(key=lambda d: d["resolved_at"] or "", reverse=True)
+    return {"items": out}
+
+
 @router.get("/workspaces/{workspace_id}/map")
 async def workspace_map(
     workspace_id: str,
