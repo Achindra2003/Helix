@@ -25,8 +25,16 @@ function boot(cmd, args, opts) {
   return child;
 }
 
+// taskkill /T takes the whole tree down. Resolves only once taskkill has
+// actually exited — exiting the process before then leaves vite holding 5173,
+// and the next run boots against a stale frontend.
 function killTree(pid) {
-  try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* gone */ }
+  return new Promise((done) => {
+    try {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" })
+        .on("close", done).on("error", done);
+    } catch { done(); }
+  });
 }
 
 async function waitFor(url, label, tries = 240) {
@@ -192,7 +200,7 @@ main()
     // there wedged instead of reporting. Close it here, then exit explicitly so
     // a stray handle can't hold the process open either way.
     await browser?.close().catch(() => {});
-    for (const c of children) killTree(c.pid);
+    await Promise.all(children.map((c) => killTree(c.pid)));
     // The backend may still hold the SQLite handle for a moment; a leftover
     // file in the temp dir is not worth delaying the exit over.
     try { rmSync(dbFile, { force: true }); } catch { /* it's in tmp */ }

@@ -35,8 +35,16 @@ function boot(cmd, args, opts) {
 }
 
 // Windows: killing a shell doesn't kill its children (vite outlives npm).
+// taskkill /T takes the whole tree down. Resolves only once taskkill has
+// actually exited — exiting the process before then leaves vite holding 5173,
+// and the next run boots against a stale frontend.
 function killTree(pid) {
-  try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* gone */ }
+  return new Promise((done) => {
+    try {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" })
+        .on("close", done).on("error", done);
+    } catch { done(); }
+  });
 }
 
 async function waitFor(url, label, tries = 120) {
@@ -164,7 +172,7 @@ async function main() {
   await waitFor(`${API}/health`, "backend");
   await waitFor(UI, "frontend");
 
-  const browser = await chromium.launch();
+  browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(30_000);
 
@@ -215,13 +223,12 @@ async function main() {
     }
   }
 
-  await browser.close();
-
   if (noise.size) {
     for (const n of noise) failures.push(`console error: ${n}`);
   }
 }
 
+let browser;
 let code = 0;
 try {
   await main();
@@ -236,5 +243,9 @@ try {
   console.error("FAILED:", e.message);
   code = 1;
 }
-for (const c of children) killTree(c.pid);
+// Close the browser here rather than at the end of main(): on the failure
+// path main() never reaches its last line, and an open Playwright browser
+// keeps the event loop alive indefinitely.
+await browser?.close().catch(() => {});
+await Promise.all(children.map((c) => killTree(c.pid)));
 process.exit(code);
