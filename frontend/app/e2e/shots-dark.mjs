@@ -1,15 +1,9 @@
-// Automated click-through of Helix's golden path, in a real browser.
+// Dark-mode ("nocturne") re-capture of the same eight frames e2e/smoke.mjs
+// produces. Same flow, same viewport, same assertions — the only difference is
+// that the theme is forced to dark before first paint, so every shot is the
+// nocturne variant of the light one.
 //
-// Boots the backend (throwaway SQLite, real embedder, the server .env's LLM
-// key) and the Vite dev server, then drives the UI end-to-end: register →
-// workspace → streamed chat → knowledge-base upload → cited grounding →
-// proactive resurfacing → agent run with tool ledger → map → tools panel.
-// Every step asserts before it screenshots, so this doubles as a smoke test
-// of the built product (not just its API) and produces the README's
-// screenshots as a side effect.
-//
-// Run from frontend/app:  node e2e/smoke.mjs
-// Screenshots land in docs/screenshots/ at the repo root.
+// Run from frontend/app:  node e2e/shots-dark.mjs [outDir]
 import { spawn } from "node:child_process";
 import { mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,14 +11,12 @@ import { join, resolve } from "node:path";
 import { chromium } from "playwright";
 
 const repo = resolve(import.meta.dirname, "..", "..", "..");
-const shots = join(repo, "docs", "screenshots");
+const shots = process.argv[2] ? resolve(process.argv[2]) : join(repo, "docs", "screenshots-dark");
 mkdirSync(shots, { recursive: true });
 
 const API = "http://127.0.0.1:8000";
-// localhost, not 127.0.0.1: vite binds ::1 on Windows, and the backend's
-// CORS allowlist names http://localhost:5173 as the one permitted origin.
 const UI = "http://localhost:5173";
-const dbFile = join(tmpdir(), `helix-e2e-${Date.now()}.db`);
+const dbFile = join(tmpdir(), `helix-dark-${Date.now()}.db`);
 const children = [];
 
 function boot(cmd, args, opts) {
@@ -33,13 +25,11 @@ function boot(cmd, args, opts) {
   return child;
 }
 
-// Windows: killing a shell doesn't kill its children (vite outlives npm).
-// taskkill /T takes the whole tree down.
 function killTree(pid) {
   try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* gone */ }
 }
 
-async function waitFor(url, label, tries = 120) {
+async function waitFor(url, label, tries = 240) {
   for (let i = 0; i < tries; i++) {
     try {
       const r = await fetch(url);
@@ -55,8 +45,6 @@ const step = (msg) => console.log(`  • ${msg}`);
 async function main() {
   boot(join(repo, "backend", ".venv", "Scripts", "python.exe"),
     ["-m", "uvicorn", "api.main:app", "--port", "8000"],
-    // HELIX_DEV skips the JWT_SECRET guard, which otherwise refuses to start.
-    // The run is throwaway — its own SQLite file, no real users, no real keys.
     { cwd: join(repo, "backend"), env: { ...process.env, HELIX_DEV: "1", DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}` } });
   boot("npm", ["run", "dev"], { cwd: join(repo, "frontend", "app"), shell: true });
   await waitFor(`${API}/health`, "backend");
@@ -66,14 +54,31 @@ async function main() {
   browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(30_000);
-  // Where was the page when a step failed? (Written only on failure.)
+  // Nocturne before first paint: initTheme() reads this key on boot, so no
+  // click on the ☾ toggle is needed and no frame is captured mid-transition.
+  await page.addInitScript(() => localStorage.setItem("helix:theme", "dark"));
   failShot = () => page.screenshot({ path: join(shots, "99-failure.png") }).catch(() => {});
 
   // --- register ---
   await page.goto(`${UI}/auth`);
-  await page.getByRole("tab", { name: "Create account" }).click();
+  const theme = await page.evaluate(() => document.documentElement.dataset.theme);
+  if (theme !== "dark") throw new Error(`theme did not apply (data-theme=${theme})`);
+  step("nocturne applied");
+  const tab = page.getByRole("tab", { name: "Create account" });
+  await tab.click();
   await page.locator('input[type="email"]').fill("aria@helix.team");
   await page.locator('input[type="password"]').fill("demo-password-1");
+  // The tab pill is a Framer spring and the helix mark draws itself on: shoot
+  // too early and the pill is caught between the two tabs with the helix half
+  // drawn. Wait, then confirm the pill's box sits inside the active tab's.
+  await new Promise((r) => setTimeout(r, 1_500));
+  const settled = await tab.evaluate((el) => {
+    const pill = el.parentElement.querySelector('[class*="pill"], [style*="transform"]');
+    const t = el.getBoundingClientRect();
+    const p = pill?.getBoundingClientRect();
+    return p ? p.left >= t.left - 8 && p.right <= t.right + 8 : null;
+  });
+  if (settled === false) throw new Error("tab pill never settled on the active tab");
   await page.screenshot({ path: join(shots, "01-signin.png") });
   await page.getByRole("button", { name: /Create account ⟶/ }).click();
   step("registered");
@@ -90,7 +95,6 @@ async function main() {
   await page.getByPlaceholder(/Title \(e\.g\./).fill("Chunking strategy");
   await page.getByRole("button", { name: "Create", exact: true }).click();
   const composer = page.getByPlaceholder(/Continue the thread/);
-  const send = page.locator('button[title="Send (Enter)"]');
   async function ask(text) {
     await composer.fill(text);
     await composer.press("Enter");
@@ -114,14 +118,12 @@ async function main() {
   ].join("\n"));
   await page.getByRole("button", { name: "DOCS", exact: true }).click();
   await page.locator('input[type="file"]').first().setInputFiles(spec);
-  await page.getByText("ready", { exact: false }).first().waitFor({ timeout: 60_000 });
+  await page.getByText("ready", { exact: false }).first().waitFor({ timeout: 120_000 });
   await page.screenshot({ path: join(shots, "05-docs.png") });
   step("document ingested");
 
   // --- cited grounding ---
   await page.getByRole("button", { name: "CHAT", exact: true }).click();
-  // Re-select the thread explicitly and wait for it to be on stage — asking
-  // before the branch reload finishes would auto-create an "Untitled" thread.
   await page.getByText("Chunking strategy").first().click();
   await page.getByText(/\d+ nodes/).first().waitFor();
   await page.getByText("Ingesting", { exact: false }).waitFor({ state: "hidden", timeout: 15_000 }).catch(() => {});
@@ -134,8 +136,6 @@ async function main() {
   await page.locator('button[title="New conversation"]').click();
   await page.getByPlaceholder(/Title \(e\.g\./).fill("Recall experiments");
   await page.getByRole("button", { name: "Create", exact: true }).click();
-  // The new thread must be the one on stage before typing — resurfacing
-  // excludes the on-screen thread, so racing the switch hides real hits.
   await page.getByText("Recall experiments").first().waitFor();
   await composer.fill("What chunk size should we use to get the best retrieval recall?");
   await page.getByText("explored before").waitFor({ timeout: 30_000 });
@@ -153,16 +153,16 @@ async function main() {
   await page.screenshot({ path: join(shots, "04-agent-ledger.png") });
   step("agent run: tool ledger rendered");
 
-  // --- deep reasoning (optional: the 70B may be rate-limited) ---
+  // --- deep reasoning (the 70B may be rate-limited) ---
   try {
     await composer.fill("Is our 30% retrieval failure more likely a chunking problem or an embedding problem? Argue it out.");
     await page.getByRole("button", { name: "Deep Reasoning" }).click();
-    await page.getByText(/step \d+ · depth/).first().waitFor({ timeout: 60_000 });
-    await new Promise((r) => setTimeout(r, 6_000)); // let a few trace steps land
+    await page.getByText(/step \d+ · depth/).first().waitFor({ timeout: 90_000 });
+    await new Promise((r) => setTimeout(r, 8_000)); // let a few trace steps land
     await page.screenshot({ path: join(shots, "06-deep-monitor.png") });
     step("deep reasoning monitor captured");
-  } catch {
-    step("deep reasoning skipped (likely provider rate limit) — optional shot");
+  } catch (e) {
+    step(`deep reasoning FAILED (${e.message.split("\n")[0]}) — shot missing`);
   }
 
   // --- map + tools panel ---
@@ -175,14 +175,14 @@ async function main() {
   step("map + tools panel captured");
 
   await browser.close();
-  console.log(`\nSmoke click-through PASSED. Screenshots in ${shots}`);
+  console.log(`\nDark click-through PASSED. Screenshots in ${shots}`);
 }
 
 let failShot = async () => {};
 let browser;
 main()
   .catch(async (e) => {
-    console.error("\nSmoke click-through FAILED:", e.message);
+    console.error("\nDark click-through FAILED:", e.message);
     await failShot();
     process.exitCode = 1;
   })

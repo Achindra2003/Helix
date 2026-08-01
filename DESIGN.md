@@ -296,6 +296,19 @@ must not make every visitor's browser call a third party on page load.
 - **Mono** (JetBrains Mono, 400, 11px): ids, model names, chips, timestamps,
   rail labels, anything machine-shaped.
 
+### The Declared Scale
+
+`tokens.css` declares a six-step px ramp: `--t-micro` 12, `--t-meta` 14,
+`--t-body` 16, `--t-card` 20, `--t-title` 26, `--t-hero` 42.
+
+Be aware that the components have drifted off it. Real sizes in use include
+9.5px (rail labels), 11px, 11.5px, 12.5px, 13px, 15px, 15.5px, 18px and 24px,
+most of them set as literals rather than tokens. Each was chosen for a specific
+surface and none is wrong on its own, but the ramp above no longer describes the
+system it names. **New work should take a step from the ramp**; reconciling the
+existing literals is open work, and worth doing in one pass rather than
+opportunistically, because moving a size changes layout.
+
 ### Named Rules
 
 **The Two Voices Rule.** IM Fell English is what Helix *says*; Inter is what

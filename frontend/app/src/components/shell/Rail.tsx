@@ -35,7 +35,10 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
               <motion.span layoutId="railActive" className={s.navPill}
                 transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 460, damping: 36 }} />
             )}
-            <span className={s.navGlyph}>{n.glyph}</span>
+            {/* The glyph is ornament — hidden so the accessible name is the
+                label alone ("TEAM", not "♔ TEAM"). Same treatment the avatar's
+                initial already gets. */}
+            <span className={s.navGlyph} aria-hidden>{n.glyph}</span>
             <span className={s.navLabel}>{n.label}</span>
           </motion.button>
         );
