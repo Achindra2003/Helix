@@ -1104,11 +1104,37 @@ export function ChatView() {
                   </span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messages.length} nodes</span>
                 </div>
+                {/* The verdict on the branch you are reading. Above the linked
+                    context because "this was abandoned three days ago, and
+                    here is why" outranks everything else in this header — it
+                    is the difference between continuing useful work and
+                    redoing something the team already rejected. */}
+                {activeBranch && activeBranch.status !== "open" && (
+                  <div className={s.branchVerdict} data-status={activeBranch.status}>
+                    <span className={s.verdictMark}>
+                      {activeBranch.status === "adopted" ? "✓" : "✕"}
+                    </span>
+                    <span>
+                      <b>{activeBranch.status === "adopted" ? "Adopted" : "Abandoned"}</b>
+                      {activeBranch.resolution && <> — {activeBranch.resolution}</>}
+                      {activeBranch.intent && (
+                        <span className={s.verdictIntent}> · was trying: {activeBranch.intent}</span>
+                      )}
+                    </span>
+                    {canFork && (
+                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.7 }}
+                        title="Change the verdict"
+                        onClick={() => setResolveDlg(activeBranch)}>⚖</button>
+                    )}
+                  </div>
+                )}
+                {/* Only rendered once there is something linked, or an action to
+                    offer. "linked context: none" was a permanent label for an
+                    empty state — it occupied prime space to say nothing. */}
                 {(references.length > 0 || canSend) && (
                   <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
-                    <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
-                    {references.length === 0 && (
-                      <span style={{ fontSize: 12.5, color: "var(--ink-3)", fontStyle: "italic" }}>none</span>
+                    {references.length > 0 && (
+                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
                     )}
                     {references.map((r) => (
                       <span key={r.id} className={s.chip} title="Replies here draw on this thread's live context"

@@ -31,6 +31,28 @@
    because "which of these did we adopt" is the question the lineage exists to
    answer at a glance. */
 .branchMark { font-family: var(--font-mono); font-size: 11px; flex: 0 0 auto; }
+/* The resolution, readable without hovering. It is the reason a decision holds
+   up later, so it belongs in the record rather than in a tooltip — one quiet
+   line under the name, clipped rather than wrapped so rows stay scannable. */
+.branchWhy {
+  font-size: 11px; color: var(--ink-3); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-left: 16px; margin-top: -2px; margin-bottom: 2px;
+}
+
+/* The verdict on the branch currently open, in the stage header. */
+.branchVerdict {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-top: 8px; padding: 6px 10px; border-radius: 7px;
+  font-size: 13px; line-height: 1.45; color: var(--ink-2);
+  border: 1px solid var(--rule-soft); background: var(--paper);
+}
+.branchVerdict[data-status="adopted"] { border-color: rgba(70, 98, 76, 0.4); }
+.branchVerdict[data-status="abandoned"] { color: var(--ink-3); }
+.branchVerdict[data-status="adopted"] .verdictMark { color: var(--verde); }
+.branchVerdict[data-status="abandoned"] .verdictMark { color: var(--ink-faint); }
+.verdictMark { font-family: var(--font-mono); font-size: 12px; flex: 0 0 auto; }
+.verdictIntent { color: var(--ink-3); font-style: italic; }
 /* Branch housekeeping (resolve/rename/delete) — revealed only when the row is
    touched, and lifted OUT of the flex flow so three hidden buttons can't steal
    width from the name. In-flow they truncated it to "fixed-5…" at this pane's

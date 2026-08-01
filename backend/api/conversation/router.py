@@ -406,9 +406,24 @@ async def export_conversation(
         "",
         f"*a Helix conversation · branch “{br.name}” · {len(nodes)} nodes*",
         "",
-        "---",
-        "",
     ]
+    # The decision, before the transcript. Someone handed this file is reading
+    # it to find out what was concluded and why; making them infer that from a
+    # transcript is the copy-paste problem this export exists to replace.
+    if br.intent:
+        lines += [f"**Exploring:** {br.intent}", ""]
+    if br.status != "open":
+        verdict = f"**{br.status.capitalize()}**"
+        if br.resolution:
+            verdict += f" — {br.resolution}"
+        lines += [verdict, ""]
+        # `_who(None)` answers "Helix", which would be a lie about who decided.
+        who = await _who(br.resolved_by) if br.resolved_by else ""
+        when = br.resolved_at.date().isoformat() if br.resolved_at else ""
+        stamp = " · ".join(x for x in (who, when) if x)
+        if stamp:
+            lines += [f"*recorded by {stamp}*", ""]
+    lines += ["---", ""]
     for n in nodes:
         who = "Helix" if n.role == "assistant" else await _who(n.author_id)
         lines.append(f"**{who}**")

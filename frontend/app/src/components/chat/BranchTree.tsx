@@ -54,8 +54,8 @@ export function BranchTree({
           resolved && b.resolution && `${mark?.label}: ${b.resolution}`,
         ].filter(Boolean).join("\n") || undefined;
         return (
+          <div key={b.id}>
           <div
-            key={b.id}
             className={`${s.branchRow} ${on ? s.branchOn : ""}`}
             onClick={() => onSelect(b.id)}
             title={title}
@@ -96,6 +96,16 @@ export function BranchTree({
                   onClick={(e) => { e.stopPropagation(); onDelete(b); }}>✕</button>
               )}
             </span>
+          </div>
+          {resolved && b.resolution && (
+            <div
+              className={s.branchWhy}
+              style={{ marginLeft: depth * 14 + 16 }}
+              title={b.resolution}
+            >
+              {b.resolution}
+            </div>
+          )}
           </div>
         );
       })}

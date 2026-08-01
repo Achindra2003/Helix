@@ -902,3 +902,47 @@ def test_observer_cannot_resolve_a_branch(make_workspace, join_workspace):
             headers=obs_headers,
         )
         assert r.status_code == 403
+
+
+def test_markdown_export_carries_the_decision(make_workspace):
+    """Someone handed this file is reading it to find out what was concluded."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid, intent="semantic chunking")
+        client.post(
+            f"/conversations/{fork_id}/messages", json={"prompt": "explore"}, headers=headers
+        )
+        client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "abandoned", "resolution": "lost cross-section context"},
+            headers=headers,
+        )
+
+        md = client.get(
+            f"/conversations/{cid}/export",
+            params={"branch": fork_id, "format": "md"},
+            headers=headers,
+        )
+        assert md.status_code == 200, md.text
+        body = md.text
+        assert "**Exploring:** semantic chunking" in body
+        assert "**Abandoned** — lost cross-section context" in body
+        assert "recorded by" in body
+        # The verdict comes before the transcript, not buried after it.
+        assert body.index("Abandoned") < body.index("explore")
+
+
+def test_export_of_an_open_branch_states_no_verdict(make_workspace):
+    """An unresolved exploration must not read as though it concluded."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid, intent="fixed chunks")
+
+        body = client.get(
+            f"/conversations/{cid}/export",
+            params={"branch": fork_id, "format": "md"},
+            headers=headers,
+        ).text
+        assert "**Exploring:** fixed chunks" in body
+        assert "Adopted" not in body and "Abandoned" not in body
+        assert "recorded by" not in body
