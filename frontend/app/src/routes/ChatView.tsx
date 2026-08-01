@@ -5,10 +5,10 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace,
+  searchWorkspace, killDeepRun,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
-import { onRoomEvent, sendViewing } from "@/lib/realtime";
+import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
 import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
@@ -101,6 +101,9 @@ export function ChatView() {
   const [draftTitle, setDraftTitle] = useState("");
   const [draftVis, setDraftVis] = useState<"shared" | "private">("shared");
   const [replay, setReplay] = useState<number | null>(null);
+  // Below 1100px the flanking panes fold out over the stage instead of being
+  // hidden; one at a time, since they enter from opposite edges.
+  const [drawer, setDrawer] = useState<"left" | "monitor" | null>(null);
   const [linkDlg, setLinkDlg] = useState(false);
   // "Edit last message" hand-off: the removed message's text, waiting in the
   // composer for the author to revise and resend.
@@ -223,8 +226,14 @@ export function ChatView() {
   const resurfaceTimer = useRef<number | null>(null);
   const resurfaceSeq = useRef(0);
   useEffect(() => () => { if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current); }, []);
-  // A new thread on screen is a new question context — reset the strip.
-  useEffect(() => { setResurfaced([]); setResurfaceMuted(false); }, [activeConvId]);
+  // A new thread on screen is a new question context — reset the strip, and
+  // stop telling the room I am drafting in the thread I just left.
+  useEffect(() => {
+    setResurfaced([]);
+    setResurfaceMuted(false);
+    sendDrafting(null, false);
+    return () => sendDrafting(null, false);
+  }, [activeConvId]);
 
   function onDraftChange(text: string) {
     if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current);
@@ -234,6 +243,7 @@ export function ChatView() {
       // and un-mute for the next question.
       setResurfaced([]);
       setResurfaceMuted(false);
+      sendDrafting(null, false);
       return;
     }
     resurfaceTimer.current = window.setTimeout(async () => {
@@ -249,6 +259,12 @@ export function ChatView() {
           seen.add(h.conversation_id);
           return true;
         }).slice(0, 3));
+        // Tell the room the same thing this strip just told me: a question is
+        // being composed here, and it overlaps that thread. Ids only, and only
+        // once the draft is long enough to have crossed the same relevance bar
+        // the strip uses — the room should not light up for every keystroke.
+        const top = r.items.find((h) => h.score >= RESURFACE_FLOOR && h.conversation_id !== activeConvRef.current);
+        sendDrafting(activeConvRef.current, true, top?.conversation_id ?? null);
       } catch { /* resurfacing is an enhancement, never an error */ }
     }, 700);
   }
@@ -263,6 +279,33 @@ export function ChatView() {
     }
     return map;
   }, [presenceUsers, user?.id]);
+
+  // The room dock: teammates composing a question right now, in a thread I can
+  // see. The socket carries ids only, so a title appears here only because it
+  // is already in MY conversation list — a thread I cannot see resolves to
+  // nothing and the line is dropped rather than half-rendered.
+  const roomDrafts = useMemo(() => {
+    const byId = new Map(conversations.map((c) => [c.id, c]));
+    return presenceUsers.flatMap((u) => {
+      if (u.user_id === user?.id || !u.drafting_conversation) return [];
+      const where = byId.get(u.drafting_conversation);
+      if (!where) return [];
+      const match = u.drafting_match ? byId.get(u.drafting_match) ?? null : null;
+      return [{ email: u.email, where, match }];
+    });
+  }, [presenceUsers, conversations, user?.id]);
+
+  // Link the overlapping thread onto the conversation THEY are drafting in, so
+  // the context is already folded in when they press send. This is the whole
+  // point of the dock: the answer to "has someone been here before" arrives
+  // before the question is asked, not after.
+  async function doLinkFor(targetConvId: string, refId: string) {
+    try {
+      await addReference(targetConvId, refId);
+      await qc.invalidateQueries({ queryKey: ["references", targetConvId] });
+      push("Linked for them — their next reply draws on that thread");
+    } catch (e: any) { push(e?.message ?? "Link failed", "error"); }
+  }
 
   // While a teammate's turn streams into the open branch, name them above the
   // composer ("you can see each other think").
@@ -937,22 +980,44 @@ export function ChatView() {
     [messages, replay],
   );
 
+  // Escape closes an open drawer — the same reflex a dialog earns.
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawer(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer]);
+
+  const runLive = monitor.run?.status === "live" || monitor.run?.status === "waiting";
+
+  /** Same contract as the monitor's Stop: the run lives server-side, so the
+   *  local stream being aborted is the fallback, not the mechanism. */
+  async function stopRun() {
+    const cur = useMonitor.getState().run;
+    if (!cur) return;
+    if (cur.runId) {
+      try { await killDeepRun(cur.runId); return; } catch { /* fall back to abort */ }
+    }
+    cur.abort?.();
+  }
+
   return (
-    <div className={`${s.grid} folio`}>
+    <div className={`${s.grid} folio`} data-drawer={drawer ?? undefined}>
       {/* LEFT */}
-      <div className={s.left}>
+      <div className={s.left} id="chat-threads">
         <div className={s.scrollList}>
           <ConversationList
             conversations={conversations}
             activeId={activeConvId}
             canCreate={canSend}
-            onSelect={setActiveConvId}
-            onNew={() => { setDraftTitle(""); setNewDlg(true); }}
+            onSelect={(id) => { setActiveConvId(id); setDrawer(null); }}
+            onNew={() => { setDraftTitle(""); setNewDlg(true); setDrawer(null); }}
             viewers={conversationViewers}
             unread={unreadIds}
           />
           {activeConv && branches.length > 0 && (
-            <BranchTree branches={branches} activeId={activeBranchId} onSelect={setActiveBranchId}
+            <BranchTree branches={branches} activeId={activeBranchId}
+              onSelect={(id) => { setActiveBranchId(id); setDrawer(null); }}
               onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
               onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined} />
           )}
@@ -963,6 +1028,27 @@ export function ChatView() {
       {/* STAGE */}
       <div className={s.stage}>
         <div className={s.stageGeo}><Frontispiece size={560} animate={false} /></div>
+
+        {/* The only route to the two panes below 1100px, so it sits outside the
+            "a conversation is open" branch — otherwise the empty state would
+            have no way to reach the thread list. */}
+        <div className={s.drawerBar}>
+          <button
+            className={`${s.drawerBtn} ${drawer === "left" ? s.drawerBtnOn : ""}`}
+            aria-expanded={drawer === "left"} aria-controls="chat-threads"
+            onClick={() => setDrawer((d) => (d === "left" ? null : "left"))}
+          >
+            ⌇ threads
+          </button>
+          <div style={{ flex: 1 }} />
+          <button
+            className={`${s.drawerBtn} ${drawer === "monitor" ? s.drawerBtnOn : ""}`}
+            aria-expanded={drawer === "monitor"} aria-controls="chat-monitor"
+            onClick={() => setDrawer((d) => (d === "monitor" ? null : "monitor"))}
+          >
+            {runLive && <span className={s.drawerLive} />} ⟳ monitor
+          </button>
+        </div>
         {!activeConv ? (
           <EmptyState title="An unopened volume"
             icon={<div style={{ opacity: 0.45 }}><Frontispiece size={130} animate={false} /></div>}>
@@ -976,14 +1062,14 @@ export function ChatView() {
         ) : (
           <>
             <div className={s.stageHead}>
-              <div style={{ flex: 1, minWidth: 0 }}>
+              <div className={s.stageTitleBlock}>
                 <div className={s.stageTitle} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                   <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{activeConv.title}</span>
                   {(activeConv.author_id === user?.id || role === "owner") && (
                     <>
-                      <button className={s.branchAct} style={{ opacity: 0.6 }} title="Rename conversation"
+                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.6 }} title="Rename conversation"
                         onClick={() => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✎</button>
-                      <button className={s.branchAct} style={{ opacity: 0.6, color: "var(--oxblood)" }} title="Delete conversation"
+                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.6, color: "var(--oxblood)" }} title="Delete conversation"
                         onClick={() => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✕</button>
                     </>
                   )}
@@ -1060,6 +1146,40 @@ export function ChatView() {
                   ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
                 </div>
               )}
+              {roomDrafts.map((d) => (
+                <div key={d.email} className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
+                  <span className={s.rowDot} style={{ background: colorFor(d.email) }} />
+                  <span>{d.email} is drafting in</span>
+                  <button className={s.chip} title="Open their thread"
+                    onClick={() => nav(`/w/${wid}?conv=${d.where.id}`)}
+                    style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 220 }}>
+                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {d.where.title}
+                    </span>
+                  </button>
+                  {d.match && (
+                    // one group, so the arrow never wraps away from the thread
+                    // it points at
+                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
+                      <span style={{ color: "var(--gilt)", flex: "0 0 auto" }}>↳ overlaps</span>
+                      <button className={s.chip} title="Open the thread it overlaps"
+                        onClick={() => nav(`/w/${wid}?conv=${d.match!.id}`)}
+                        style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 220 }}>
+                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                          {d.match.title}
+                        </span>
+                      </button>
+                      {canSend && (
+                        <button className={s.chip} title="Add that thread as linked context on theirs, before they send"
+                          onClick={() => doLinkFor(d.where.id, d.match!.id)}
+                          style={{ cursor: "pointer", border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--oxblood)" }}>
+                          link it for them
+                        </button>
+                      )}
+                    </span>
+                  )}
+                </div>
+              ))}
               {canSend && !busy && !resurfaceMuted && resurfaced.length > 0 && (
                 <div className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
                   <span style={{ color: "var(--gilt)" }}>✦</span>
@@ -1109,6 +1229,20 @@ export function ChatView() {
                   {" "}<u>Add a key under TEAM → Provider</u> (owners only).
                 </div>
               )}
+              {/* With the monitor folded away, a live run still has to be
+                  visible and stoppable from the stage. */}
+              {runLive && (
+                <div className={s.runStrip}>
+                  <span className={s.runStripDot} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    deep run · depth {monitor.run?.depth ?? 0}
+                    {monitor.run?.status === "waiting" ? " · holding for you" : ""}
+                  </span>
+                  <button className={s.drawerBtn} style={{ minHeight: 32 }}
+                    onClick={() => setDrawer("monitor")}>watch</button>
+                  <button className={s.runStripKill} onClick={stopRun}>◼ Stop run</button>
+                </div>
+              )}
               {canSend ? (
                 <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
                   onAgent={onAgent} agentHint={agentHint}
@@ -1127,7 +1261,13 @@ export function ChatView() {
       </div>
 
       {/* RIGHT: monitor */}
-      <DeepReasoningMonitor conversationId={activeConvId} />
+      <DeepReasoningMonitor conversationId={activeConvId} id="chat-monitor" />
+
+      {/* dismisses whichever drawer is open; inert above 1100px, where the CSS
+          keeps it display:none and both panes are in the grid */}
+      {drawer && (
+        <button className={s.drawerScrim} aria-label="Close panel" onClick={() => setDrawer(null)} />
+      )}
 
       {forkDlg && (
         <ForkDialog onClose={() => setForkDlg(null)} onConfirm={(name) => { doFork(forkDlg.nodeId, name); setForkDlg(null); }} />

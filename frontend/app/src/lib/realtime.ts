@@ -20,6 +20,12 @@ export interface RoomUser {
   // draw dots from it.
   viewing?: string | null;
   viewing_conversation?: string | null;
+  // A shared conversation this user is composing a question in, and a thread
+  // that draft already overlaps. Ids only — never the draft text, never a
+  // title. Resolve them against your own conversation list and render nothing
+  // for an id you cannot see; that is what keeps this channel safe.
+  drafting_conversation?: string | null;
+  drafting_match?: string | null;
 }
 
 export type RoomEvent =
@@ -60,6 +66,29 @@ export function sendViewing(branchId: string | null, conversationId: string | nu
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ kind: "viewing", branch_id: branchId, conversation_id: conversationId }));
   }
+}
+
+/**
+ * Tell the room that a question is being composed here, and which existing
+ * thread it already overlaps.
+ *
+ * Deliberately just two ids and a flag. The draft itself never leaves the
+ * composer — a draft is not a commitment, and people type and delete things
+ * they never meant to say. The server drops the signal entirely if the
+ * conversation is private.
+ */
+export function sendDrafting(
+  conversationId: string | null,
+  active: boolean,
+  matchConversationId: string | null = null,
+) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    kind: "drafting",
+    conversation_id: conversationId,
+    active,
+    match_conversation_id: matchConversationId,
+  }));
 }
 
 export function onRoomEvent(fn: Listener): () => void {
