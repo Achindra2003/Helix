@@ -3,7 +3,7 @@
 import { getToken } from "@/lib/auth";
 import { useSession } from "@/store/session";
 import type {
-  AuthResponse, Conversation, ConversationRef, Branch, Node, Prompt, Workspace, Member, Invite, Health, User,
+  AuthResponse, Conversation, ConversationRef, Branch, BranchStatus, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
   WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings,
 } from "@/lib/types";
@@ -202,10 +202,18 @@ export const getHistory = (branchId: string) =>
 // it — append-only history stays intact for anyone who already branched off.
 export const deleteLastMessage = (branchId: string) =>
   request<{ removed_ids: string[] }>(`/conversations/${branchId}/messages/last`, { method: "DELETE" });
-export const forkBranch = (cid: string, fromNodeId: string, name: string) =>
-  request<{ branch_id: string; fork_node_id: string; name: string }>(`/conversations/${cid}/fork`, {
+export const forkBranch = (cid: string, fromNodeId: string, name: string, intent = "") =>
+  request<{ branch_id: string; fork_node_id: string; name: string; intent: string }>(`/conversations/${cid}/fork`, {
     method: "POST",
-    body: JSON.stringify({ from_node_id: fromNodeId, name }),
+    body: JSON.stringify({ from_node_id: fromNodeId, name, intent }),
+  });
+// Record what came of an exploration. `status: "open"` reopens it and clears
+// the verdict. The server requires a reason for adopted/abandoned — a verdict
+// without one is not a record.
+export const resolveBranch = (bid: string, status: BranchStatus, resolution: string) =>
+  request<Branch>(`/conversations/branches/${bid}/resolve`, {
+    method: "POST",
+    body: JSON.stringify({ status, resolution }),
   });
 // Export is auth-gated, so a plain <a href> can't carry the JWT: fetch with the
 // token and hand the payload to the browser as a blob download.

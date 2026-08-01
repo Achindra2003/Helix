@@ -726,3 +726,179 @@ def test_branch_rename_and_delete_with_safety(make_workspace):
         assert gone.status_code == 200, gone.text
         tree = client.get(f"/conversations/{cid}/branches", headers=headers).json()["items"]
         assert [b["id"] for b in tree] == [main_id]
+
+
+# --- branch lifecycle: intent + resolution ---------------------------------
+# A branch used to record only where it came from, so a tree of them held the
+# alternatives a team considered but never which one won. These lock in the
+# three rules that make it a decision record instead of a pile.
+
+
+def _seeded_fork(client, headers, wid, intent="try semantic chunking"):
+    """A conversation with one turn and one fork carrying an intent."""
+    created = _create_conv(client, headers, wid)
+    cid, branch_id = created["conversation_id"], created["branch_id"]
+    client.post(
+        f"/conversations/{branch_id}/messages", json={"prompt": "seed"}, headers=headers
+    )
+    hist = client.get(
+        f"/conversations/branches/{branch_id}/history", headers=headers
+    ).json()
+    node_id = hist["nodes"][0]["id"]
+    fork = client.post(
+        f"/conversations/{cid}/fork",
+        json={"from_node_id": node_id, "name": "alt", "intent": intent},
+        headers=headers,
+    )
+    assert fork.status_code == 200, fork.text
+    return cid, fork.json()["branch_id"]
+
+
+def test_fork_records_what_the_exploration_is_trying(make_workspace):
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid)
+
+        tree = client.get(f"/conversations/{cid}/branches", headers=headers).json()["items"]
+        forked = next(b for b in tree if b["id"] == fork_id)
+        assert forked["intent"] == "try semantic chunking"
+        # An unresolved exploration is open, with no verdict attached.
+        assert forked["status"] == "open"
+        assert forked["resolution"] == ""
+        assert forked["resolved_by"] is None
+
+
+def test_resolving_records_the_verdict_and_who_made_it(make_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid)
+
+        r = client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "adopted", "resolution": "better recall on long PDFs"},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["status"] == "adopted"
+        assert body["resolution"] == "better recall on long PDFs"
+        assert body["resolved_by"] == uid
+        assert body["resolved_at"] is not None
+
+
+def test_a_verdict_without_a_reason_is_refused(make_workspace):
+    """The one place this is strict: "we chose this" with no why is not a record."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        _, fork_id = _seeded_fork(client, headers, wid)
+
+        for payload in ({"status": "adopted"}, {"status": "abandoned", "resolution": "   "}):
+            r = client.post(
+                f"/conversations/branches/{fork_id}/resolve", json=payload, headers=headers
+            )
+            assert r.status_code == 422, r.text
+
+        bad = client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "merged", "resolution": "x"},
+            headers=headers,
+        )
+        assert bad.status_code == 422
+
+
+def test_abandoning_never_deletes_the_exploration(make_workspace):
+    """The rejected alternative is half the argument for the one you took."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid)
+        client.post(
+            f"/conversations/{fork_id}/messages", json={"prompt": "explore"}, headers=headers
+        )
+
+        client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "abandoned", "resolution": "chunks lost cross-section context"},
+            headers=headers,
+        )
+
+        tree = client.get(f"/conversations/{cid}/branches", headers=headers).json()["items"]
+        assert fork_id in [b["id"] for b in tree]
+        hist = client.get(
+            f"/conversations/branches/{fork_id}/history", headers=headers
+        )
+        assert hist.status_code == 200 and len(hist.json()["nodes"]) > 1
+
+
+def test_adopting_one_branch_says_nothing_about_its_siblings(make_workspace):
+    """No inferred verdicts: a sibling stays open until someone resolves it."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        created = _create_conv(client, headers, wid)
+        cid, main_id = created["conversation_id"], created["branch_id"]
+        client.post(
+            f"/conversations/{main_id}/messages", json={"prompt": "seed"}, headers=headers
+        )
+        node_id = client.get(
+            f"/conversations/branches/{main_id}/history", headers=headers
+        ).json()["nodes"][0]["id"]
+
+        forks = []
+        for name in ("alt-a", "alt-b"):
+            r = client.post(
+                f"/conversations/{cid}/fork",
+                json={"from_node_id": node_id, "name": name, "intent": f"{name} idea"},
+                headers=headers,
+            )
+            forks.append(r.json()["branch_id"])
+
+        client.post(
+            f"/conversations/branches/{forks[0]}/resolve",
+            json={"status": "adopted", "resolution": "cheaper and clearer"},
+            headers=headers,
+        )
+
+        tree = {
+            b["id"]: b
+            for b in client.get(f"/conversations/{cid}/branches", headers=headers).json()["items"]
+        }
+        assert tree[forks[0]]["status"] == "adopted"
+        assert tree[forks[1]]["status"] == "open"
+        assert tree[main_id]["status"] == "open"
+
+
+def test_reopening_clears_the_verdict(make_workspace):
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid)
+        client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "abandoned", "resolution": "too slow"},
+            headers=headers,
+        )
+
+        r = client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "open"},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["status"] == "open"
+        assert body["resolution"] == ""
+        assert body["resolved_by"] is None
+        assert body["resolved_at"] is None
+
+
+def test_observer_cannot_resolve_a_branch(make_workspace, join_workspace):
+    """Whoever may explore may conclude — and an observer may do neither."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        _, fork_id = _seeded_fork(client, owner_headers, wid)
+        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
+
+        r = client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "adopted", "resolution": "looks fine to me"},
+            headers=obs_headers,
+        )
+        assert r.status_code == 403

@@ -112,6 +112,15 @@ class SteerRequest(BaseModel):
 class ForkBranch(BaseModel):
     from_node_id: str
     name: str = "branch"
+    # What this exploration is trying. Optional so existing clients keep
+    # working, but the UI asks for it — a branch whose purpose was never
+    # written down cannot carry a meaningful verdict later.
+    intent: str = ""
+
+
+class ResolveBranch(BaseModel):
+    status: str  # open | adopted | abandoned
+    resolution: str = ""
 
 
 class InsertPrompt(BaseModel):
@@ -503,7 +512,10 @@ async def fork_branch(
     conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
     try:
         branch = await _store.create_branch(
-            conversation_id=conversation_id, from_node_id=body.from_node_id, name=body.name
+            conversation_id=conversation_id,
+            from_node_id=body.from_node_id,
+            name=body.name,
+            intent=body.intent.strip(),
         )
     except KeyError:
         raise api_error(404, "not_found", "node not found")
@@ -519,7 +531,67 @@ async def fork_branch(
             },
             exclude_user=user.id,
         )
-    return {"branch_id": branch.id, "fork_node_id": branch.fork_node_id, "name": branch.name}
+    return {
+        "branch_id": branch.id,
+        "fork_node_id": branch.fork_node_id,
+        "name": branch.name,
+        "intent": branch.intent,
+    }
+
+
+@router.post("/branches/{branch_id}/resolve")
+async def resolve_branch(
+    branch_id: str,
+    body: ResolveBranch,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Record what came of an exploration — adopted, abandoned, or reopened.
+
+    This is what makes the tree a decision record rather than a pile of
+    experiments. Three rules hold it together:
+
+    · A verdict needs a reason. `resolution` is required to adopt or abandon,
+      because "we chose this" without a why is not defensible six weeks later,
+      which is the entire job this product claims to do.
+    · Nothing is deleted. An abandoned branch stays readable forever — the
+      alternative you rejected is half of the argument for the one you took.
+    · Siblings are untouched. Adopting one branch says nothing about the
+      others; a verdict nobody recorded is not a verdict.
+
+    Collaborator+, same bar as forking one: whoever may explore may conclude.
+    """
+    status = body.status.strip().lower()
+    if status not in {"open", "adopted", "abandoned"}:
+        raise api_error(422, "invalid", "status must be open, adopted or abandoned")
+    resolution = body.resolution.strip()
+    if status != "open" and not resolution:
+        raise api_error(422, "invalid", "say why — a verdict without a reason is not a record")
+
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    updated = await _store.resolve_branch(
+        branch_id=branch_id, status=status, resolution=resolution, resolved_by=user.id
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "branch not found")
+
+    if conv.visibility == "shared":
+        # A decision landing is the most consequential thing that happens in a
+        # workspace — the room should see it without a refresh.
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.resolved",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "status": updated.status,
+                "resolution": updated.resolution,
+                "name": updated.name,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
 
 
 async def _reference_summaries(conversation_id: str) -> list[dict]:

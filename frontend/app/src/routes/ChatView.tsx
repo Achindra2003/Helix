@@ -5,11 +5,11 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, killDeepRun,
+  searchWorkspace, killDeepRun, resolveBranch,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
-import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
+import type { Branch, BranchStatus, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
@@ -21,7 +21,7 @@ import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
-import { Input } from "@/components/common/Input";
+import { Input, Field } from "@/components/common/Input";
 import { EmptyState } from "@/components/common/Feedback";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import { ConversationList } from "@/components/chat/ConversationList";
@@ -111,6 +111,8 @@ export function ChatView() {
   // Conversation/branch housekeeping dialogs.
   const [renameDlg, setRenameDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
   const [deleteDlg, setDeleteDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
+  // Recording what came of an exploration (adopted / abandoned / reopened).
+  const [resolveDlg, setResolveDlg] = useState<Branch | null>(null);
 
   // The thread on screen is by definition read — keep its unread marker clear
   // even as live turns stream into it.
@@ -392,7 +394,7 @@ export function ChatView() {
       await qc.invalidateQueries({ queryKey: ["conversations", wid] });
       setActiveConvId(r.conversation_id);
       setActiveBranchId(r.branch_id);
-      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null }]);
+      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null }]);
       setMessages([]);
     } catch (e: any) { push(e?.message ?? "Create failed", "error"); }
   }
@@ -404,7 +406,7 @@ export function ChatView() {
     await qc.invalidateQueries({ queryKey: ["conversations", wid] });
     setActiveConvId(r.conversation_id);
     setActiveBranchId(r.branch_id);
-    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null }]);
+    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null }]);
     return r.branch_id;
   }
 
@@ -614,15 +616,23 @@ export function ChatView() {
     if (await removeLastTurn()) setComposerDraft(text);
   }
 
-  async function doFork(nodeId: string, name: string) {
+  async function doFork(nodeId: string, name: string, intent: string) {
     if (!activeConvId) return;
     try {
-      const r = await forkBranch(activeConvId, nodeId, name || "experiment");
+      const r = await forkBranch(activeConvId, nodeId, name || "experiment", intent);
       const tree = await listBranches(activeConvId);
       setBranches(tree.items);
       setActiveBranchId(r.branch_id);
       push(`Forked → ${r.name}`);
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
+  }
+
+  async function doResolve(branchId: string, status: BranchStatus, resolution: string) {
+    try {
+      await resolveBranch(branchId, status, resolution);
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+      push(status === "open" ? "Reopened — verdict cleared" : `Recorded as ${status}`);
+    } catch (e: any) { push(e?.message ?? "Could not record that", "error"); }
   }
 
   async function doRename() {
@@ -845,6 +855,16 @@ export function ChatView() {
         if (ev.conversation_id === activeConvId) {
           listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
         }
+      } else if (ev.kind === "branch.resolved") {
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+          // Say it out loud when it lands on the branch someone is reading:
+          // continuing to explore something the team just abandoned is exactly
+          // the wasted work this product exists to prevent.
+          if (ev.branch_id === activeBranchId && ev.status !== "open") {
+            push(`“${ev.name}” was ${ev.status} — ${ev.resolution}`);
+          }
+        }
       } else if (ev.kind === "branch.deleted") {
         if (ev.conversation_id === activeConvId) {
           listBranches(activeConvId).then((r) => {
@@ -1019,7 +1039,8 @@ export function ChatView() {
             <BranchTree branches={branches} activeId={activeBranchId}
               onSelect={(id) => { setActiveBranchId(id); setDrawer(null); }}
               onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
-              onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined} />
+              onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
+              onResolve={canFork ? (b) => setResolveDlg(b) : undefined} />
           )}
         </div>
         <div className={s.leftFoot}><span className={s.liveDot} /> live · server-ordered log</div>
@@ -1270,7 +1291,12 @@ export function ChatView() {
       )}
 
       {forkDlg && (
-        <ForkDialog onClose={() => setForkDlg(null)} onConfirm={(name) => { doFork(forkDlg.nodeId, name); setForkDlg(null); }} />
+        <ForkDialog onClose={() => setForkDlg(null)}
+          onConfirm={(name, intent) => { doFork(forkDlg.nodeId, name, intent); setForkDlg(null); }} />
+      )}
+      {resolveDlg && (
+        <ResolveDialog branch={resolveDlg} onClose={() => setResolveDlg(null)}
+          onConfirm={(status, resolution) => { doResolve(resolveDlg.id, status, resolution); setResolveDlg(null); }} />
       )}
       {linkDlg && activeConv && (
         <LinkContextDialog
@@ -1333,19 +1359,97 @@ export function ChatView() {
   );
 }
 
-function ForkDialog({ onClose, onConfirm }: { onClose: () => void; onConfirm: (name: string) => void }) {
-  const [name, setName] = useState("experiment");
+// The intent is the field this dialog should always have had. It used to ask
+// only for a name, which is why every branch in every demo was called
+// "experiment" — there was nothing meaningful to write, because the model held
+// no notion of what the branch was for. A verdict recorded later ("we adopted
+// experiment") says nothing; "we adopted 'chunk at 500 with overlap'" is a
+// decision. The name stays, shortened to a label for the lineage.
+function ForkDialog({ onClose, onConfirm }: {
+  onClose: () => void;
+  onConfirm: (name: string, intent: string) => void;
+}) {
+  const [intent, setIntent] = useState("");
+  const [name, setName] = useState("");
+  // Fall back to a label derived from the intent, so nobody has to name a
+  // thing twice to get on with the work.
+  const label = name.trim() || intent.trim().split(/\s+/).slice(0, 3).join("-").toLowerCase() || "experiment";
+  const go = () => onConfirm(label, intent.trim());
   return (
     <Dialog title="Fork a new branch" onClose={onClose}
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={() => onConfirm(name.trim())}>Fork</Button>
+        <Button variant="primary" onClick={go}>Fork</Button>
       </>}>
       <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
         The new branch inherits the shared context up to this point, then diverges on its own.
       </div>
-      <Input autoFocus value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name.trim()); }} />
+      <Field label="What are you trying?">
+        <Input autoFocus value={intent} onChange={(e) => setIntent(e.target.value)}
+          placeholder="e.g. chunk at 500 chars with overlap"
+          onKeyDown={(e) => { if (e.key === "Enter") go(); }} />
+      </Field>
+      <Field label={`Label — shown in the lineage (${label})`}>
+        <Input value={name} onChange={(e) => setName(e.target.value)}
+          placeholder="optional"
+          onKeyDown={(e) => { if (e.key === "Enter") go(); }} />
+      </Field>
+    </Dialog>
+  );
+}
+
+// Recording what came of an exploration. The reason is required for a verdict
+// and refused server-side if blank: "we chose this" without a why is exactly
+// the thing this product exists to stop happening.
+function ResolveDialog({ branch, onClose, onConfirm }: {
+  branch: Branch;
+  onClose: () => void;
+  onConfirm: (status: BranchStatus, resolution: string) => void;
+}) {
+  const [status, setStatus] = useState<BranchStatus>(
+    branch.status === "open" ? "adopted" : branch.status,
+  );
+  const [resolution, setResolution] = useState(branch.resolution);
+  const needsReason = status !== "open";
+  const ready = !needsReason || resolution.trim().length > 0;
+  const CHOICES: { key: BranchStatus; label: string; hint: string }[] = [
+    { key: "adopted", label: "Adopted", hint: "this is the way we went" },
+    { key: "abandoned", label: "Abandoned", hint: "we tried it and it lost" },
+    { key: "open", label: "Reopen", hint: "still live — clears the verdict" },
+  ];
+  return (
+    <Dialog title={`What came of “${branch.name}”?`} onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={!ready}
+          onClick={() => onConfirm(status, resolution.trim())}>Record</Button>
+      </>}>
+      {branch.intent && (
+        <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+          It set out to: <span style={{ color: "var(--ink-2)" }}>{branch.intent}</span>
+        </div>
+      )}
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        {CHOICES.map((c) => (
+          <label key={c.key} style={{ display: "flex", alignItems: "baseline", gap: 9, cursor: "pointer", fontSize: 14 }}>
+            <input type="radio" name="verdict" checked={status === c.key}
+              onChange={() => setStatus(c.key)} style={{ accentColor: "var(--oxblood)" }} />
+            <span>{c.label}</span>
+            <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{c.hint}</span>
+          </label>
+        ))}
+      </div>
+      {needsReason && (
+        <Field label="Why — this is what makes it defensible later">
+          <Input autoFocus value={resolution} onChange={(e) => setResolution(e.target.value)}
+            placeholder="e.g. better recall on long PDFs, same cost"
+            onKeyDown={(e) => { if (e.key === "Enter" && ready) onConfirm(status, resolution.trim()); }} />
+        </Field>
+      )}
+      <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+        Nothing is deleted. An abandoned branch stays readable — it is half of why
+        the adopted one holds up.
+      </div>
     </Dialog>
   );
 }

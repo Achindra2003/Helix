@@ -44,6 +44,11 @@ export type RoomEvent =
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.updated"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.deleted"; workspace_id: string; conversation_id: string; branch_id: string }
+  // A verdict landing on an exploration. Carried to the room because a
+  // decision is the most consequential thing that happens in a workspace —
+  // and because a teammate still exploring an abandoned branch should find
+  // that out without a refresh.
+  | { kind: "branch.resolved"; workspace_id: string; conversation_id: string; branch_id: string; status: string; resolution: string; name: string }
   | { kind: "messages.deleted"; workspace_id: string; conversation_id: string; branch_id: string; node_ids: string[] }
   | { kind: "references.updated"; workspace_id: string; conversation_id: string }
   | { kind: "prompt.saved"; workspace_id: string; prompt: Record<string, any> }

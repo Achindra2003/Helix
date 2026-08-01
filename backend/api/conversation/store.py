@@ -14,6 +14,7 @@ it is the most heavily tested.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -42,6 +43,13 @@ class Branch:
     parent_branch_id: str | None
     fork_node_id: str | None
     head_node_id: str | None
+    # What this exploration is trying, and what came of it. Defaulted so every
+    # existing caller and fixture keeps working unchanged.
+    intent: str = ""
+    status: str = "open"  # open | adopted | abandoned
+    resolution: str = ""
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
 
 
 @runtime_checkable
@@ -89,9 +97,19 @@ class ConversationStore(Protocol):
         ...
 
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         """Fork: one new branch row pointing at `from_node_id`; no history copied."""
+        ...
+
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        """Record what came of an exploration. `status="open"` reopens it.
+
+        Never deletes: an abandoned branch stays readable forever, because the
+        alternative you rejected is half of why the decision is defensible.
+        """
         ...
 
     async def add_reference(
@@ -244,7 +262,7 @@ class InMemoryStore:
         return out
 
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         from_node = self.nodes[from_node_id]
         branch_id = _uuid()
@@ -255,6 +273,7 @@ class InMemoryStore:
             parent_branch_id=from_node.branch_id,
             fork_node_id=from_node_id,
             head_node_id=from_node_id,  # tip starts at the fork point
+            intent=intent,
         )
         self.branches[branch_id] = branch
         # Continue numbering after the fork point so seq stays monotonic on the
@@ -333,6 +352,25 @@ class InMemoryStore:
             branch.name = name
         return branch
 
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            return None
+        branch.status = status
+        if status == "open":
+            # Reopening clears the verdict rather than leaving a stale reason
+            # attached to a branch that is live again.
+            branch.resolution = ""
+            branch.resolved_by = None
+            branch.resolved_at = None
+        else:
+            branch.resolution = resolution
+            branch.resolved_by = resolved_by
+            branch.resolved_at = datetime.now(timezone.utc)
+        return branch
+
     async def delete_branch(self, branch_id: str) -> list[str]:
         branch = self.branches.get(branch_id)
         if branch is None:
@@ -392,6 +430,11 @@ class DbStore:
             parent_branch_id=row.parent_branch_id,
             fork_node_id=row.fork_node_id,
             head_node_id=row.head_node_id,
+            intent=row.intent or "",
+            status=row.status or "open",
+            resolution=row.resolution or "",
+            resolved_by=row.resolved_by,
+            resolved_at=row.resolved_at,
         )
 
     @staticmethod
@@ -541,7 +584,7 @@ class DbStore:
             return out
 
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         from .models import BranchRow, NodeRow
 
@@ -556,6 +599,7 @@ class DbStore:
                 parent_branch_id=from_node.branch_id,
                 fork_node_id=from_node_id,
                 head_node_id=from_node_id,  # tip starts at the fork point
+                intent=intent,
             )
             s.add(row)
             await s.commit()
@@ -707,6 +751,27 @@ class DbStore:
             if row is None:
                 return None
             row.name = name
+            await s.commit()
+            return self._to_branch(row)
+
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        from .models import BranchRow
+
+        async with self._sf() as s:
+            row = await s.get(BranchRow, branch_id)
+            if row is None:
+                return None
+            row.status = status
+            if status == "open":
+                row.resolution = ""
+                row.resolved_by = None
+                row.resolved_at = None
+            else:
+                row.resolution = resolution
+                row.resolved_by = resolved_by
+                row.resolved_at = datetime.now(timezone.utc)
             await s.commit()
             return self._to_branch(row)
 

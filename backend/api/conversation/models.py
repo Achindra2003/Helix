@@ -44,6 +44,21 @@ class BranchRow(Base):
     fork_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     head_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    # --- the exploration's own lifecycle -------------------------------------
+    # A branch used to record only where it came from. It could be created and
+    # never finished, which is why a tree of them was a pile of experiments
+    # rather than a decision record. `intent` is what this exploration is
+    # trying (asked at fork time); the resolution fields are what came of it.
+    #
+    # Deliberately NOT enforced: that one branch per fork point is adopted.
+    # Two siblings can both be adopted — a team really can take something from
+    # each — and having the system infer a verdict nobody recorded would defeat
+    # the purpose of recording verdicts.
+    intent: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="open")  # open|adopted|abandoned
+    resolution: Mapped[str] = mapped_column(Text, default="")
+    resolved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class ConversationReferenceRow(Base):

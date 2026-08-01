@@ -60,6 +60,8 @@ export interface ConversationRef {
   title: string;
 }
 
+export type BranchStatus = "open" | "adopted" | "abandoned";
+
 export interface Branch {
   id: string;
   conversation_id: string;
@@ -67,6 +69,15 @@ export interface Branch {
   parent_branch_id: string | null;
   fork_node_id: string | null;
   head_node_id: string | null;
+  // The exploration's own lifecycle: what it set out to try, and what came of
+  // it. `status` is "open" until someone records a verdict; abandoning never
+  // removes the branch, because the alternative you rejected is half of why
+  // the one you took is defensible.
+  intent: string;
+  status: BranchStatus;
+  resolution: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
 }
 
 export interface Node {

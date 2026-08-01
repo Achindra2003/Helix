@@ -16,7 +16,7 @@ import { getWorkspaceMap, getHistory } from "@/lib/api";
 import { onRoomEvent } from "@/lib/realtime";
 import { usePresenceStore } from "@/store/presence";
 import { useSession } from "@/store/session";
-import type { MapConversation, MapNode, Node } from "@/lib/types";
+import type { Branch, MapConversation, MapNode, Node } from "@/lib/types";
 import { colorFor } from "@/lib/format";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import s from "./map.module.css";
@@ -46,6 +46,12 @@ interface LaidBranch {
   yFirst: number;  // y of its first own node (or ghost)
   yLast: number;
   ghost: boolean;  // forked but no own turns yet
+  // The verdict, carried through the layout so the Map can show which
+  // explorations were adopted and which were abandoned. This is what turns
+  // the stemma from a diagram of shape into a record of decisions.
+  status: Branch["status"];
+  intent: string;
+  resolution: string;
 }
 
 interface LaidConv {
@@ -105,6 +111,7 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
     if (root) visit(root);
 
     const rowOf = new Map<string, number>(); // node id -> row
+    const ghostRows = new Map<string, number>(); // fork node id -> empty forks placed
     const convNodes: LaidNode[] = [];
     const forkIds = new Set(
       conv.branches.map((b) => b.fork_node_id).filter(Boolean) as string[],
@@ -136,8 +143,16 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
       }
 
       const ghost = own.length === 0 && b.fork_node_id != null;
-      const ghostRow =
-        b.fork_node_id != null ? (rowOf.get(b.fork_node_id) ?? 0) + 1 : 0;
+      // Siblings forked from the same node used to land on the same row, so
+      // their labels drew straight over each other — and forking twice from
+      // one point to compare two approaches is the whole reason this view
+      // exists. Each empty sibling steps down a row so both stay readable.
+      let ghostRow = b.fork_node_id != null ? (rowOf.get(b.fork_node_id) ?? 0) + 1 : 0;
+      if (ghost) {
+        const taken = ghostRows.get(b.fork_node_id!) ?? 0;
+        ghostRow += taken;
+        ghostRows.set(b.fork_node_id!, taken + 1);
+      }
       const yFirst = ys[0] ?? TITLE_H + ghostRow * ROWH;
       const yLast = ys[ys.length - 1] ?? yFirst;
       if (ghost) maxRow = Math.max(maxRow, ghostRow);
@@ -149,6 +164,9 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
         yFirst,
         yLast,
         ghost,
+        status: b.status ?? "open",
+        intent: b.intent ?? "",
+        resolution: b.resolution ?? "",
       });
 
       // Fork edge: from the divergence node over to this branch's first turn.
@@ -229,6 +247,7 @@ export function MapView() {
         if (
           ev.kind === "conversation.created" ||
           ev.kind === "branch.created" ||
+          ev.kind === "branch.resolved" ||
           ev.kind === "references.updated" ||
           (ev.kind === "run_event" && ev.event?.kind === "done")
         ) {
@@ -408,8 +427,17 @@ export function MapView() {
 
               {/* branch name labels + ghost stubs for empty forks */}
               {layout.branches.map((b) =>
-                b.name === "main" && !b.ghost ? null : (
+                // A resolved main spine still earns a label — "we adopted the
+                // original approach" is a decision worth seeing on the Map.
+                b.name === "main" && !b.ghost && b.status === "open" ? null : (
                   <g key={`bl-${b.id}`}>
+                    {(b.intent || b.resolution) && (
+                      <title>
+                        {[b.intent && `Trying: ${b.intent}`,
+                          b.resolution && `${b.status}: ${b.resolution}`]
+                          .filter(Boolean).join("\n")}
+                      </title>
+                    )}
                     {b.ghost && (
                       <circle
                         cx={b.x} cy={b.yFirst} r={R - 1.5}
@@ -418,8 +446,19 @@ export function MapView() {
                         onClick={() => openBranch(b.convId, b.id)}
                       />
                     )}
-                    <text className={s.branchLabel} x={b.x + 9} y={b.yFirst + 3.5}>
-                      ⎇ {b.name}
+                    <text
+                      className={s.branchLabel}
+                      x={b.x + 9}
+                      y={b.yFirst + 3.5}
+                      // Adopted reads as settled, abandoned recedes without
+                      // vanishing — it stays on the Map because it is the
+                      // evidence behind whatever was adopted instead.
+                      fill={b.status === "adopted" ? "var(--verde)" : undefined}
+                      opacity={b.status === "abandoned" ? 0.45 : undefined}
+                      style={b.status === "abandoned" ? { textDecoration: "line-through" } : undefined}
+                    >
+                      {b.status === "adopted" ? "✓ " : b.status === "abandoned" ? "✕ " : "⎇ "}
+                      {b.name}
                     </text>
                   </g>
                 ),

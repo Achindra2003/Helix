@@ -67,6 +67,13 @@ async def workspace_map(
                         "parent_branch_id": b.parent_branch_id,
                         "fork_node_id": b.fork_node_id,
                         "head_node_id": b.head_node_id,
+                        # The verdict travels with the structure: a Map that
+                        # shows which explorations were adopted and which were
+                        # abandoned is a decision record; one that shows only
+                        # the shape is a diagram.
+                        "intent": b.intent,
+                        "status": b.status,
+                        "resolution": b.resolution,
                     }
                     for b in branches
                 ],
