@@ -38,7 +38,7 @@
 
 .cardMark {
   width: 48px; height: 48px; border-radius: 12px; font-family: var(--font-display); font-weight: 600; font-size: 21px;
-  background: linear-gradient(135deg, var(--gilt-2), var(--gilt)); color: #1a1404;
+  background: linear-gradient(135deg, var(--gilt-2), var(--gilt)); color: var(--on-gilt);
   display: flex; align-items: center; justify-content: center;
   box-shadow: 0 0 0 1px var(--paper), 0 0 0 2.5px var(--gilt);
 }

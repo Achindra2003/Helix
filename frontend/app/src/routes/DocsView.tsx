@@ -112,17 +112,21 @@ export function DocsView() {
               accept=".txt,.md,.markdown,.pdf,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.css,.html,.csv,.rst"
               onChange={(e) => { if (e.target.files?.length) doUpload(e.target.files); e.target.value = ""; }}
             />
-            <div
+            {/* A real button, not a clickable div: it duplicates the header's
+                "+ Upload", but a keyboard or screen-reader user meets this one
+                first — it is the thing that looks like the way in. */}
+            <button
+              type="button"
               className={`${s.drop} ${dragOver ? s.dropActive : ""}`}
               onClick={() => fileInput.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files); }}
             >
-              <span className={s.dropGlyph}>⌘</span>
+              <span className={s.dropGlyph} aria-hidden>⌘</span>
               <span style={{ fontSize: 14 }}>Drop a document here, or click to browse</span>
               <span className={s.dropHint}>txt · md · code · pdf — up to 8 MB each</span>
-            </div>
+            </button>
           </>
         )}
 
@@ -131,6 +135,7 @@ export function DocsView() {
             <span style={{ color: "var(--ink-faint)" }}>⌕</span>
             <input
               className={s.searchInput}
+              aria-label="Search the knowledge base"
               placeholder="Search the knowledge base — the same ranking chat grounding uses"
               value={query}
               onChange={(e) => { setQuery(e.target.value); if (!e.target.value.trim()) setHits(null); }}

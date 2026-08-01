@@ -14,6 +14,7 @@ export function ReplayBar({
   return (
     <div className={s.chip} style={{ gap: 8, padding: "4px 8px" }} title="Replay the thread step by step">
       <button
+        aria-pressed={active}
         style={{ background: "none", border: "none", color: active ? "var(--oxblood)" : "var(--ink-3)", fontSize: 12 }}
         onClick={() => onChange(active ? null : 1)}
       >
@@ -23,6 +24,9 @@ export function ReplayBar({
         <>
           <input
             type="range" min={1} max={total} value={shown}
+            aria-label="Replay position"
+            // the raw number is meaningless read aloud; this says what it means
+            aria-valuetext={`Message ${shown} of ${total}`}
             onChange={(e) => onChange(Number(e.target.value))}
             style={{ width: 90 }}
           />

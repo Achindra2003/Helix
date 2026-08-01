@@ -39,11 +39,11 @@ export function BranchTree({
             <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(143,62,19,0.16)" : "none" }} />
             <span className={s.branchName} style={{ color: on ? "var(--ink)" : "var(--ink-3)", flex: 1, minWidth: 0 }}>{b.name}</span>
             {fork && onRename && (
-              <button className={s.branchAct} title="Rename branch"
+              <button className={`icon-act ${s.branchAct}`} title="Rename branch"
                 onClick={(e) => { e.stopPropagation(); onRename(b); }}>✎</button>
             )}
             {fork && onDelete && (
-              <button className={s.branchAct} style={{ color: "var(--oxblood)" }} title="Delete branch"
+              <button className={`icon-act ${s.branchAct}`} style={{ color: "var(--oxblood)" }} title="Delete branch"
                 onClick={(e) => { e.stopPropagation(); onDelete(b); }}>✕</button>
             )}
           </div>

@@ -8,6 +8,8 @@
   background: var(--paper); padding: 26px 20px; text-align: center; cursor: pointer;
   color: var(--ink-3); transition: border-color 0.15s, background 0.15s;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
+  /* it is a <button>, so opt back out of the instrument voice and full width */
+  width: 100%; font-family: inherit;
 }
 .drop:hover, .dropActive { border-color: var(--gilt); background: var(--paper-3); }
 .dropGlyph { font-size: 22px; color: var(--gilt-1); }
@@ -16,11 +18,13 @@
 /* knowledge-base search (same ranking chat grounding uses) */
 .search {
   display: flex; align-items: center; gap: 10px; background: var(--paper);
-  border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; margin: 14px 0;
+  border: 1px solid var(--rule); border-radius: 10px; padding: 0 14px; margin: 14px 0;
   transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
 .search:focus-within { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.14); }
-.searchInput { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); }
+/* Padding on the input, not the well: the field's hit area is then the whole
+   height of what reads as the field. Same rendering as before. */
+.searchInput { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); padding: 12px 0; }
 
 .hit {
   background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 11px;

@@ -1,5 +1,9 @@
-/* Helix design tokens — "alchemical manuscript" (parchment grimoire).
-   Ported from Helix.dc.html; palette WCAG-validated in design_critique.md. */
+/* Helix design tokens — "the scriptorium": a scholarly manuscript world of
+   parchment, iron-gall ink, gilt rule and a wax seal. Astronomy and bookmaking,
+   not esoterica — the Logo comment holds the same line, and the deck is read in
+   an academic setting where the distinction matters.
+   Ported from Helix.dc.html; palette WCAG-validated in design_critique.md and
+   re-measured Jul 2026 (see the ON-COLOURS block below). */
 :root {
   /* surfaces — paper-0 is the bright input well; the rest darken outward */
   --paper-0: #efe8d4;
@@ -32,8 +36,11 @@
   --ash: #c2b393;
   --ash-2: #8c7e62;
 
-  /* typography — body is the aged manuscript serif (matches the design folder).
-     "Inter" is kept only as a fallback for chrome that opts into --font-ui. */
+  /* typography — two voices, never mixed inside one element (see DESIGN.md).
+     READING (--font-body/--font-read): the aged manuscript serif, for anything
+     the product says — message bodies, prose, epigraphs.
+     INSTRUMENT (--font-ui): Inter, for anything you operate — buttons, inputs,
+     selects. Not a fallback; global.css assigns it to those elements by rule. */
   --font-body: "IM Fell English", Georgia, serif;
   --font-read: "IM Fell English", Georgia, serif;
   --font-ui: "Inter", system-ui, sans-serif;
@@ -73,11 +80,25 @@
   --pane-right: 360px;
 
   /* the wax seal (primary action fill) — its own tokens so the fill can stay
-     a deep seal in BOTH themes while text-accent reds retune per theme */
-  --seal-from: var(--oxblood-2);
+     a deep seal in BOTH themes while text-accent reds retune per theme.
+     `seal-from` is a shade under `oxblood-2`: the gradient's light end is what
+     a button label actually sits on, and oxblood-2 left it at 4.37. */
+  --seal-from: #a24f21;
   --seal-to: #8f3e13;
   --seal-text: #f4e9cf;
   --seal-border: #6e2f0d;
+
+  /* ── ON-COLOURS ───────────────────────────────────────────────────────────
+     What text is allowed to be when it sits ON a filled accent rather than on
+     paper. Only `--on-accent` flips: the accents themselves invert in nocturne
+     (oxblood goes from a deep russet to a lit salmon), so cream-on-accent —
+     correct in light — becomes unreadable in dark. The other three sit on
+     fills that hold the same value in both themes, so they hold too.
+     Every pair below is measured; never hard-code a colour on a fill. */
+  --on-accent: #f4e9cf;  /* on oxblood / cinnabar fills */
+  --on-gilt: #1a1404;    /* on gilt fills — gilt stays mid-tone in both themes */
+  --on-author: #ffffff;  /* on the per-author swatches in lib/format.ts */
+  --on-char: #ede3c8;    /* on --char: the toast is a dark chip in both themes */
 
   /* interaction tints that must flip with the theme */
   --hover-tint: rgba(36, 27, 18, 0.05);
@@ -127,6 +148,10 @@
   --seal-from: #a3511f;
   --seal-to: #8a3d12;
   --seal-border: #5f2a0b;
+
+  /* the accents inverted above, so what sits on them has to invert too:
+     #241b12 on the lit oxblood measures 6.31 where cream measured 2.20 */
+  --on-accent: #241b12;
 
   --hover-tint: rgba(238, 228, 201, 0.06);
   --stripe: rgba(238, 228, 201, 0.03);

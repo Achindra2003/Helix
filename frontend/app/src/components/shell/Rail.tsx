@@ -19,14 +19,16 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
   const reduce = useReducedMotion();
   const user = useSession((st) => st.user);
   return (
-    <div className={s.rail}>
-      <button className={s.railLogo} title="Switch workspace" onClick={() => nav("/workspaces")}>
+    <nav className={s.rail} aria-label="Workspace">
+      <button className={s.railLogo} title="Switch workspace" aria-label="Switch workspace"
+        onClick={() => nav("/workspaces")}>
         <Logo size={34} />
       </button>
       {NAV.map((n) => {
         const on = active === n.key;
         return (
           <motion.button key={n.key} className={on ? s.navOn : s.navBtn} title={n.label}
+            aria-current={on ? "page" : undefined}
             whileTap={{ scale: 0.9 }} transition={{ type: "spring", stiffness: 500, damping: 22 }}
             onClick={() => nav(n.key ? `/w/${wid}/${n.key}` : `/w/${wid}`)}>
             {on && (
@@ -44,9 +46,10 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
       </button>
       <div className={s.spacer} />
       <button className={s.avatar} title={`${user?.email} — account settings`}
+        aria-label={`Account settings for ${user?.email ?? "your account"}`}
         style={{ padding: 0 }} onClick={() => nav("/account")}>
-        {initialOf(user?.email)}
+        <span aria-hidden>{initialOf(user?.email)}</span>
       </button>
-    </div>
+    </nav>
   );
 }

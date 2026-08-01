@@ -55,7 +55,9 @@ const step = (msg) => console.log(`  • ${msg}`);
 async function main() {
   boot(join(repo, "backend", ".venv", "Scripts", "python.exe"),
     ["-m", "uvicorn", "api.main:app", "--port", "8000"],
-    { cwd: join(repo, "backend"), env: { ...process.env, DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}` } });
+    // HELIX_DEV skips the JWT_SECRET guard, which otherwise refuses to start.
+    // The run is throwaway — its own SQLite file, no real users, no real keys.
+    { cwd: join(repo, "backend"), env: { ...process.env, HELIX_DEV: "1", DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}` } });
   boot("npm", ["run", "dev"], { cwd: join(repo, "frontend", "app"), shell: true });
   await waitFor(`${API}/health`, "backend");
   await waitFor(UI, "frontend");

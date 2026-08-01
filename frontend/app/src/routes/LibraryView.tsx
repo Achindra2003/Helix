@@ -131,7 +131,8 @@ export function LibraryView() {
 
         <div className={s.search}>
           <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⌕</span>
-          <input className={s.searchInput} placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)} />
+          <input className={s.searchInput} aria-label="Search saved prompts"
+            placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)} />
           <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{filtered.length} prompts</span>
         </div>
 
@@ -151,10 +152,9 @@ export function LibraryView() {
                   <div style={{ flex: 1 }} />
                   {(p.author_id === user?.id || role === "owner") && (
                     <>
-                      <button title="Edit prompt" onClick={() => openEdit(p)}
-                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13 }}>✎</button>
-                      <button title="Delete prompt" onClick={() => setConfirmDel(p)}
-                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--oxblood)", fontSize: 13 }}>✕</button>
+                      <button className={`icon-act ${s.cardAct}`} title="Edit prompt" onClick={() => openEdit(p)}>✎</button>
+                      <button className={`icon-act ${s.cardAct} ${s.cardActDanger}`} title="Delete prompt"
+                        onClick={() => setConfirmDel(p)}>✕</button>
                     </>
                   )}
                   {can(role, "message.send") && (

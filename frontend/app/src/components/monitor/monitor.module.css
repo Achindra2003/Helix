@@ -41,11 +41,15 @@
 
 .gauges { padding: 18px; display: flex; gap: 16px; align-items: center; border-bottom: 1px solid var(--rule-soft); }
 .ring { position: relative; width: 78px; height: 78px; flex: 0 0 auto; }
-.ringSpin { animation: hx-spin 9s linear infinite; filter: drop-shadow(0 0 9px rgba(180, 95, 42, 0.34)); }
+/* No filter while it turns: a drop-shadow on an element that spins forever is
+   re-rasterised every frame, and it also spent the glow on the ordinary state.
+   The light now belongs to convergence alone (.ringClosed), which is the one
+   moment in a run worth marking. */
+.ringSpin { animation: hx-spin 9s linear infinite; }
 /* the arc's gap closes as stability approaches the halting threshold */
 .ringArc { transition: stroke-dasharray 0.6s ease, stroke 0.6s ease; }
 /* convergence: the ouroboros completes and takes gilt light */
-.ringClosed svg { filter: drop-shadow(0 0 7px rgba(192, 153, 47, 0.55)); transition: filter 0.8s ease; }
+.ringClosed svg { filter: drop-shadow(0 0 10px rgba(192, 153, 47, 0.6)); transition: filter 0.8s ease; }
 /* held (steer pause / queue): the ring breathes instead of spinning */
 .ringHolding svg { animation: hx-breathe 2.6s ease-in-out infinite; }
 /* the idle astrolabe precesses — a full turn takes over a minute */
@@ -59,12 +63,14 @@
 .meters { flex: 1; display: flex; flex-direction: column; gap: 11px; }
 .meterTop { display: flex; justify-content: space-between; font-family: var(--font-mono); font-size: 10.5px; color: var(--ink-3); margin-bottom: 4px; }
 .bar { height: 5px; background: var(--paper-4); border-radius: 3px; overflow: hidden; }
-.fill { height: 100%; transition: width 0.5s; }
+/* scaleX, not width: these two meters redraw on every step event of a live run,
+   and width is a layout property — it reflows the pane each frame. */
+.fill { height: 100%; width: 100%; transform-origin: left center; transition: transform 0.5s var(--ease-quill); }
 
 .topology { display: flex; align-items: center; gap: 5px; padding: 10px 16px; border-bottom: 1px solid var(--rule-soft); flex-wrap: wrap; }
 .topoNode { font-family: var(--font-mono); font-size: 9.5px; letter-spacing: 0.04em; text-transform: uppercase; padding: 2px 7px; border-radius: 5px; border: 1px solid var(--rule-soft); color: var(--ink-3); }
 .topoSeen { color: var(--ink-2); border-color: var(--rule); }
-.topoCur { color: #f2e8ce; background: var(--oxblood); border-color: var(--oxblood); }
+.topoCur { color: var(--on-accent); background: var(--oxblood); border-color: var(--oxblood); }
 .topoArrow { color: var(--ink-faint); font-size: 9px; }
 .readings { display: flex; gap: 14px; padding: 8px 16px 0; }
 .reading { font-family: var(--font-mono); font-size: 10px; color: var(--ink-3); }
@@ -119,7 +125,7 @@
 .steerBox {
   margin: 0 16px 4px;
   padding: 11px 12px;
-  border: 1px solid var(--violet, #6b4fa0);
+  border: 1px solid var(--violet);
   border-radius: 10px;
   background: rgba(107, 79, 160, 0.06);
 }
@@ -128,10 +134,12 @@
   resize: vertical;
   border: 1px solid var(--rule-soft);
   border-radius: 8px;
-  background: var(--paper, #faf6ee);
+  background: var(--paper);
   color: var(--ink);
   font: inherit;
   font-size: 13px;
   padding: 7px 9px;
 }
-.steerInput:focus { outline: none; border-color: var(--violet, #6b4fa0); }
+/* the same ring every other field in the app draws, in the steer family —
+   this is the control you reach for under time pressure mid-run */
+.steerInput:focus { outline: none; border-color: var(--violet); box-shadow: 0 0 0 3px rgba(110, 90, 168, 0.22); }

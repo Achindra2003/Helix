@@ -84,7 +84,9 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
   if (isLoading || !data) return <Spinner />;
 
   const status = (
-    <div style={{ fontSize: 13, color: "var(--ink-2)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center" }}>
+    // overflowWrap: a model id like llama-3.3-70b-versatile has no space to
+    // break at, so on a narrow card it ran past the edge instead of wrapping.
+    <div style={{ fontSize: 13, color: "var(--ink-2)", display: "flex", gap: 14, flexWrap: "wrap", alignItems: "center", overflowWrap: "anywhere", minWidth: 0 }}>
       <span className="mono" style={{ color: data.configured ? "var(--verde)" : "var(--oxblood)" }}>
         {data.configured ? "● ready" : "○ no key"}
       </span>
@@ -121,7 +123,11 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
         {status}
         {isOwner && (
           <>
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            {/* auto-fit, not a fixed pair: a text input's intrinsic width is
+                about 200px, so two `1fr` tracks could not shrink below ~400px
+                and ran the key field and both model fields off a narrow
+                screen — where the card clips rather than scrolls. */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
               <Field label="Provider">
                 <select
                   className={`mono ${s.roleSel}`}

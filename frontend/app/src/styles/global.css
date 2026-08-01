@@ -1,3 +1,4 @@
+@import "./fonts.css";
 @import "./tokens.css";
 
 * { box-sizing: border-box; }
@@ -17,7 +18,10 @@ body {
 ::-webkit-scrollbar-thumb { background: rgba(36,27,18,0.22); border: 3px solid transparent; background-clip: content-box; border-radius: 8px; }
 ::-webkit-scrollbar-thumb:hover { background: rgba(36,27,18,0.38); background-clip: content-box; }
 ::-webkit-scrollbar-track { background: transparent; }
-textarea::placeholder, input::placeholder { color: var(--ink-faint); font-style: italic; }
+/* Placeholders are text, and several of ours carry real instruction, so they
+   hold the small-text floor. `--ink-faint` is ≥3.0 and decorative-only by its
+   own definition in tokens.css — the italic does the "this is a hint" work. */
+textarea::placeholder, input::placeholder { color: var(--ink-3); font-style: italic; }
 
 /* Type discipline — two voices, never mixed:
    READING voice (IM Fell): message bodies, prose, epigraphs — inherits from body.
@@ -43,6 +47,15 @@ a { color: var(--oxblood); }
   font-family: var(--font-display);
   font-size: 11px; letter-spacing: 0.16em; text-transform: uppercase;
   color: var(--ink-3); font-weight: 600;
+}
+/* A small glyph with a hit area that is not small. The mark keeps its own size
+   and colour in the component; the target never drops under 24×24 (WCAG 2.2
+   SC 2.5.8). Used by the rename/delete marks in the thread list and the
+   prompt library. */
+.icon-act {
+  min-width: 24px; min-height: 24px; padding: 0;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: none; border: none; cursor: pointer;
 }
 
 /* every route enters like a page being turned — one shared beat, one easing */
@@ -71,13 +84,23 @@ a { color: var(--oxblood); }
 /* texture overlays (fixed) — sit ABOVE the opaque panes (like the design) so the
    whole surface reads as aged, textured paper. pointer-events:none keeps the UI
    clickable; z-index stays below modals (scrim 50) and toasts (60). */
-.tex-grain { position: fixed; inset: -12%; width: 124%; height: 124%; pointer-events: none; opacity: .07; mix-blend-mode: multiply; z-index: 6; animation: hx-grain 9s steps(5) infinite; }
+/* No mix-blend-mode. A full-viewport blended layer is recomposited against its
+   backdrop on every frame anything beneath it paints — which, in a streaming
+   interface, is every frame. Measured on the production build while a reply
+   streamed: with the blend, 70 of 82 frames arrived and the 95th percentile sat
+   at 33ms; without it, 82 of 82 at 16.7ms. will-change made no difference,
+   which is what proves the cost is the blend and not the drift. At 7% opacity
+   the two render near-identically (A/B captured in both themes) — so this buys
+   back an eighth of the frames during streaming for no visible change.
+   To restore the blend, add `mix-blend-mode: multiply` here and `screen` in the
+   nocturne rule below. */
+.tex-grain { position: fixed; inset: -12%; width: 124%; height: 124%; pointer-events: none; opacity: .07; z-index: 6; animation: hx-grain 9s steps(5) infinite; }
 .tex-vig { position: fixed; inset: 0; pointer-events: none; z-index: 5; background: radial-gradient(125% 105% at 50% 38%, rgba(230,220,194,0) 52%, rgba(60,42,22,0.20) 100%); }
 .tex-warm { position: fixed; inset: 0; pointer-events: none; z-index: 4; background: radial-gradient(60% 50% at 18% 8%, rgba(150,110,40,0.06), transparent 60%), radial-gradient(50% 40% at 88% 90%, rgba(143,62,19,0.05), transparent 60%); }
 
 /* nocturne texture: grain becomes faint candle-light speckle; the vignette
    deepens toward true dark; selection & scrollbars flip to cream */
-:root[data-theme="dark"] .tex-grain { mix-blend-mode: screen; opacity: 0.045; }
+:root[data-theme="dark"] .tex-grain { opacity: 0.045; }
 :root[data-theme="dark"] .tex-vig {
   background: radial-gradient(125% 105% at 50% 38%, rgba(0, 0, 0, 0) 50%, rgba(0, 0, 0, 0.55) 100%);
 }
@@ -85,11 +108,29 @@ a { color: var(--oxblood); }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb { background: rgba(238, 228, 201, 0.24); background-clip: content-box; }
 :root[data-theme="dark"] ::-webkit-scrollbar-thumb:hover { background: rgba(238, 228, 201, 0.4); background-clip: content-box; }
 
+/* Reduced motion: remove the movement, keep the information.
+   The preference asks for no vestibular load — it does not ask for an
+   interface that stops telling you when something changed. So the two halves
+   are treated differently:
+   · ANIMATIONS are ambient here — grain drifting, the ring precessing, dots
+     breathing, entrances rising. They stop, and `hx-rise` is redefined as a
+     pure fade so anything mid-flight still resolves visible instead of blank.
+   · TRANSITIONS are feedback — the rail pill settling on the view you picked,
+     a composer frame warming on focus, a status turning green, a meter
+     falling. They are shortened to below the threshold that reads as travel,
+     not deleted. Flattening these was the actual accessibility cost of the
+     old blanket rule.
+   Framer Motion is handled separately, via useReducedMotion() at each site. */
 @media (prefers-reduced-motion: reduce) {
+  @keyframes hx-rise { from { opacity: 0; } to { opacity: 1; } }
+
   *, *::before, *::after {
     animation-duration: 0.001ms !important;
     animation-iteration-count: 1 !important;
-    transition-duration: 0.001ms !important;
+    animation-delay: 0ms !important;
+    transition-duration: 90ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
   }
   .tex-grain { animation: none; }
 }

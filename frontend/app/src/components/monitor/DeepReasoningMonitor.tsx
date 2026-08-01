@@ -121,7 +121,7 @@ export function Step({ step }: { step: TraceStep }) {
   );
 }
 
-export function DeepReasoningMonitor({ conversationId }: { conversationId?: string | null }) {
+export function DeepReasoningMonitor({ conversationId, id }: { conversationId?: string | null; id?: string }) {
   const { run, clear } = useMonitor();
   const traceRef = useRef<HTMLDivElement>(null);
   // The reasoning archive (P4): past runs of the open conversation.
@@ -147,7 +147,7 @@ export function DeepReasoningMonitor({ conversationId }: { conversationId?: stri
   }
 
   return (
-    <div className={`${s.pane} ${holding ? s.holding : ""} monitor-pane`}>
+    <div className={`${s.pane} ${holding ? s.holding : ""} monitor-pane`} id={id}>
       <div className={s.head}>
         <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⟳</span>
         <span className="eyebrow" style={{ flex: 1, letterSpacing: "0.14em" }}>Deep Reasoning</span>
@@ -195,11 +195,11 @@ export function DeepReasoningMonitor({ conversationId }: { conversationId?: stri
             <div className={s.meters}>
               <div>
                 <div className={s.meterTop}><span>ENERGY</span><span>{Math.round(run.energy)}</span></div>
-                <div className={s.bar}><div className={s.fill} style={{ width: `${Math.min(100, run.energy)}%`, background: "var(--verde)" }} /></div>
+                <div className={s.bar}><div className={s.fill} style={{ transform: `scaleX(${Math.min(100, run.energy) / 100})`, background: "var(--verde)" }} /></div>
               </div>
               <div>
                 <div className={s.meterTop}><span>BUDGET</span><span style={{ color: run.budgetPct > 80 ? "var(--ember)" : undefined }}>{run.budgetPct}%</span></div>
-                <div className={s.bar}><div className={s.fill} style={{ width: `${run.budgetPct}%`, background: run.budgetPct > 80 ? "var(--ember)" : "var(--oxblood)" }} /></div>
+                <div className={s.bar}><div className={s.fill} style={{ transform: `scaleX(${Math.min(100, Math.max(0, run.budgetPct)) / 100})`, background: run.budgetPct > 80 ? "var(--ember)" : "var(--oxblood)" }} /></div>
               </div>
             </div>
           </div>

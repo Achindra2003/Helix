@@ -23,7 +23,7 @@
 .navBtn:hover { color: var(--ink-2); }
 .navBtn:hover .navGlyph { transform: translateY(-1px); transition: transform var(--dur-1); }
 .avatar {
-  width: 36px; height: 36px; border-radius: 50%; background: var(--gilt); color: #1a1404;
+  width: 36px; height: 36px; border-radius: 50%; background: var(--gilt); color: var(--on-gilt);
   display: flex; align-items: center; justify-content: center; font-weight: 700;
   border: 1.5px solid var(--gilt-2); font-family: var(--font-display); cursor: pointer;
 }
@@ -43,14 +43,14 @@
 .wsMark {
   width: 26px; height: 26px; border-radius: 7px; background: linear-gradient(135deg, var(--gilt-2), var(--gilt));
   display: flex; align-items: center; justify-content: center; font-family: var(--font-display);
-  font-weight: 600; color: #1a1404;
+  font-weight: 600; color: var(--on-gilt);
 }
 .wsName { font-size: 14px; font-weight: 600; font-family: var(--font-display); }
 .wsSub { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 .spacer { flex: 1; }
 .presence { display: flex; align-items: center; }
 .pAvatar {
-  width: 26px; height: 26px; border-radius: 50%; color: #fff; display: flex; align-items: center;
+  width: 26px; height: 26px; border-radius: 50%; color: var(--on-author); display: flex; align-items: center;
   justify-content: center; font-size: 11px; border: 2px solid var(--paper-3); margin-left: -6px;
 }
 .sep { height: 24px; width: 1px; background: var(--rule-soft); }
@@ -85,7 +85,7 @@
 .bellBtn:hover { color: var(--oxblood); border-color: var(--oxblood); }
 .bellBadge {
   position: absolute; top: -5px; right: -5px; min-width: 15px; height: 15px; padding: 0 3px;
-  border-radius: 8px; background: var(--oxblood); color: #fff; font-family: var(--font-mono);
+  border-radius: 8px; background: var(--oxblood); color: var(--on-accent); font-family: var(--font-mono);
   font-size: 9.5px; display: flex; align-items: center; justify-content: center;
   border: 1.5px solid var(--paper-3);
 }
@@ -105,3 +105,22 @@
 .bellItem:hover { background: var(--hover-tint); }
 .bellItemUnread { border-left: 2.5px solid var(--oxblood); }
 .bellEmpty { padding: 18px 10px; font-size: 12.5px; color: var(--ink-3); font-style: italic; text-align: center; }
+
+/* Tablet and below: the bar's three clusters stop fitting on one 58px line, and
+   a fixed-height nowrap row put the theme toggle, the role badge and the role
+   switcher past the right edge of a pane that clips rather than scrolls — so
+   they were on screen in the layout and unreachable in fact. Wrapping keeps
+   every control, which is the point: adaptation, not subtraction. */
+@media (max-width: 760px) {
+  .topbar { height: auto; flex: 0 0 auto; flex-wrap: wrap; gap: 9px 14px; padding: 9px 14px; }
+  .sep { display: none; }
+}
+
+/* Phone widths: the rail keeps every destination — nothing moves into a menu —
+   but hands the stage back its gutter. Targets stay ≥44px in both axes.
+   Placed last so it outranks the base widths above at equal specificity. */
+@media (max-width: 560px) {
+  .shell { grid-template-columns: 56px 1fr; }
+  .navBtn, .navOn { width: 44px; }
+  .bellPanel { width: min(320px, calc(100vw - 72px)); }
+}
