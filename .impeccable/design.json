@@ -1,0 +1,222 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-08-01T00:00:00.000Z",
+  "title": "Design System: Helix",
+  "extensions": {
+    "colorMeta": {
+      "oxblood": {
+        "role": "primary",
+        "displayName": "Seal Russet",
+        "canonical": "oklch(46.6% 0.122 44.5)",
+        "tonalRamp": ["oklch(15% 0.057 44.5)", "oklch(26% 0.076 44.5)", "oklch(38% 0.094 44.5)", "oklch(49% 0.113 44.5)", "oklch(61% 0.113 44.5)", "oklch(72% 0.094 44.5)", "oklch(84% 0.076 44.5)", "oklch(95% 0.057 44.5)"]
+      },
+      "cinnabar": {
+        "role": "primary",
+        "displayName": "Kindled Cinnabar",
+        "canonical": "oklch(57.7% 0.128 49.5)",
+        "tonalRamp": ["oklch(15% 0.060 49.5)", "oklch(26% 0.079 49.5)", "oklch(38% 0.099 49.5)", "oklch(49% 0.118 49.5)", "oklch(61% 0.118 49.5)", "oklch(72% 0.099 49.5)", "oklch(84% 0.079 49.5)", "oklch(95% 0.060 49.5)"]
+      },
+      "gilt": {
+        "role": "secondary",
+        "displayName": "Brass Leaf",
+        "canonical": "oklch(59.6% 0.102 86.0)",
+        "tonalRamp": ["oklch(15% 0.048 86.0)", "oklch(26% 0.063 86.0)", "oklch(38% 0.079 86.0)", "oklch(49% 0.095 86.0)", "oklch(61% 0.095 86.0)", "oklch(72% 0.079 86.0)", "oklch(84% 0.063 86.0)", "oklch(95% 0.048 86.0)"]
+      },
+      "gilt-1": {
+        "role": "secondary",
+        "displayName": "Brass as Ink",
+        "canonical": "oklch(45.5% 0.082 86.2)",
+        "tonalRamp": ["oklch(15% 0.038 86.2)", "oklch(26% 0.051 86.2)", "oklch(38% 0.064 86.2)", "oklch(49% 0.076 86.2)", "oklch(61% 0.076 86.2)", "oklch(72% 0.064 86.2)", "oklch(84% 0.051 86.2)", "oklch(95% 0.038 86.2)"]
+      },
+      "verde": {
+        "role": "tertiary",
+        "displayName": "Verdigris",
+        "canonical": "oklch(46.7% 0.049 150.8)",
+        "tonalRamp": ["oklch(15% 0.023 150.8)", "oklch(26% 0.030 150.8)", "oklch(38% 0.037 150.8)", "oklch(49% 0.045 150.8)", "oklch(61% 0.045 150.8)", "oklch(72% 0.037 150.8)", "oklch(84% 0.030 150.8)", "oklch(95% 0.023 150.8)"]
+      },
+      "violet": {
+        "role": "tertiary",
+        "displayName": "Steer Violet",
+        "canonical": "oklch(46.0% 0.125 293.8)",
+        "tonalRamp": ["oklch(15% 0.058 293.8)", "oklch(26% 0.077 293.8)", "oklch(38% 0.096 293.8)", "oklch(49% 0.115 293.8)", "oklch(61% 0.115 293.8)", "oklch(72% 0.096 293.8)", "oklch(84% 0.077 293.8)", "oklch(95% 0.058 293.8)"]
+      },
+      "ember": {
+        "role": "tertiary",
+        "displayName": "Ember",
+        "canonical": "oklch(50.3% 0.115 57.0)",
+        "tonalRamp": ["oklch(15% 0.054 57.0)", "oklch(26% 0.071 57.0)", "oklch(38% 0.089 57.0)", "oklch(49% 0.106 57.0)", "oklch(61% 0.106 57.0)", "oklch(72% 0.089 57.0)", "oklch(84% 0.071 57.0)", "oklch(95% 0.054 57.0)"]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Parchment",
+        "canonical": "oklch(89.6% 0.036 89.5)",
+        "note": "Ramp is the project's real two-theme surface scale, not synthesized: Nocturne paper-4..paper-0 followed by light paper-4..paper-0.",
+        "tonalRamp": ["#14100a", "#211b12", "#332a1c", "#c8b68f", "#d3c5a2", "#ded2b4", "#e6dcc2", "#efe8d4"]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Iron-Gall Ink",
+        "canonical": "oklch(23.0% 0.022 66.4)",
+        "note": "Ramp is the project's real two-theme ink scale: light ink..ink-faint followed by Nocturne ink-faint..ink.",
+        "tonalRamp": ["#241b12", "#4b3d2a", "#5d4e36", "#867351", "#83734f", "#ab9b78", "#d3c6a4", "#eee4c9"]
+      }
+    },
+    "typographyMeta": {
+      "brand": { "displayName": "Brand", "purpose": "The Helix wordmark. Cinzel Decorative appears nowhere else." },
+      "display": { "displayName": "Display", "purpose": "The landing hero, once per page." },
+      "headline": { "displayName": "Headline", "purpose": "Section titles on the landing page." },
+      "title": { "displayName": "Title", "purpose": "Dialog titles, empty-state titles, card headings." },
+      "body": { "displayName": "Body (reading voice)", "purpose": "Message bodies, rendered markdown, all prose. The composer textarea opts into this too." },
+      "instrument": { "displayName": "Instrument voice", "purpose": "Buttons, inputs, selects. Carries no period character on purpose." },
+      "label": { "displayName": "Eyebrow", "purpose": "Uppercase section kickers and small caps." },
+      "mono": { "displayName": "Mono", "purpose": "Values a human did not write: ids, model names, token counts, branch names, timestamps." }
+    },
+    "shadows": [
+      { "name": "card-rest", "value": "0 1px 3px rgba(36, 27, 18, 0.06)", "purpose": "Lifts a card off the parchment without implying it floats." },
+      { "name": "card-lifted", "value": "0 4px 14px rgba(36, 27, 18, 0.1)", "purpose": "The hover response on a card." },
+      { "name": "seal", "value": "inset 0 1px 0 rgba(255, 240, 215, 0.16), 0 2px 9px rgba(143, 62, 19, 0.3)", "purpose": "The primary button. Inner highlight plus warm cast, so the wax reads as raised material." },
+      { "name": "seal-pressed", "value": "inset 0 2px 5px rgba(80, 20, 12, 0.4)", "purpose": "Primary button :active. The seal takes the impression." },
+      { "name": "dialog", "value": "0 24px 70px rgba(21, 17, 11, 0.4)", "purpose": "Modal dialogs above the scrim." },
+      { "name": "toast", "value": "0 8px 28px rgba(0, 0, 0, 0.35)", "purpose": "Transient toast chips." },
+      { "name": "focus-ring", "value": "0 0 0 3px rgba(180, 95, 42, 0.18)", "purpose": "Accompanies the cinnabar border shift on a focused input." }
+    ],
+    "motion": [
+      { "name": "ease-quill", "value": "cubic-bezier(0.22, 0.61, 0.21, 1)", "purpose": "The only easing in the system. The quill lands, then settles." },
+      { "name": "dur-1", "value": "140ms", "purpose": "Hover and press feedback." },
+      { "name": "dur-2", "value": "260ms", "purpose": "An element entering." },
+      { "name": "dur-3", "value": "480ms", "purpose": "A page turn — the .folio route entrance." },
+      { "name": "reduced-transition", "value": "90ms", "purpose": "Under prefers-reduced-motion, transitions are shortened to this rather than deleted, so state changes still read as feedback." }
+    ],
+    "breakpoints": [
+      { "name": "drawer", "value": "1100px" },
+      { "name": "tablet", "value": "760px" },
+      { "name": "phone", "value": "560px" }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary Button (the seal)",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The single hero action on any surface. A wax seal pressed into the page.",
+      "html": "<button class=\"ds-btn ds-btn-primary\">Send</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); border-radius: var(--radius); padding: 9px 15px; font-family: var(--font-ui); font-size: 13px; font-weight: 600; letter-spacing: 0.005em; cursor: pointer; transition: background .15s, border-color .15s, box-shadow .15s, transform .05s; } .ds-btn-primary { background: linear-gradient(180deg, var(--seal-from), var(--seal-to)); color: var(--seal-text); border: 1px solid var(--seal-border); font-weight: 700; box-shadow: inset 0 1px 0 rgba(255,240,215,0.16), 0 2px 9px rgba(143,62,19,0.3); } .ds-btn-primary:hover { filter: brightness(1.12); } .ds-btn-primary:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; } .ds-btn-primary:active { transform: translateY(1px); box-shadow: inset 0 2px 5px rgba(80,20,12,0.4); }"
+    },
+    {
+      "name": "Secondary Button",
+      "kind": "button",
+      "refersTo": "button",
+      "description": "The default control. Parchment on a ruled edge.",
+      "html": "<button class=\"ds-btn ds-btn-default\">Fork thread</button>",
+      "css": ".ds-btn-default { display: inline-flex; align-items: center; justify-content: center; gap: 7px; border: 1px solid var(--rule); background: var(--paper); color: var(--ink); border-radius: var(--radius); padding: 9px 15px; font-family: var(--font-ui); font-size: 13px; font-weight: 600; cursor: pointer; transition: background .15s, border-color .15s, transform .05s; } .ds-btn-default:hover { background: var(--paper-3); border-color: var(--ink-faint); } .ds-btn-default:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; } .ds-btn-default:active { transform: translateY(1px); } .ds-btn-default:disabled { opacity: .45; cursor: not-allowed; }"
+    },
+    {
+      "name": "Gilt Button",
+      "kind": "button",
+      "refersTo": "button-gilt",
+      "description": "Secondary emphasis. Brass is an outline here, never a fill — gold on cream failed contrast as a fill.",
+      "html": "<button class=\"ds-btn-gilt\">Save to library</button>",
+      "css": ".ds-btn-gilt { display: inline-flex; align-items: center; gap: 7px; background: transparent; border: 1px solid var(--gilt); color: var(--gilt-1); border-radius: var(--radius); padding: 9px 15px; font-family: var(--font-ui); font-size: 13px; font-weight: 700; cursor: pointer; transition: background .15s, border-color .15s, transform .05s; } .ds-btn-gilt:hover { background: rgba(154,122,44,0.1); border-color: var(--gilt-2); } .ds-btn-gilt:focus-visible { outline: 2px solid var(--cinnabar); outline-offset: 2px; } .ds-btn-gilt:active { transform: translateY(1px); }"
+    },
+    {
+      "name": "Text Input",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The brightest surface in the system — the page you write on is the lightest thing on screen.",
+      "html": "<input class=\"ds-input\" type=\"text\" placeholder=\"Name this workspace\" />",
+      "css": ".ds-input { background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius); padding: 12px 14px; color: var(--ink); font-family: var(--font-ui); font-size: 14px; outline: none; width: 100%; transition: border-color var(--dur-1), box-shadow var(--dur-1); } .ds-input::placeholder { color: var(--ink-3); font-style: italic; } .ds-input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180,95,42,0.18); }"
+    },
+    {
+      "name": "Search Well",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "The vertical padding lives on the input, not the well, so the hit area is the full height of what looks clickable.",
+      "html": "<div class=\"ds-search\"><svg width=\"15\" height=\"15\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"2\"><circle cx=\"11\" cy=\"11\" r=\"7\"/><path d=\"M20 20l-4.35-4.35\"/></svg><input class=\"ds-search-input\" type=\"search\" placeholder=\"Search the team's documents\" /></div>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 10px; background: var(--paper); border: 1px solid var(--rule); border-radius: 10px; padding: 0 14px; color: var(--ink-3); transition: border-color var(--dur-1), box-shadow var(--dur-1); } .ds-search:focus-within { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180,95,42,0.14); } .ds-search-input { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); padding: 12px 0; } .ds-search-input::placeholder { color: var(--ink-3); font-style: italic; }"
+    },
+    {
+      "name": "Chip",
+      "kind": "chip",
+      "refersTo": "chip",
+      "description": "Machine-shaped metadata attached to prose: citations, model ids, branch names, counts.",
+      "html": "<span class=\"ds-chip\">llama-3.3-70b</span>",
+      "css": ".ds-chip { font-family: var(--font-mono); font-size: 11px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 7px; display: inline-flex; gap: 5px; align-items: center; color: var(--ink-2); }"
+    },
+    {
+      "name": "Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "Flat at rest with a whisper of shadow; lifts on hover. Enters on the shared page-turn easing.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-title\">Retrieval quality</div><div class=\"ds-card-body\">Compare chunk sizes against the ingested paper.</div></div>",
+      "css": ".ds-card { background: var(--paper); border: 1px solid var(--rule); border-radius: 12px; padding: 17px 18px; display: flex; flex-direction: column; gap: 11px; box-shadow: 0 1px 3px rgba(36,27,18,0.06); transition: border-color var(--dur-1), box-shadow var(--dur-1); } .ds-card:hover { border-color: var(--ink-faint); box-shadow: 0 4px 14px rgba(36,27,18,0.1); } .ds-card-title { font-family: var(--font-display); font-size: 20px; line-height: 1.1; color: var(--ink); } .ds-card-body { font-family: var(--font-read); font-size: 15.5px; line-height: 1.62; color: var(--ink-2); }"
+    },
+    {
+      "name": "Rail Nav Item",
+      "kind": "nav",
+      "refersTo": "nav-item",
+      "description": "Glyph over mono label in a 68px rail. The active highlight is one element that slides between items rather than a class toggled on each.",
+      "html": "<nav class=\"ds-rail\" aria-label=\"Workspace\"><button class=\"ds-nav ds-nav-on\" aria-current=\"page\"><span class=\"ds-nav-pill\"></span><span class=\"ds-nav-glyph\">✦</span><span class=\"ds-nav-label\">CHAT</span></button><button class=\"ds-nav\"><span class=\"ds-nav-glyph\">◈</span><span class=\"ds-nav-label\">MAP</span></button></nav>",
+      "css": ".ds-rail { background: var(--paper-3); border-right: 1px solid var(--rule-soft); display: flex; flex-direction: column; align-items: center; padding: 14px 8px; gap: 6px; width: 68px; } .ds-nav { position: relative; display: flex; flex-direction: column; align-items: center; gap: 3px; width: 48px; padding: 8px 0; border-radius: 9px; border: 1px solid transparent; background: transparent; color: var(--ink-3); cursor: pointer; transition: color var(--dur-2); } .ds-nav:hover { color: var(--ink-2); } .ds-nav-on { color: var(--oxblood); } .ds-nav-pill { position: absolute; inset: 0; z-index: 0; border-radius: 9px; border: 1px solid var(--rule); background: var(--accent-tint); } .ds-nav-glyph { position: relative; z-index: 1; font-size: 18px; line-height: 1; } .ds-nav-label { position: relative; z-index: 1; font-family: var(--font-mono); font-size: 9.5px; letter-spacing: .08em; }"
+    },
+    {
+      "name": "Chapter Rule",
+      "kind": "custom",
+      "refersTo": null,
+      "description": "The signature ornament. Two hairlines fading out from a centered brass fleuron, under a page title.",
+      "html": "<div class=\"ds-chapter-rule\">❦</div>",
+      "css": ".ds-chapter-rule { display: flex; align-items: center; gap: 14px; margin: 18px 0 6px; color: var(--gilt-1); font-size: 13px; line-height: 1; user-select: none; } .ds-chapter-rule::before, .ds-chapter-rule::after { content: \"\"; flex: 1; height: 1px; } .ds-chapter-rule::before { background: linear-gradient(90deg, transparent, var(--rule)); } .ds-chapter-rule::after { background: linear-gradient(90deg, var(--rule), transparent); }"
+    },
+    {
+      "name": "Toast",
+      "kind": "custom",
+      "refersTo": "toast",
+      "description": "A dark chip in both themes — the one surface that does not follow the parchment.",
+      "html": "<div class=\"ds-toast\">Prompt saved to the team library</div>",
+      "css": ".ds-toast { background: var(--char); color: var(--on-char); border: 1px solid var(--gilt); border-radius: var(--radius); padding: 10px 16px; font-family: var(--font-ui); font-size: 13px; box-shadow: 0 8px 28px rgba(0,0,0,0.35); max-width: 460px; display: inline-block; }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Scriptorium",
+    "overview": "Helix is a room where a team's thinking is written down and kept. The interface takes that literally: the surface is parchment, the text is iron-gall ink, the hairlines are ruled by hand, and the single action that commits something is stamped in wax. It is a manuscript world drawn from bookmaking and astronomy — the ruled page, the star chart, the orbital diagram — and explicitly not from alchemy, hermeticism, or the occult. That line is a hard identity constraint, not a stylistic preference.\n\nThe density is that of a working document rather than a marketing page. Panes are opaque, bordered, and butt against one another; whitespace is generous inside a pane and thin between them. Four fixed texture layers sit above the panes so the whole surface reads as one continuous aged sheet instead of a stack of cards — this is the reason the interface never looks like a generic dark-mode SaaS shell despite having the same three-pane bones.\n\nThe system rejects the aesthetic it was first built in. The original direction was a dark \"Alchemical Noir\"; it was replaced with light parchment, and dark was re-admitted only as Nocturne — the same scriptorium after dark, in leather and candlelight. Light is the default and the identity; dark is a courtesy. Gold-on-cream was tried as the primary action fill and failed contrast, which is why gilt survives as an outline and never as a fill behind text.",
+    "keyCharacteristics": [
+      "Parchment surfaces that darken outward, never a flat neutral gray",
+      "One reading voice and one instrument voice, never mixed inside an element",
+      "Gilt as line, oxblood as seal — the two accents do different jobs",
+      "Depth from ruled borders and tonal layering, not from drop shadows",
+      "Every text-on-fill pair measured, none hard-coded",
+      "Motion in one easing voice with three beats, and reduced-motion keeps the information while removing the travel"
+    ],
+    "rules": [
+      { "name": "The Measured Pair Rule", "body": "Never hard-code a color for text that sits on a filled accent. Use the on-* token family (on-accent, on-gilt, on-author, on-char). Only on-accent flips between themes, because only the accents invert — cream on light oxblood measures 6.07:1 and is correct; the same cream on Nocturne's lit oxblood measures 2.20:1 and is not.", "section": "colors" },
+      { "name": "The Gilt-Is-A-Line Rule", "body": "Brass is an outline, a hairline, or a mark. It is never a fill behind text. This was tested: gold-on-cream failed contrast, and the primary action became the wax seal instead.", "section": "colors" },
+      { "name": "The Reserved Violet Rule", "body": "Violet means a human steered a running system. Nothing else may use it — not focus, not selection, not a decorative accent.", "section": "colors" },
+      { "name": "The Two Voices Rule", "body": "IM Fell English is what Helix says; Inter is what Helix is operated by. Prose, message bodies and epigraphs take the reading voice. Buttons, inputs, selects and labels take the instrument voice. They are never mixed inside one element. The one deliberate crossing: the composer textarea opts back into the reading voice, because what you type there becomes the document.", "section": "typography" },
+      { "name": "The Mono-Means-Machine Rule", "body": "JetBrains Mono marks values a human did not write — ids, model names, token counts, branch names. If a person authored the string, it is not mono.", "section": "typography" },
+      { "name": "The Adaptation-Not-Subtraction Rule", "body": "A control that does not fit gets moved, wrapped, or put behind a drawer. It is never dropped. A pane that clips rather than scrolls will hide a control while still reporting it as laid out — that failure is invisible to code review and only shows up in a browser.", "section": "layout" },
+      { "name": "The No-Blend Rule", "body": "The grain layer carries no mix-blend-mode. A full-viewport blended layer recomposites against its backdrop on every frame anything beneath it paints, which in a streaming interface is every frame. Measured on the production build during a stream: with the blend, 70 of 82 frames arrived at a 33ms p95; without it, 82 of 82 at 16.7ms. At 7% opacity the two are visually indistinguishable in both themes.", "section": "elevation" },
+      { "name": "The Flat-At-Rest Rule", "body": "If you are reaching for a shadow to separate two surfaces, use a rule hairline or the next step on the parchment ramp instead.", "section": "elevation" },
+      { "name": "The Reduced-Motion Keeps-The-Information Rule", "body": "prefers-reduced-motion asks for no vestibular load; it does not ask for an interface that stops telling you when something changed. Animations here are ambient (grain, precession, breathing, entrances) and are stopped — with hx-rise redefined as a pure fade so anything mid-flight resolves visible rather than blank. Transitions are feedback (the rail pill settling, a composer frame warming, a meter falling) and are shortened to 90ms rather than deleted. A spinner is the explicit exception: a loading indicator that has stopped moving reads as hung, so it is given an opacity alternative instead of being switched off.", "section": "components" }
+    ],
+    "dos": [
+      "Do use the on-* token family for any text sitting on a filled accent, and measure a new pair before shipping it.",
+      "Do keep gilt as an outline, a hairline, or a mark.",
+      "Do reach for a rule hairline or the next step on the parchment ramp when you need to separate two surfaces.",
+      "Do give every bare-glyph control the .icon-act utility so its target reaches 24×24 regardless of glyph size. A chip-shaped button keeps its size and passes SC 2.5.8 on spacing instead — check with e2e/responsive.mjs rather than padding it.",
+      "Do put min-width: 0 on any flex or grid child that contains an input or long unbroken text.",
+      "Do make content that cannot compress scroll inside its own container.",
+      "Do shorten transitions under prefers-reduced-motion; stop animations entirely.",
+      "Do keep the seal to one primary action per surface."
+    ],
+    "donts": [
+      "Don't use occult, alchemical, or hermetic motifs. The manuscript vocabulary is bookmaking and astronomy — ruled pages, star charts, orbital diagrams. This is a binding identity constraint, not a preference.",
+      "Don't hard-code a hex value in a component or route stylesheet. Every color comes from a token; there are currently zero raw hex values in any CSS outside tokens.css. The single exception is the author swatch palette in lib/format.ts, which is documented below and has to be a JS array.",
+      "Don't use ink-faint for text a user needs to read. It is ≥3.0:1 and decorative by definition.",
+      "Don't use gilt-2 for text, and don't put text on a gilt fill outside the on-gilt pair.",
+      "Don't borrow violet for anything but human intervention in a running reasoning process.",
+      "Don't add mix-blend-mode to a full-viewport layer.",
+      "Don't mix the reading voice and the instrument voice inside one element.",
+      "Don't remove a control to make a narrow layout fit. Move it, wrap it, or drawer it.",
+      "Don't treat the dark theme as the identity. Light parchment is the default and the presentation surface; Nocturne is an opt-in courtesy."
+    ]
+  }
+}

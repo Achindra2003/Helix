@@ -48,3 +48,6 @@ baton*.txt
 *-baton.txt
 dump*.txt
 *-dump.txt
+
+# Impeccable: per-developer overrides (hook consent). Shared config.json is tracked.
+.impeccable/config.local.json
