@@ -1,3 +1,4 @@
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -195,6 +196,12 @@ async def public_config():
 # Registered last, on purpose: every API router above is matched first, so the
 # catch-all can never shadow a real endpoint.
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+# The bundle ships self-hosted webfonts, and Python's mimetypes table has no
+# entry for woff/woff2 through 3.11 — without this, FileResponse serves them
+# with no content type and browsers log a warning on every page load.
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
 
 if _STATIC_DIR.is_dir():
 
