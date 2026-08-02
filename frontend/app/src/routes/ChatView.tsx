@@ -5,7 +5,7 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, killDeepRun, resolveBranch, concludeConversation,
+  searchWorkspace, killDeepRun, resolveBranch, concludeConversation, postNote,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
@@ -628,6 +628,16 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
   }
 
+  async function doNote(text: string) {
+    const branchId = await ensureConversation();
+    if (!branchId) return;
+    try {
+      const node = await postNote(branchId, text);
+      setMessages((m) => [...m, nodeToMsg(node, user?.id, null, emailOf, forkSourceMap)]);
+      scrollDown();
+    } catch (e: any) { push(e?.message ?? "Could not post that", "error"); }
+  }
+
   async function doConclude(text: string) {
     if (!activeConvId) return;
     try {
@@ -864,6 +874,13 @@ export function ChatView() {
       } else if (ev.kind === "branch.created" || ev.kind === "branch.updated") {
         if (ev.conversation_id === activeConvId) {
           listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+        }
+      } else if (ev.kind === "note.posted") {
+        if (ev.branch_id === activeBranchId) {
+          setMessages((m) => m.some((x) => x.id === ev.node.id)
+            ? m
+            : [...m, nodeToMsg(ev.node, user?.id, null, emailOf, forkSourceMap)]);
+          scrollDown();
         }
       } else if (ev.kind === "branch.resolved") {
         if (ev.conversation_id === activeConvId) {
@@ -1320,7 +1337,7 @@ export function ChatView() {
               )}
               {canSend ? (
                 <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
-                  onAgent={onAgent} agentHint={agentHint}
+                  onAgent={onAgent} onNote={doNote} agentHint={agentHint}
                   onLibrary={() => nav(`/w/${wid}/library`)}
                   onDraftChange={onDraftChange}
                   draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />

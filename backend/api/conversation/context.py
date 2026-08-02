@@ -243,6 +243,12 @@ def build_messages(
     (the production path — see `EmbeddingIndex.recall_block`); ``None`` falls
     back to inline on-the-fly embedding for direct callers.
     """
+    # Notes are addressed to teammates, not to the model. "No, try the other
+    # way" is coordination, not a prompt: letting it into the context would
+    # change the answers every time a team talked to itself, and would make a
+    # thread's replies depend on who happened to be arguing in it. Filtered
+    # before windowing so they cost no budget either.
+    history = [n for n in history if n.role != "note"]
     turns, elided = _token_window(history, max_turns, token_budget)
 
     messages: list[Message] = []
@@ -298,6 +304,10 @@ def render_transcript(
     max_chars_per_turn: int | None = None,
 ) -> str:
     """A compact plain-text transcript of recent context (for prompts/seeds)."""
+    # Same rule as build_messages: teammate notes are not part of what the
+    # model is reasoning about. This feeds deep-run seeds and reference blocks,
+    # so a leak here would reach the model by the back door.
+    history = [n for n in history if n.role != "note"]
     turns = history[-max_turns:] if max_turns and len(history) > max_turns else history
     lines = []
     for node in turns:

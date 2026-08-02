@@ -128,6 +128,10 @@ class ResolveBranch(BaseModel):
     resolution: str = ""
 
 
+class PostNote(BaseModel):
+    content: str
+
+
 class Conclude(BaseModel):
     # Empty clears the conclusion — reopening a thread the team thought it had
     # settled is a legitimate thing to need.
@@ -572,6 +576,53 @@ async def fork_branch(
         "name": branch.name,
         "intent": branch.intent,
     }
+
+
+@router.post("/{branch_id}/notes")
+async def post_note(
+    branch_id: str,
+    body: PostNote,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Say something to your teammates, in the thread, without asking the model.
+
+    Until now every message in Helix was addressed to the LLM. Two people in
+    one thread could watch each other work and fork away from each other, but
+    could not actually speak — so disagreeing meant typing at the model and
+    hoping the other person read it. That is the gap under the whole "shared
+    workspace" claim: a room where nobody can talk is an audience, not a team.
+
+    A note is an ordinary immutable node so it keeps its place in the thread —
+    it appears exactly where it was said, which is the point of saying it
+    there. It is excluded from the model's context (see `build_messages`): a
+    side remark is coordination, not a prompt, and letting it in would make a
+    thread's answers depend on who happened to be arguing in it.
+
+    Collaborator+, the same bar as sending — an Observer reads. Whether
+    commentary should be an Observer's one write is a real product question,
+    and not one to settle by accident here.
+    """
+    text = body.content.strip()
+    if not text:
+        raise api_error(422, "invalid", "a note needs something in it")
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    node = await _store.add_node(
+        branch_id=branch_id, role="note", content=text, author_id=user.id
+    )
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "note.posted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "node": asdict(node),
+            },
+            exclude_user=user.id,
+        )
+    return asdict(node)
 
 
 @router.post("/{conversation_id}/conclude")

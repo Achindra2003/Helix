@@ -83,8 +83,13 @@
   display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
 }
 .stageGeo { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 560px; height: 560px; opacity: .05; pointer-events: none; }
-.stageHead { padding: 16px 26px 13px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; gap: 14px; position: relative; }
-.stageTitleBlock { flex: 1; min-width: 0; }
+/* Wraps at every width, not just on phones. The header has accumulated
+   controls (replay, two exports, link context, Conclude, Fork) and at ~1280px
+   a nowrap row crushed the conversation title to "CH... STR...". Wrapping
+   costs a line only when it is actually needed; crushing the title costs the
+   one thing in the header nobody can do without. */
+.stageHead { padding: 16px 26px 13px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; gap: 10px 14px; position: relative; flex-wrap: wrap; }
+.stageTitleBlock { flex: 1 1 260px; min-width: 260px; }
 .stageTitle { font-family: var(--font-display); font-size: 24px; line-height: 1.1; }
 .stageMeta { display: flex; align-items: center; gap: 11px; margin-top: 5px; }
 .chip { font-family: var(--font-mono); font-size: 11px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 7px; display: inline-flex; gap: 5px; align-items: center; color: var(--ink-2); }
@@ -330,3 +335,20 @@
   transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
 .concludeBox:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
+
+/* A note: one person talking to the room, not to Helix. Deliberately not a
+   bubble — a marginal annotation in the reading voice, so a glance tells you
+   whether a line was said to the model or to the people watching. */
+.note {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: -6px 0 -6px 48px; padding: 5px 12px;
+  border-left: 2px solid var(--ink-faint);
+  font-family: var(--font-read); font-size: 14px; line-height: 1.5;
+  color: var(--ink-2); animation: hx-rise 0.34s var(--ease-quill) both;
+}
+.noteWho { font-family: var(--font-mono); font-size: 11.5px; flex: 0 0 auto; }
+.noteBody { flex: 1; min-width: 0; font-style: italic; }
+.noteAside {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--ink-faint); flex: 0 0 auto; text-transform: uppercase;
+}

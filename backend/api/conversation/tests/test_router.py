@@ -1121,3 +1121,82 @@ def test_export_and_ledger_both_carry_the_conclusion(make_workspace):
         assert conclusion["resolution"] == "We chunk at 500 with overlap."
         assert conclusion["branch_id"] is None
         assert conclusion["status"] == "concluded"
+
+
+# --- notes: humans talking to each other ------------------------------------
+
+
+def test_note_lands_in_the_thread_but_never_reaches_the_model(make_workspace):
+    """The load-bearing rule: coordination is not a prompt."""
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        created = _create_conv(client, headers, wid)
+        branch_id = created["branch_id"]
+        client.post(
+            f"/conversations/{branch_id}/messages", json={"prompt": "seed"}, headers=headers
+        )
+
+        note = client.post(
+            f"/conversations/{branch_id}/notes",
+            json={"content": "hold on — try the other chunker first"},
+            headers=headers,
+        )
+        assert note.status_code == 200, note.text
+        assert note.json()["role"] == "note"
+        assert note.json()["author_id"] == uid
+
+        # It keeps its place in the thread.
+        nodes = client.get(
+            f"/conversations/branches/{branch_id}/history", headers=headers
+        ).json()["nodes"]
+        assert [n["role"] for n in nodes] == ["user", "assistant", "note"]
+
+        # But the model never sees it: the stub echoes its prompt, so the note
+        # would appear in the reply if it had entered the context.
+        resp = client.post(
+            f"/conversations/{branch_id}/messages",
+            json={"prompt": "and now what?"},
+            headers=headers,
+        )
+        reply = "".join(
+            json.loads(p)["text"]
+            for p in _parse_sse(resp.text)
+            if p != "[DONE]" and json.loads(p)["kind"] == "token"
+        )
+        assert "hold on" not in reply
+        assert "try the other chunker" not in reply
+
+
+def test_note_needs_content_and_collaborator(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, owner_headers, wid)["branch_id"]
+
+        blank = client.post(
+            f"/conversations/{branch_id}/notes", json={"content": "   "}, headers=owner_headers
+        )
+        assert blank.status_code == 422
+
+        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
+        assert client.post(
+            f"/conversations/{branch_id}/notes",
+            json={"content": "just watching"},
+            headers=obs_headers,
+        ).status_code == 403
+
+
+def test_notes_do_not_leak_into_a_deep_run_seed(make_workspace):
+    """render_transcript feeds deep seeds and reference blocks — same rule."""
+    from api.conversation.context import build_messages, render_transcript
+    from api.conversation.events import Node
+
+    history = [
+        Node(id="1", branch_id="b", parent_id=None, seq=1, role="user",
+             content="how do we chunk?", author_id="u", token_count=0),
+        Node(id="2", branch_id="b", parent_id="1", seq=2, role="assistant",
+             content="at 500 chars", author_id=None, token_count=0),
+        Node(id="3", branch_id="b", parent_id="2", seq=3, role="note",
+             content="SECRET_SIDEBAR", author_id="u", token_count=0),
+    ]
+    assert "SECRET_SIDEBAR" not in json.dumps(build_messages(history))
+    assert "SECRET_SIDEBAR" not in render_transcript(history)

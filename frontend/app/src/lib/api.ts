@@ -263,6 +263,13 @@ export const listDecisions = (wid: string) =>
   request<{ items: Decision[] }>(`/workspaces/${wid}/decisions`);
 
 // What the thread concluded. An empty string reopens the question.
+// Say something to your teammates in the thread. It keeps its place in the
+// history and is never shown to the model — coordination is not a prompt.
+export const postNote = (branchId: string, content: string) =>
+  request<Node>(`/conversations/${branchId}/notes`, {
+    method: "POST",
+    body: JSON.stringify({ content }),
+  });
 export const concludeConversation = (cid: string, conclusion: string) =>
   request<Conversation>(`/conversations/${cid}/conclude`, {
     method: "POST",

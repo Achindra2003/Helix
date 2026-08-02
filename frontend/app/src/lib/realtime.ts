@@ -44,6 +44,9 @@ export type RoomEvent =
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.updated"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.deleted"; workspace_id: string; conversation_id: string; branch_id: string }
+  // One human talking to the room rather than to Helix. Relayed live because
+  // the entire point is that a teammate reads it while the work is happening.
+  | { kind: "note.posted"; workspace_id: string; conversation_id: string; branch_id: string; node: any }
   // A verdict landing on an exploration. Carried to the room because a
   // decision is the most consequential thing that happens in a workspace —
   // and because a teammate still exploring an abandoned branch should find

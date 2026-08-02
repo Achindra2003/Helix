@@ -4,7 +4,7 @@ import { Button } from "@/components/common/Button";
 import s from "./chat.module.css";
 
 export function Composer({
-  provider, busy, onSend, onDeep, onAgent, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed,
+  provider, busy, onSend, onDeep, onAgent, onNote, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed,
 }: {
   provider: string;
   busy: boolean;
@@ -13,6 +13,9 @@ export function Composer({
   // Agent mode (FR-14): the model gets hands — the workspace's allowed tools,
   // with sensitive calls pausing for approval.
   onAgent: (text: string) => void;
+  // Say it to the room instead of to Helix. Same box, different addressee —
+  // a separate comment field would put team talk somewhere nobody looks.
+  onNote: (text: string) => void;
   // What this workspace's agent can currently do (tooltip: tool names, or why
   // agent runs are unavailable).
   agentHint?: string;
@@ -63,6 +66,12 @@ export function Composer({
     onAgent(t);
     update("");
   }
+  function note() {
+    const t = text.trim();
+    if (!t) return;
+    onNote(t);
+    update("");
+  }
 
   return (
     <div className={s.composer}>
@@ -85,6 +94,10 @@ export function Composer({
           title={agentHint ?? "Agent: Helix answers with tools — searching before it speaks"}>
           <span style={{ color: "var(--oxblood)" }}>⚒</span> Agent
         </Button>
+        <Button onClick={note} disabled={!text.trim()} style={{ padding: "6px 11px", fontSize: 12.5 }}
+          title="Say this to your teammates instead of to Helix — it stays in the thread, and the model never reads it">
+          <span style={{ color: "var(--verde)" }}>❝</span> Team
+        </Button>
         <label
           title="Guided: the run pauses between reasoning cycles so you can steer it from the monitor"
           style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: guided ? "var(--violet)" : "var(--ink-3)", cursor: "pointer", userSelect: "none" }}
@@ -95,7 +108,7 @@ export function Composer({
         <div style={{ flex: 1 }} />
         {text.trim() && (
           <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
-            ↵ send · ⇧↵ new line
+            ↵ ask Helix · ⇧↵ new line
           </span>
         )}
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>☁ {provider}</span>

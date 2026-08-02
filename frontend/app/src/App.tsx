@@ -6,6 +6,7 @@ import { useSession } from "@/store/session";
 import { Spinner } from "@/components/common/Feedback";
 import { Landing } from "@/routes/Landing";
 import { AuthPage } from "@/routes/AuthPage";
+import { InviteView, peekParkedInvite } from "@/routes/InviteView";
 
 // The public pair above ships in the entry chunk; everything below is behind a
 // login and loads on demand. A stranger evaluating the repo from the landing
@@ -53,6 +54,10 @@ function RequireAuth({ children }: { children: React.ReactNode }) {
 export function App() {
   const { user, setSession, setWorkspaces } = useSession();
   const [booting, setBooting] = useState(true);
+  // An invite link followed while signed out: sign-in lands back on it rather
+  // than dumping the visitor in a workspace picker with no memory of why they
+  // clicked. Read every render — it clears only once the invite is accepted.
+  const parkedInvite = peekParkedInvite();
 
   // Rehydrate the session from a stored token on first load.
   useEffect(() => {
@@ -89,7 +94,15 @@ export function App() {
       }>
         <Routes>
           <Route path="/" element={<Landing />} />
-          <Route path="/auth" element={user ? <Navigate to="/workspaces" replace /> : <AuthPage />} />
+          {/* Not behind RequireAuth: a person following an invite link is often
+              signed out, and InviteView parks the token and sends them to sign
+              in rather than bouncing them to a picker that forgets why they
+              came. */}
+          <Route path="/invite/:token" element={<InviteView />} />
+          <Route path="/auth" element={
+            user ? <Navigate to={parkedInvite ? `/invite/${parkedInvite}` : "/workspaces"} replace />
+                 : <AuthPage />
+          } />
           <Route path="/workspaces" element={<RequireAuth><WorkspacePicker /></RequireAuth>} />
           <Route path="/account" element={<RequireAuth><AccountView /></RequireAuth>} />
           <Route path="/w/:wid" element={<RequireAuth><WorkspaceLayout /></RequireAuth>}>

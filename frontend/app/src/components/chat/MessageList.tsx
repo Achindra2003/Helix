@@ -16,7 +16,7 @@ export interface ToolActivity {
 
 export interface ChatMessage {
   id: string;
-  role: "user" | "assistant" | "system";
+  role: "user" | "assistant" | "system" | "note";
   authorName: string;
   // Deterministic per-author accent (colorFor(email)); paints the margin quill
   // on user turns so a multi-author thread reads at a glance. Assistant stays
@@ -55,6 +55,20 @@ export interface LastTurnActions {
 function Bubble({ m, dropCap, onForkHere, lastTurn }: {
   m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void; lastTurn?: LastTurnActions;
 }) {
+  // A note is one person talking to the room, not to Helix — so it is not a
+  // bubble at all. It sits in the margin like a hand-written annotation,
+  // keeping its place in the thread without pretending to be a turn.
+  if (m.role === "note") {
+    return (
+      <div className={s.note} style={{ borderLeftColor: m.authorColor ?? "var(--ink-faint)" }}>
+        <span className={s.noteWho} style={{ color: m.authorColor }}>{m.authorName}</span>
+        <span className={s.noteBody}>{m.body}</span>
+        <span className={s.noteAside} title="Notes are for your teammates — Helix never reads them">
+          to the team
+        </span>
+      </div>
+    );
+  }
   const asst = m.role === "assistant";
   const mine = lastTurn?.userMsgId === m.id;
   return (
