@@ -262,6 +262,13 @@ export const getWorkspaceMap = (wid: string) =>
 export const listDecisions = (wid: string) =>
   request<{ items: Decision[] }>(`/workspaces/${wid}/decisions`);
 
+// What the thread concluded. An empty string reopens the question.
+export const concludeConversation = (cid: string, conclusion: string) =>
+  request<Conversation>(`/conversations/${cid}/conclude`, {
+    method: "POST",
+    body: JSON.stringify({ conclusion }),
+  });
+
 // --- cross-conversation references (link another shared thread as live context) ---
 export const listReferences = (cid: string) =>
   request<{ items: ConversationRef[] }>(`/conversations/${cid}/references`);

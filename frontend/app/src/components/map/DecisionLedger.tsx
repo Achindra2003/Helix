@@ -37,23 +37,31 @@ export function DecisionLedger({ wid }: { wid: string }) {
     <div className={s.ledger}>
       {items.map((d) => (
         <button
-          key={d.branch_id}
+          key={d.branch_id ?? `conv-${d.conversation_id}`}
           className={s.ledgerRow}
           data-status={d.status}
-          onClick={() => nav(`/w/${wid}?conv=${d.conversation_id}&branch=${d.branch_id}`)}
+          onClick={() => nav(
+            `/w/${wid}?conv=${d.conversation_id}` + (d.branch_id ? `&branch=${d.branch_id}` : ""),
+          )}
           title="Open the thread this was decided in"
         >
-          <span className={s.ledgerMark}>{d.status === "adopted" ? "✓" : "✕"}</span>
+          <span className={s.ledgerMark}>
+            {d.kind === "conclusion" ? "❧" : d.status === "adopted" ? "✓" : "✕"}
+          </span>
           <span className={s.ledgerBody}>
             {/* The reason leads. It is the part that has to survive — the
                 labels and titles are how you find it again, not what it says. */}
             <span className={s.ledgerWhy}>{d.resolution}</span>
             <span className={s.ledgerMeta}>
-              <b>{d.status === "adopted" ? "Adopted" : "Abandoned"}</b>
+              <b>
+                {d.kind === "conclusion" ? "Concluded"
+                  : d.status === "adopted" ? "Adopted" : "Abandoned"}
+              </b>
               {d.intent && <> · was trying: {d.intent}</>}
             </span>
             <span className={s.ledgerWhere}>
-              {d.conversation_title} → {d.branch_name}
+              {d.conversation_title}
+              {d.branch_name && <> → {d.branch_name}</>}
               {d.visibility === "private" && <span className={s.ledgerPrivate}> ◍ private</span>}
               {d.resolved_by_email && <> · {d.resolved_by_email}</>}
               {d.resolved_at && <> · {d.resolved_at.slice(0, 10)}</>}

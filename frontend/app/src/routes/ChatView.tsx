@@ -5,7 +5,7 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, killDeepRun, resolveBranch,
+  searchWorkspace, killDeepRun, resolveBranch, concludeConversation,
 } from "@/lib/api";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
@@ -113,6 +113,7 @@ export function ChatView() {
   const [deleteDlg, setDeleteDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
   // Recording what came of an exploration (adopted / abandoned / reopened).
   const [resolveDlg, setResolveDlg] = useState<Branch | null>(null);
+  const [concludeDlg, setConcludeDlg] = useState(false);
 
   // The thread on screen is by definition read — keep its unread marker clear
   // even as live turns stream into it.
@@ -627,6 +628,15 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
   }
 
+  async function doConclude(text: string) {
+    if (!activeConvId) return;
+    try {
+      await concludeConversation(activeConvId, text);
+      await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      push(text ? "Conclusion recorded" : "Conclusion cleared — the question is open again");
+    } catch (e: any) { push(e?.message ?? "Could not record that", "error"); }
+  }
+
   async function doResolve(branchId: string, status: BranchStatus, resolution: string) {
     try {
       await resolveBranch(branchId, status, resolution);
@@ -1104,6 +1114,19 @@ export function ChatView() {
                   </span>
                   <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messages.length} nodes</span>
                 </div>
+                {/* What the thread concluded, above the branch verdict: it is
+                    the answer to the question the whole conversation was
+                    asking, so it outranks the fate of any one exploration. */}
+                {activeConv.conclusion && (
+                  <div className={s.conclusion}>
+                    <span className={s.conclusionLabel}>Concluded</span>
+                    <span>{activeConv.conclusion}</span>
+                    {canSend && (
+                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.7 }}
+                        title="Revise the conclusion" onClick={() => setConcludeDlg(true)}>✎</button>
+                    )}
+                  </div>
+                )}
                 {/* The verdict on the branch you are reading. Above the linked
                     context because "this was abandoned three days ago, and
                     here is why" outranks everything else in this header — it
@@ -1162,6 +1185,11 @@ export function ChatView() {
                   <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "md").catch(() => push("Export failed", "error"))} title="Export Markdown" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ md</button>
                   <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "json").catch(() => push("Export failed", "error"))} title="Export JSON" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ json</button>
                 </>
+              )}
+              {canSend && messages.length > 0 && !activeConv.conclusion && (
+                <Button onClick={() => setConcludeDlg(true)} title="Say what this thread concluded">
+                  <span style={{ color: "var(--verde)" }}>❧</span> Conclude
+                </Button>
               )}
               {canFork && (
                 <Button onClick={() => activeBranch?.head_node_id ? setForkDlg({ nodeId: activeBranch.head_node_id }) : push("Send a message before forking", "error")}>
@@ -1320,6 +1348,10 @@ export function ChatView() {
         <ForkDialog onClose={() => setForkDlg(null)}
           onConfirm={(name, intent) => { doFork(forkDlg.nodeId, name, intent); setForkDlg(null); }} />
       )}
+      {concludeDlg && activeConv && (
+        <ConcludeDialog conv={activeConv} onClose={() => setConcludeDlg(false)}
+          onSave={(t) => { doConclude(t); setConcludeDlg(false); }} />
+      )}
       {resolveDlg && (
         <ResolveDialog branch={resolveDlg} onClose={() => setResolveDlg(null)}
           onConfirm={(status, resolution) => { doResolve(resolveDlg.id, status, resolution); setResolveDlg(null); }} />
@@ -1420,6 +1452,62 @@ function ForkDialog({ onClose, onConfirm }: {
           placeholder="optional"
           onKeyDown={(e) => { if (e.key === "Enter") go(); }} />
       </Field>
+    </Dialog>
+  );
+}
+
+// The thread's own ending. Helix drafts, a human accepts — the two are
+// separate on purpose: a draft nobody read is not a conclusion, and the whole
+// point of the record is that someone stood behind it.
+function ConcludeDialog({ conv, onClose, onSave }: {
+  conv: Conversation;
+  onClose: () => void;
+  onSave: (text: string) => void;
+}) {
+  const [text, setText] = useState(conv.conclusion ?? "");
+  const [drafting, setDrafting] = useState(false);
+  const [failed, setFailed] = useState("");
+
+  function draft() {
+    setDrafting(true);
+    setFailed("");
+    let acc = "";
+    const h = streamSSE(`/conversations/${conv.id}/synthesize`, {}, (ev: any) => {
+      if (ev.kind === "token") { acc += ev.text; setText(acc); }
+      else if (ev.kind === "complete" && ev.status === "error") setFailed(ev.stop_reason ?? "draft failed");
+    });
+    h.done.catch((e: any) => setFailed(e?.message ?? "draft failed")).finally(() => setDrafting(false));
+  }
+
+  return (
+    <Dialog title={`Conclude “${conv.title}”`} onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button onClick={draft} disabled={drafting}>
+          {drafting ? "Reading the branches…" : "⌘ Draft from the branches"}
+        </Button>
+        <Button variant="primary" onClick={() => onSave(text.trim())}>
+          {text.trim() ? "Record it" : "Clear the conclusion"}
+        </Button>
+      </>}>
+      <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
+        What does the team now believe? Helix can read the branches and draft
+        this, but nothing is recorded until you accept it.
+      </div>
+      <textarea
+        className={s.concludeBox}
+        value={text}
+        onChange={(e) => setText(e.target.value)}
+        placeholder="e.g. We chunk at 500 characters with overlap. Semantic chunking read better but lost cross-section context and cost 3x to ingest."
+        rows={7}
+        autoFocus
+      />
+      {failed && (
+        <div style={{ fontSize: 12.5, color: "var(--oxblood)" }}>
+          Could not draft: {failed}. Write it yourself — the record matters more
+          than the draft.
+        </div>
+      )}
     </Dialog>
   );
 }

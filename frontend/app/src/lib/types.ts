@@ -52,6 +52,12 @@ export interface Conversation {
   visibility: Visibility;
   default_branch_id: string;
   created_at?: string;
+  // What the thread concluded — the answer to "so what did we land on?".
+  // Written by a human; Helix can draft it, but a draft nobody accepted is
+  // not a conclusion.
+  conclusion?: string;
+  concluded_by?: string | null;
+  concluded_at?: string | null;
 }
 
 // A conversation linked in as live cross-thread context (see addReference).
@@ -276,13 +282,16 @@ export type RunEvent =
 
 /** One recorded verdict, as the decisions ledger reads it. */
 export interface Decision {
-  branch_id: string;
+  // "conclusion" is a whole thread's answer; "verdict" is one exploration's
+  // fate. Both are decisions, and the conclusion outranks the verdicts under it.
+  kind: "conclusion" | "verdict";
+  branch_id: string | null;
   branch_name: string;
   conversation_id: string;
   conversation_title: string;
   visibility: "shared" | "private";
   intent: string;
-  status: Exclude<BranchStatus, "open">;
+  status: "adopted" | "abandoned" | "concluded";
   resolution: string;
   resolved_by: string | null;
   resolved_by_email: string;

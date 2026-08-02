@@ -1005,3 +1005,119 @@ def test_decisions_ledger_needs_membership(make_workspace, make_user):
         _, _, wid = make_workspace(client)
         outsider, _ = make_user(client)
         assert client.get(f"/workspaces/{wid}/decisions", headers=outsider).status_code == 404
+
+
+# --- the thread's own ending ------------------------------------------------
+
+
+def test_conclusion_is_recorded_and_can_be_cleared(make_workspace):
+    with TestClient(app) as client:
+        headers, uid, wid = make_workspace(client)
+        created = _create_conv(client, headers, wid)
+        cid = created["conversation_id"]
+
+        r = client.post(
+            f"/conversations/{cid}/conclude",
+            json={"conclusion": "We chunk at 500 with overlap; semantic chunking lost."},
+            headers=headers,
+        )
+        assert r.status_code == 200, r.text
+        body = r.json()
+        assert body["conclusion"].startswith("We chunk at 500")
+        assert body["concluded_by"] == uid
+        assert body["concluded_at"] is not None
+
+        # It survives a reload, and an empty string reopens the question.
+        again = client.get(f"/conversations/{cid}", headers=headers).json()
+        assert again["conclusion"].startswith("We chunk at 500")
+
+        cleared = client.post(
+            f"/conversations/{cid}/conclude", json={"conclusion": "  "}, headers=headers
+        ).json()
+        assert cleared["conclusion"] == ""
+        assert cleared["concluded_by"] is None
+        assert cleared["concluded_at"] is None
+
+
+def test_observer_cannot_conclude(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        cid = _create_conv(client, owner_headers, wid)["conversation_id"]
+        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
+        r = client.post(
+            f"/conversations/{cid}/conclude",
+            json={"conclusion": "I say we ship it"},
+            headers=obs_headers,
+        )
+        assert r.status_code == 403
+
+
+def test_synthesize_streams_a_draft_and_persists_nothing(make_workspace):
+    """A draft nobody accepted is not a conclusion — it must not be stored."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid, intent="semantic chunking")
+        client.post(
+            f"/conversations/{fork_id}/messages", json={"prompt": "explore"}, headers=headers
+        )
+        client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "abandoned", "resolution": "too slow"},
+            headers=headers,
+        )
+
+        r = client.post(f"/conversations/{cid}/synthesize", headers=headers)
+        assert r.status_code == 200, r.text
+        assert r.headers["content-type"].startswith("text/event-stream")
+        payloads = _parse_sse(r.text)
+        assert payloads[-1] == "[DONE]"
+        events = [json.loads(p) for p in payloads if p != "[DONE]"]
+        assert any(e["kind"] == "token" for e in events)
+        assert events[-1] == {"kind": "complete", "status": "done", "stop_reason": "drafted"}
+
+        # Nothing was written: the human still has to accept it.
+        assert client.get(f"/conversations/{cid}", headers=headers).json()["conclusion"] == ""
+
+
+def test_observer_cannot_synthesize(make_workspace, join_workspace):
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        cid, _ = _seeded_fork(client, owner_headers, wid)
+        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
+        assert client.post(
+            f"/conversations/{cid}/synthesize", headers=obs_headers
+        ).status_code == 403
+
+
+def test_export_and_ledger_both_carry_the_conclusion(make_workspace):
+    """The thread's answer outranks any single branch's fate, in both readings."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid, intent="semantic chunking")
+        client.post(
+            f"/conversations/branches/{fork_id}/resolve",
+            json={"status": "abandoned", "resolution": "too slow"},
+            headers=headers,
+        )
+        client.post(
+            f"/conversations/{cid}/conclude",
+            json={"conclusion": "We chunk at 500 with overlap."},
+            headers=headers,
+        )
+
+        body = client.get(
+            f"/conversations/{cid}/export",
+            params={"branch": fork_id, "format": "md"},
+            headers=headers,
+        ).text
+        assert "**Concluded:** We chunk at 500 with overlap." in body
+        # The thread's answer comes before the branch's verdict.
+        assert body.index("Concluded") < body.index("Abandoned")
+
+        items = client.get(f"/workspaces/{wid}/decisions", headers=headers).json()["items"]
+        kinds = {i["kind"] for i in items}
+        assert kinds == {"conclusion", "verdict"}
+        conclusion = next(i for i in items if i["kind"] == "conclusion")
+        assert conclusion["resolution"] == "We chunk at 500 with overlap."
+        assert conclusion["branch_id"] is None
+        assert conclusion["status"] == "concluded"

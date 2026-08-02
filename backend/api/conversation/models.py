@@ -30,6 +30,14 @@ class ConversationRow(Base):
     visibility: Mapped[str] = mapped_column(String, default="shared")  # shared|private
     default_branch_id: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    # What the thread concluded. A branch verdict says which exploration won;
+    # this says what the team now believes, which is the thing someone asks for
+    # when they say "so what did we land on?". Empty until a human writes it —
+    # Helix can draft it from the branches, but a draft nobody accepted is not
+    # a conclusion.
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    concluded_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    concluded_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class BranchRow(Base):

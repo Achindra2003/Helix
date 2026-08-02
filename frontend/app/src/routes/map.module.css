@@ -209,3 +209,6 @@
 }
 .modeBtn:hover { color: var(--ink-2); background: var(--hover-tint); }
 .modeOn { background: var(--accent-tint); color: var(--oxblood); }
+/* A thread's conclusion outranks the verdicts beneath it — gilt, not verde. */
+.ledgerRow[data-status="concluded"] { border-left: 3px solid var(--gilt); }
+.ledgerRow[data-status="concluded"] .ledgerMark { color: var(--gilt-1); }

@@ -304,3 +304,29 @@
   .stageTitle { font-size: 20px; }
   .runStrip { flex-wrap: wrap; }
 }
+
+/* The thread's own ending, at the top of the stage header. Reading voice and
+   a gilt hairline: it is the one piece of prose in this header, and the thing
+   a person scrolls to the top to find. */
+.conclusion {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-top: 8px; padding: 9px 12px; border-radius: 8px;
+  font-family: var(--font-read); font-size: 14.5px; line-height: 1.5;
+  color: var(--ink); background: var(--paper);
+  border: 1px solid rgba(154, 122, 44, 0.45);
+}
+.conclusionLabel {
+  font-family: var(--font-display); font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--gilt-1); font-weight: 600;
+  flex: 0 0 auto; white-space: nowrap;
+}
+/* The compose box in the conclude dialog — reading voice, because what you
+   write here becomes the record. */
+.concludeBox {
+  width: 100%; resize: vertical; min-height: 120px;
+  background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius);
+  padding: 11px 13px; color: var(--ink); outline: none;
+  font-family: var(--font-read); font-size: 14.5px; line-height: 1.55;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
+}
+.concludeBox:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }

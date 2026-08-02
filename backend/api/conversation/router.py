@@ -84,6 +84,11 @@ def _usage_sink_for(workspace_id: str, provider_name: str):
 # Durable persistence: conversations/branches/nodes survive restarts. The engine
 # is unchanged by this swap — it only ever sees the `ConversationStore` Protocol.
 _store = DbStore(SessionLocal, on_node=_embeddings.ensure_soon)
+
+# How much of each branch the synthesis reads. The comparison needs where a
+# branch *ended up*, not its whole life, and this is the number that decides
+# when one call stops being enough (see POST /synthesize).
+_MAX_TURNS_PER_BRANCH = 8
 _prompts = PromptStore(SessionLocal)
 
 
@@ -121,6 +126,12 @@ class ForkBranch(BaseModel):
 class ResolveBranch(BaseModel):
     status: str  # open | adopted | abandoned
     resolution: str = ""
+
+
+class Conclude(BaseModel):
+    # Empty clears the conclusion — reopening a thread the team thought it had
+    # settled is a legitimate thing to need.
+    conclusion: str = ""
 
 
 class InsertPrompt(BaseModel):
@@ -410,6 +421,15 @@ async def export_conversation(
     # The decision, before the transcript. Someone handed this file is reading
     # it to find out what was concluded and why; making them infer that from a
     # transcript is the copy-paste problem this export exists to replace.
+    # The thread's conclusion leads, because it outranks the fate of any single
+    # exploration below it.
+    if conv.conclusion:
+        lines += [f"**Concluded:** {conv.conclusion}", ""]
+        who = await _who(conv.concluded_by) if conv.concluded_by else ""
+        when = conv.concluded_at.date().isoformat() if conv.concluded_at else ""
+        stamp = " · ".join(x for x in (who, when) if x)
+        if stamp:
+            lines += [f"*recorded by {stamp}*", ""]
     if br.intent:
         lines += [f"**Exploring:** {br.intent}", ""]
     if br.status != "open":
@@ -552,6 +572,134 @@ async def fork_branch(
         "name": branch.name,
         "intent": branch.intent,
     }
+
+
+@router.post("/{conversation_id}/conclude")
+async def conclude_conversation(
+    conversation_id: str,
+    body: Conclude,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """What the team now believes, after everything below it.
+
+    A branch verdict says which exploration won; this says what the thread is
+    *for* — the answer to "so what did we land on?". It is written by a human.
+    `POST /synthesize` can draft it from the branches, but a draft nobody
+    accepted is not a conclusion, so the two are separate calls on purpose.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    text = body.conclusion.strip()
+    updated = await _store.set_conclusion(
+        conversation_id=conversation_id, conclusion=text, concluded_by=user.id
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "conversation not found")
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.concluded",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "title": conv.title,
+                "conclusion": updated.conclusion,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
+
+
+@router.post("/{conversation_id}/synthesize")
+async def synthesize_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Draft a conclusion from the explorations. Streams tokens like a turn.
+
+    This is the one genuinely model-shaped operation in the convergence story:
+    reading several branches side by side and saying what they add up to is
+    work a person can do but slowly, and it is exactly what nobody does — which
+    is why threads end without conclusions.
+
+    The draft is never persisted. It streams into the compose box and a human
+    accepts, edits, or discards it; `POST /conclude` is what records anything.
+
+    Implementation note: every branch's tail goes into one call. Summarising
+    each branch separately and reducing (the map-reduce shape) is the named
+    seam for when branches outgrow a context window — worth building when a
+    real workspace hits it, not before. `_MAX_TURNS_PER_BRANCH` is where it
+    starts to bite.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    resolved = await _workspace_provider(conv.workspace_id, session)
+
+    branches = await _store.list_branches(conversation_id)
+    blocks: list[str] = []
+    for b in branches:
+        history = await _store.get_history(b.id)
+        # Only what is unique to this branch: everything up to the fork point is
+        # shared with its siblings, so including it would make every branch look
+        # alike and drown the differences the comparison exists to find.
+        own = history
+        if b.fork_node_id is not None:
+            for i, n in enumerate(history):
+                if n.id == b.fork_node_id:
+                    own = history[i + 1 :]
+                    break
+        turns = own[-_MAX_TURNS_PER_BRANCH:]
+        header = f"### Branch “{b.name}”"
+        if b.intent:
+            header += f"\nTrying: {b.intent}"
+        if b.status != "open":
+            header += f"\nVerdict: {b.status}"
+            if b.resolution:
+                header += f" — {b.resolution}"
+        body_text = "\n".join(
+            f"{'Q' if n.role == 'user' else 'A'}: {n.content[:1200]}" for n in turns
+        ) or "(no turns of its own yet)"
+        blocks.append(f"{header}\n{body_text}")
+
+    if not blocks:
+        raise api_error(422, "invalid", "nothing to synthesize yet")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are drafting the conclusion of a team's shared thread for "
+                "the record. Compare the branches below: what each tried, what "
+                "it found, and where they genuinely disagree. Then state what "
+                "the thread concluded and why, in at most 150 words of plain "
+                "prose. Ground every claim in the branches — if the evidence "
+                "does not settle the question, say so plainly instead of "
+                "inventing a resolution. Where a branch already carries a "
+                "recorded verdict, respect it. No headings, no bullet lists, "
+                "no preamble: this text goes straight into a record."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"# Thread: {conv.title}\n\n" + "\n\n".join(blocks),
+        },
+    ]
+    provider = build_chat_provider(resolved)
+
+    def frame(payload: dict) -> str:
+        return "data: " + json.dumps(payload) + "\n\n"
+
+    async def stream():
+        try:
+            async for chunk in provider.stream_messages(messages):
+                yield frame({"kind": "token", "text": chunk})
+        except Exception as exc:  # a failed draft must not look like a verdict
+            yield frame({"kind": "complete", "status": "error", "stop_reason": str(exc)[:200]})
+        else:
+            yield frame({"kind": "complete", "status": "done", "stop_reason": "drafted"})
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
 
 
 @router.post("/branches/{branch_id}/resolve")

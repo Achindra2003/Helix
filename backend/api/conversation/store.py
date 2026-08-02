@@ -33,6 +33,10 @@ class Conversation:
     title: str
     visibility: str  # "shared" | "private"
     default_branch_id: str
+    # What the thread concluded, written by a human (Helix can draft it).
+    conclusion: str = ""
+    concluded_by: str | None = None
+    concluded_at: datetime | None = None
 
 
 @dataclass
@@ -100,6 +104,12 @@ class ConversationStore(Protocol):
         self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         """Fork: one new branch row pointing at `from_node_id`; no history copied."""
+        ...
+
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        """Record (or clear, with an empty string) what the thread concluded."""
         ...
 
     async def resolve_branch(
@@ -352,6 +362,17 @@ class InMemoryStore:
             branch.name = name
         return branch
 
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return None
+        conv.conclusion = conclusion
+        conv.concluded_by = concluded_by if conclusion else None
+        conv.concluded_at = datetime.now(timezone.utc) if conclusion else None
+        return conv
+
     async def resolve_branch(
         self, *, branch_id: str, status: str, resolution: str, resolved_by: str
     ) -> Branch | None:
@@ -446,6 +467,9 @@ class DbStore:
             title=row.title,
             visibility=row.visibility,
             default_branch_id=row.default_branch_id,
+            conclusion=row.conclusion or "",
+            concluded_by=row.concluded_by,
+            concluded_at=row.concluded_at,
         )
 
     async def create_conversation(
@@ -753,6 +777,21 @@ class DbStore:
             row.name = name
             await s.commit()
             return self._to_branch(row)
+
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        from .models import ConversationRow
+
+        async with self._sf() as s:
+            row = await s.get(ConversationRow, conversation_id)
+            if row is None:
+                return None
+            row.conclusion = conclusion
+            row.concluded_by = concluded_by if conclusion else None
+            row.concluded_at = datetime.now(timezone.utc) if conclusion else None
+            await s.commit()
+            return self._to_conversation(row)
 
     async def resolve_branch(
         self, *, branch_id: str, status: str, resolution: str, resolved_by: str

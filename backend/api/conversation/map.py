@@ -55,11 +55,32 @@ async def workspace_decisions(
 
     out = []
     for conv in await store.list_conversations(workspace_id, user.id):
+        # A thread's conclusion is a decision too — the highest kind, since it
+        # is what the team believes after weighing everything below it. Leaving
+        # it out would make a ledger called "decisions" miss the real ones.
+        if conv.conclusion:
+            out.append(
+                {
+                    "kind": "conclusion",
+                    "branch_id": None,
+                    "branch_name": "",
+                    "conversation_id": conv.id,
+                    "conversation_title": conv.title,
+                    "visibility": conv.visibility,
+                    "intent": "",
+                    "status": "concluded",
+                    "resolution": conv.conclusion,
+                    "resolved_by": conv.concluded_by,
+                    "resolved_by_email": await _who(conv.concluded_by),
+                    "resolved_at": conv.concluded_at.isoformat() if conv.concluded_at else None,
+                }
+            )
         for b in await store.list_branches(conv.id):
             if b.status == "open":
                 continue
             out.append(
                 {
+                    "kind": "verdict",
                     "branch_id": b.id,
                     "branch_name": b.name,
                     "conversation_id": conv.id,
