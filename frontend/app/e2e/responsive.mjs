@@ -186,6 +186,9 @@ async function main() {
   await page.locator('input[type="email"]').fill("responsive@helix.team");
   await page.locator('input[type="password"]').fill("demo-password-1");
   await page.getByRole("button", { name: /Create account ⟶/ }).click();
+  // /health answers as soon as the server binds; the first real request sits
+  // behind lazy init and can outlast the default timeout on a cold machine.
+  await page.waitForURL(/\/workspaces/, { timeout: 120_000 });
   await page.getByRole("button", { name: "+ New workspace" }).click();
   await page.getByPlaceholder(/Workspace name/).fill("responsive-check");
   await page.getByRole("button", { name: "Create", exact: true }).click();
