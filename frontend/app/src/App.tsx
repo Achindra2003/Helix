@@ -7,6 +7,7 @@ import { Spinner } from "@/components/common/Feedback";
 import { Landing } from "@/routes/Landing";
 import { AuthPage } from "@/routes/AuthPage";
 import { InviteView, peekParkedInvite } from "@/routes/InviteView";
+import { ResetPasswordView } from "@/routes/ResetPasswordView";
 
 // The public pair above ships in the entry chunk; everything below is behind a
 // login and loads on demand. A stranger evaluating the repo from the landing
@@ -99,6 +100,9 @@ export function App() {
               in rather than bouncing them to a picker that forgets why they
               came. */}
           <Route path="/invite/:token" element={<InviteView />} />
+          {/* The other end of the reset email. Not behind RequireAuth for the
+              obvious reason: the whole point is that you cannot sign in. */}
+          <Route path="/reset-password" element={<ResetPasswordView />} />
           <Route path="/auth" element={
             user ? <Navigate to={parkedInvite ? `/invite/${parkedInvite}` : "/workspaces"} replace />
                  : <AuthPage />

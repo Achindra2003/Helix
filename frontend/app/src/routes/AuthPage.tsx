@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { motion, useReducedMotion } from "framer-motion";
-import { login, register, listWorkspaces, getHealth } from "@/lib/api";
+import { login, register, listWorkspaces, getHealth, forgotPassword } from "@/lib/api";
 import { useSession } from "@/store/session";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
@@ -86,6 +86,27 @@ export function AuthPage() {
           <Button variant="primary" type="submit" disabled={busy} style={{ padding: 13, fontSize: 15 }}>
             {busy ? "…" : mode === "signin" ? "Enter workspace ⟶" : "Create account ⟶"}
           </Button>
+
+          {/* The reset flow existed on the server and had no way in from here,
+              so forgetting your password meant losing the account. */}
+          {mode === "signin" && (
+            <button type="button" className={s.forgot} disabled={busy}
+              onClick={async () => {
+                if (!email.trim()) { push("Enter your email first", "error"); return; }
+                setBusy(true);
+                try {
+                  await forgotPassword(email.trim());
+                  // Deliberately the same message whether or not that address
+                  // has an account — the endpoint refuses to be an enumerator,
+                  // and the UI must not answer what the API declined to.
+                  push("If that address has an account, a reset link is on its way");
+                } catch {
+                  push("If that address has an account, a reset link is on its way");
+                } finally { setBusy(false); }
+              }}>
+              Forgot your password?
+            </button>
+          )}
 
           <div className={`mono ${s.health}`}>
             <span>☁ groq</span><span>·</span><span>⌂ ollama</span><span>·</span>

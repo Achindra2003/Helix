@@ -45,11 +45,20 @@ export function WorkspacePicker() {
     finally { setBusy(false); }
   }
 
+  // What people actually have in their clipboard is the link, because that is
+  // what the Team page now hands out — pasting it into a field that wanted a
+  // bare token used to fail with "Invalid invite". Take either.
+  function tokenFrom(input: string): string {
+    const t = input.trim();
+    const m = t.match(/\/invite\/([^/?#\s]+)/);
+    return m ? m[1] : t;
+  }
+
   async function doAccept() {
     if (!text.trim()) return;
     setBusy(true);
     try {
-      const ws = await acceptInvite(text.trim());
+      const ws = await acceptInvite(tokenFrom(text));
       await refresh();
       setDialog(null); setText("");
       enter(ws.id);
@@ -123,7 +132,7 @@ export function WorkspacePicker() {
 
         {workspaces.length === 0 && (
           <div style={{ color: "var(--ink-3)", fontStyle: "italic", marginTop: 24 }}>
-            You're not in any workspace yet — create one to begin.
+            You're not in any workspace yet — create one, or join with an invite link.
           </div>
         )}
       </div>
@@ -144,7 +153,7 @@ export function WorkspacePicker() {
             <Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
             <Button variant="primary" onClick={doAccept} disabled={busy}>Join</Button>
           </>}>
-          <Input placeholder="Paste invite token" value={text} autoFocus
+          <Input placeholder="Paste the invite link (or just the token)" value={text} autoFocus
             onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doAccept()} />
         </Dialog>
       )}

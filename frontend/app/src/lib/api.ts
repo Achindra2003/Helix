@@ -73,6 +73,17 @@ export const register = (email: string, password: string) =>
 export const login = (email: string, password: string) =>
   request<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 export const me = () => request<User>("/api/me");
+// Always 202, whether or not the address has an account — the server refuses
+// to be an account enumerator, so the UI must not imply an answer either.
+export const forgotPassword = (email: string) =>
+  request<void>("/api/auth/forgot-password", { method: "POST", body: JSON.stringify({ email }) });
+// The token is signed against the user's current password hash, so it stops
+// working the moment the reset lands: one link, one use.
+export const resetPassword = (token: string, password: string) =>
+  request<void>("/api/auth/reset-password", {
+    method: "POST",
+    body: JSON.stringify({ token, new_password: password }),
+  });
 export const changePassword = (currentPassword: string, newPassword: string) =>
   request<void>("/api/me/password", {
     method: "PATCH",

@@ -42,3 +42,15 @@
   .frontispiece { display: none; }
   .panel { width: 100%; }
 }
+
+/* "Forgot your password?" — a quiet way back in, not a competing action.
+   Underlined rather than buttoned so it reads as recovery, not a third path
+   alongside sign-in and create-account. */
+.forgot {
+  background: none; border: none; padding: 2px;
+  font-family: var(--font-ui); font-size: 12.5px; color: var(--ink-3);
+  text-decoration: underline; text-underline-offset: 3px; cursor: pointer;
+  align-self: center; transition: color var(--dur-1);
+}
+.forgot:hover:not(:disabled) { color: var(--oxblood); }
+.forgot:disabled { opacity: 0.5; cursor: default; }
