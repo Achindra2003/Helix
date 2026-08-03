@@ -51,3 +51,6 @@ dump*.txt
 
 # Impeccable: per-developer overrides (hook consent). Shared config.json is tracked.
 .impeccable/config.local.json
+
+# Written only when an e2e run fails — a diagnostic, not a deliverable.
+docs/screenshots/99-failure.png

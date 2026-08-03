@@ -30,6 +30,8 @@ import { MessageList, type ChatMessage, type ToolActivity } from "@/components/c
 import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
+import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
+import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog } from "@/components/chat/dialogs";
 import s from "@/components/chat/chat.module.css";
 
 // Deep runs execute server-side and outlive the tab: remember the in-flight
@@ -45,14 +47,6 @@ interface SavedDeepRun {
 const groundingByNode: Record<string, GroundingItem[]> = {};
 // Same deal for the agent tool ledger (FR-14): which tools each reply used.
 const toolsByNode: Record<string, ToolActivity[]> = {};
-
-// One line of "what the model asked the tool for" — enough to judge a call.
-function compactArgs(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : JSON.stringify(v)}`)
-    .join(", ")
-    .slice(0, 140);
-}
 
 function nodeToMsg(
   n: Node,
@@ -202,15 +196,22 @@ export function ChatView() {
     return `Agent: Helix may use ${names}${usable.some((t) => t.sensitive) ? " — sensitive calls pause for your approval" : ""}`;
   }, [toolSettings]);
 
-  // The in-flight agent turn: its stream comes in segments (each approval
-  // pause ends one, each verdict opens the next), so the accumulating message
-  // state lives in a ref that every segment's handler shares.
-  const agentRunRef = useRef<{
-    runId: string; userMsg: ChatMessage; asst: ChatMessage; acc: string;
-    branchId: string; paused: boolean;
-  } | null>(null);
-  // A sensitive tool call holding for a human verdict (the banner + buttons).
-  const [approval, setApproval] = useState<{ runId: string; calls: ToolActivity[] } | null>(null);
+  // The agent turn lives in its own controller — it is the most stateful thing
+  // this surface does, and it kept the interesting parts of this file buried.
+  const { approval, runAgent, decideApproval } = useAgentRun({
+    setMessages, scrollDown, setBusy,
+    onSettled: () => {
+      if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+      qc.invalidateQueries({ queryKey: ["conversations", wid] });
+    },
+    groundingByNode, toolsByNode,
+  });
+
+  async function onAgent(text: string) {
+    const branchId = await ensureConversation();
+    if (!branchId) return;
+    await runAgent(text, branchId, colorFor(user?.email ?? "?"), nowTime());
+  }
 
   // Proactive resurfacing: while a question is being typed, quietly check
   // whether the workspace has already explored it — the product's whole
@@ -461,116 +462,6 @@ export function ChatView() {
     await streamTurn(branchId, `/conversations/${branchId}/messages/from-prompt`, { prompt_id: promptId });
   }
 
-  // --- Agent turns (FR-14): chat with hands. Same bubble, plus a tool
-  // ledger; a sensitive call ends the stream segment on waiting(approval)
-  // and the verdict endpoint streams the continuation.
-  function handleAgentEvent(ev: RunEvent) {
-    const run = agentRunRef.current;
-    if (!run) return;
-    if (ev.kind === "agent_run") {
-      run.runId = ev.run_id;
-    } else if (ev.kind === "user_node") {
-      run.userMsg.id = ev.node.id;
-      run.userMsg.body = ev.node.content;
-      setMessages((m) => [...m]);
-    } else if (ev.kind === "grounding") {
-      run.asst.grounding = ev.items;
-      setMessages((m) => [...m]);
-    } else if (ev.kind === "token") {
-      run.acc += ev.text;
-      run.asst.body = run.acc;
-      setMessages((m) => [...m]);
-      scrollDown();
-    } else if (ev.kind === "tool_call") {
-      (run.asst.tools ??= []).push({
-        id: ev.id, name: ev.name, args: compactArgs(ev.arguments),
-        sensitive: ev.sensitive, status: ev.sensitive ? "pending" : "running",
-      });
-      setMessages((m) => [...m]);
-      scrollDown();
-    } else if (ev.kind === "tool_result") {
-      const t = run.asst.tools?.find((x) => x.id === ev.id && (x.status === "running" || x.status === "pending"));
-      if (t) {
-        t.status = ev.status;
-        t.preview = ev.content;
-        setMessages((m) => [...m]);
-      }
-    } else if (ev.kind === "waiting") {
-      run.paused = true;
-      setApproval({ runId: run.runId, calls: (run.asst.tools ?? []).filter((t) => t.status === "pending") });
-    } else if (ev.kind === "complete") {
-      if (ev.status === "error" && !run.acc) {
-        run.asst.body = `[${ev.stop_reason}]`;
-        setMessages((m) => [...m]);
-      }
-    } else if (ev.kind === "assistant_node") {
-      run.asst.id = ev.node.id;
-      run.asst.typing = false;
-      run.asst.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ⚒ agent` : undefined;
-      if (run.asst.grounding) groundingByNode[ev.node.id] = run.asst.grounding;
-      if (run.asst.tools?.length) toolsByNode[ev.node.id] = run.asst.tools;
-      setMessages((m) => [...m]);
-    }
-  }
-
-  /** Await one SSE segment of an agent run. Paused-for-approval keeps the
-   *  composer busy (the banner owns the next step); anything else finishes
-   *  the turn. */
-  async function finishAgentSegment(done: Promise<void>) {
-    const run = agentRunRef.current;
-    try {
-      await done;
-    } catch (e: any) {
-      if (run) {
-        run.asst.body = run.acc + (run.acc ? "\n" : "") + `[stream error: ${e?.message ?? e}]`;
-        run.paused = false;
-      }
-    }
-    if (agentRunRef.current?.paused) return;
-    if (run) {
-      run.asst.typing = false;
-      setMessages((m) => [...m]);
-    }
-    agentRunRef.current = null;
-    setApproval(null);
-    setBusy(false);
-    if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
-    qc.invalidateQueries({ queryKey: ["conversations", wid] });
-  }
-
-  async function onAgent(text: string) {
-    const branchId = await ensureConversation();
-    if (!branchId) return;
-    setBusy(true);
-    const userMsg: ChatMessage = {
-      id: "tmp-u", role: "user", authorName: "You",
-      authorColor: colorFor(user?.email ?? "?"), body: text, time: nowTime(),
-    };
-    const asst: ChatMessage = {
-      id: "tmp-agent", role: "assistant", authorName: "Helix",
-      body: "", time: nowTime(), typing: true, tools: [],
-    };
-    setMessages((m) => [...m, userMsg, asst]);
-    scrollDown();
-    agentRunRef.current = { runId: "", userMsg, asst, acc: "", branchId, paused: false };
-    const h = streamSSE(`/conversations/${branchId}/agent`, { prompt: text }, handleAgentEvent);
-    await finishAgentSegment(h.done);
-  }
-
-  async function decideApproval(approved: boolean) {
-    const run = agentRunRef.current;
-    if (!run?.runId) return;
-    setApproval(null);
-    run.paused = false;
-    if (approved) {
-      // Denials resolve via the gate's tool_result frames; approvals start
-      // executing now — say so.
-      for (const t of run.asst.tools ?? []) if (t.status === "pending") t.status = "running";
-      setMessages((m) => [...m]);
-    }
-    const h = streamSSE(`/conversations/agent/runs/${run.runId}/approve`, { approved }, handleAgentEvent);
-    await finishAgentSegment(h.done);
-  }
 
   // consume a pending "insert from library" once we're in chat
   useEffect(() => {
@@ -1440,181 +1331,6 @@ export function ChatView() {
 // no notion of what the branch was for. A verdict recorded later ("we adopted
 // experiment") says nothing; "we adopted 'chunk at 500 with overlap'" is a
 // decision. The name stays, shortened to a label for the lineage.
-function ForkDialog({ onClose, onConfirm }: {
-  onClose: () => void;
-  onConfirm: (name: string, intent: string) => void;
-}) {
-  const [intent, setIntent] = useState("");
-  const [name, setName] = useState("");
-  // Fall back to a label derived from the intent, so nobody has to name a
-  // thing twice to get on with the work.
-  const label = name.trim() || intent.trim().split(/\s+/).slice(0, 3).join("-").toLowerCase() || "experiment";
-  const go = () => onConfirm(label, intent.trim());
-  return (
-    <Dialog title="Fork a new branch" onClose={onClose}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={go}>Fork</Button>
-      </>}>
-      <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
-        The new branch inherits the shared context up to this point, then diverges on its own.
-      </div>
-      <Field label="What are you trying?">
-        <Input autoFocus value={intent} onChange={(e) => setIntent(e.target.value)}
-          placeholder="e.g. chunk at 500 chars with overlap"
-          onKeyDown={(e) => { if (e.key === "Enter") go(); }} />
-      </Field>
-      <Field label={`Label — shown in the lineage (${label})`}>
-        <Input value={name} onChange={(e) => setName(e.target.value)}
-          placeholder="optional"
-          onKeyDown={(e) => { if (e.key === "Enter") go(); }} />
-      </Field>
-    </Dialog>
-  );
-}
-
-// The thread's own ending. Helix drafts, a human accepts — the two are
-// separate on purpose: a draft nobody read is not a conclusion, and the whole
-// point of the record is that someone stood behind it.
-function ConcludeDialog({ conv, onClose, onSave }: {
-  conv: Conversation;
-  onClose: () => void;
-  onSave: (text: string) => void;
-}) {
-  const [text, setText] = useState(conv.conclusion ?? "");
-  const [drafting, setDrafting] = useState(false);
-  const [failed, setFailed] = useState("");
-
-  function draft() {
-    setDrafting(true);
-    setFailed("");
-    let acc = "";
-    const h = streamSSE(`/conversations/${conv.id}/synthesize`, {}, (ev: any) => {
-      if (ev.kind === "token") { acc += ev.text; setText(acc); }
-      else if (ev.kind === "complete" && ev.status === "error") setFailed(ev.stop_reason ?? "draft failed");
-    });
-    h.done.catch((e: any) => setFailed(e?.message ?? "draft failed")).finally(() => setDrafting(false));
-  }
-
-  return (
-    <Dialog title={`Conclude “${conv.title}”`} onClose={onClose}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button onClick={draft} disabled={drafting}>
-          {drafting ? "Reading the branches…" : "⌘ Draft from the branches"}
-        </Button>
-        <Button variant="primary" onClick={() => onSave(text.trim())}>
-          {text.trim() ? "Record it" : "Clear the conclusion"}
-        </Button>
-      </>}>
-      <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
-        What does the team now believe? Helix can read the branches and draft
-        this, but nothing is recorded until you accept it.
-      </div>
-      <textarea
-        className={s.concludeBox}
-        value={text}
-        onChange={(e) => setText(e.target.value)}
-        placeholder="e.g. We chunk at 500 characters with overlap. Semantic chunking read better but lost cross-section context and cost 3x to ingest."
-        rows={7}
-        autoFocus
-      />
-      {failed && (
-        <div style={{ fontSize: 12.5, color: "var(--oxblood)" }}>
-          Could not draft: {failed}. Write it yourself — the record matters more
-          than the draft.
-        </div>
-      )}
-    </Dialog>
-  );
-}
-
-// Recording what came of an exploration. The reason is required for a verdict
-// and refused server-side if blank: "we chose this" without a why is exactly
-// the thing this product exists to stop happening.
-function ResolveDialog({ branch, onClose, onConfirm }: {
-  branch: Branch;
-  onClose: () => void;
-  onConfirm: (status: BranchStatus, resolution: string) => void;
-}) {
-  const [status, setStatus] = useState<BranchStatus>(
-    branch.status === "open" ? "adopted" : branch.status,
-  );
-  const [resolution, setResolution] = useState(branch.resolution);
-  const needsReason = status !== "open";
-  const ready = !needsReason || resolution.trim().length > 0;
-  const CHOICES: { key: BranchStatus; label: string; hint: string }[] = [
-    { key: "adopted", label: "Adopted", hint: "this is the way we went" },
-    { key: "abandoned", label: "Abandoned", hint: "we tried it and it lost" },
-    { key: "open", label: "Reopen", hint: "still live — clears the verdict" },
-  ];
-  return (
-    <Dialog title={`What came of “${branch.name}”?`} onClose={onClose}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" disabled={!ready}
-          onClick={() => onConfirm(status, resolution.trim())}>Record</Button>
-      </>}>
-      {branch.intent && (
-        <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
-          It set out to: <span style={{ color: "var(--ink-2)" }}>{branch.intent}</span>
-        </div>
-      )}
-      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
-        {CHOICES.map((c) => (
-          <label key={c.key} style={{ display: "flex", alignItems: "baseline", gap: 9, cursor: "pointer", fontSize: 14 }}>
-            <input type="radio" name="verdict" checked={status === c.key}
-              onChange={() => setStatus(c.key)} style={{ accentColor: "var(--oxblood)" }} />
-            <span>{c.label}</span>
-            <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{c.hint}</span>
-          </label>
-        ))}
-      </div>
-      {needsReason && (
-        <Field label="Why — this is what makes it defensible later">
-          <Input autoFocus value={resolution} onChange={(e) => setResolution(e.target.value)}
-            placeholder="e.g. better recall on long PDFs, same cost"
-            onKeyDown={(e) => { if (e.key === "Enter" && ready) onConfirm(status, resolution.trim()); }} />
-        </Field>
-      )}
-      <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
-        Nothing is deleted. An abandoned branch stays readable — it is half of why
-        the adopted one holds up.
-      </div>
-    </Dialog>
-  );
-}
-
-function LinkContextDialog(
-  { candidates, onClose, onPick }: { candidates: Conversation[]; onClose: () => void; onPick: (id: string) => void },
-) {
-  return (
-    <Dialog title="Link context from another thread" onClose={onClose}
-      footer={<Button variant="ghost" onClick={onClose}>Done</Button>}>
-      <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 4 }}>
-        Pick a shared conversation. Its <strong>live</strong> context is folded into this thread's
-        replies — and stays in sync as that thread grows. This is a reference, not a fork: nothing is copied.
-      </div>
-      {candidates.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--ink-3)", fontStyle: "italic" }}>
-          No other shared threads in this workspace to link yet.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
-          {candidates.map((c) => (
-            <button key={c.id} onClick={() => onPick(c.id)}
-              style={{
-                textAlign: "left", padding: "9px 11px", borderRadius: 8, cursor: "pointer",
-                border: "1px solid var(--rule-soft)", background: "transparent", color: "var(--ink-2)", fontSize: 13.5,
-              }}>
-              <span style={{ color: "var(--oxblood)" }}>⊙</span> {c.title}
-            </button>
-          ))}
-        </div>
-      )}
-    </Dialog>
-  );
-}
 
 function pickText(p: Record<string, unknown>): string {
   if (!p) return "";

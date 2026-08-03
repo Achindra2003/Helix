@@ -89,6 +89,11 @@ async function main() {
   if (settled === false) throw new Error("tab pill never settled on the active tab");
   await page.screenshot({ path: join(shots, "01-signin.png") });
   await page.getByRole("button", { name: /Create account ⟶/ }).click();
+  // /health answers as soon as the server binds, but the FIRST real request
+  // sits behind lazy init (the embedder, the provider client), and on a cold
+  // machine that outlasts the 30s default while the button just shows "…".
+  // Wait on the navigation, not on the next control.
+  await page.waitForURL(/\/workspaces/, { timeout: 120_000 });
   step("registered");
 
   // --- workspace ---
