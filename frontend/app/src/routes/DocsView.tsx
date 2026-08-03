@@ -109,7 +109,7 @@ export function DocsView() {
           <>
             <input
               ref={fileInput} type="file" multiple hidden
-              accept=".txt,.md,.markdown,.pdf,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.css,.html,.csv,.rst"
+              accept=".txt,.md,.markdown,.rst,.csv,.json,.yaml,.yml,.toml,.ini,.log,.xml,.html,.css,.pdf,.py,.js,.jsx,.ts,.tsx,.java,.go,.rs,.c,.cpp,.h,.sql"
               onChange={(e) => { if (e.target.files?.length) doUpload(e.target.files); e.target.value = ""; }}
             />
             {/* A real button, not a clickable div: it duplicates the header's

@@ -21,6 +21,8 @@ from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
 from .models import DocumentChunkRow, DocumentRow
 from .service import DocumentIndex
 
+_READ_CHUNK = 1024 * 1024  # one MB per read; the cap is checked after each
+
 router = APIRouter(prefix="/api", tags=["documents"])
 
 _index = DocumentIndex(SessionLocal)
@@ -64,13 +66,25 @@ async def upload_document(
 ):
     """Accept the file, persist the document row, ingest in the background."""
     await _require_member(workspace_id, user, session, ROLE_COLLABORATOR)
-    data = await file.read()
-    if len(data) > settings.document_max_bytes:
-        raise api_error(
-            413,
-            "too_large",
-            f"File exceeds the {settings.document_max_bytes // (1024 * 1024)} MB limit.",
-        )
+    # Read in chunks and stop at the cap. `await file.read()` pulled the entire
+    # body into memory *before* the size was checked, so the limit protected the
+    # database and not the process — on a small hosted box (the deployment plan
+    # is a 1 GB instance) a couple of oversized uploads is an OOM, not a 413.
+    # Bounded at cap + one chunk now.
+    limit = settings.document_max_bytes
+    buf = bytearray()
+    while True:
+        part = await file.read(_READ_CHUNK)
+        if not part:
+            break
+        buf.extend(part)
+        if len(buf) > limit:
+            raise api_error(
+                413,
+                "too_large",
+                f"File exceeds the {limit // (1024 * 1024)} MB limit.",
+            )
+    data = bytes(buf)
     if not data:
         raise api_error(400, "bad_request", "empty file")
     doc = DocumentRow(

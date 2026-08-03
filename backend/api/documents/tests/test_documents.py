@@ -214,3 +214,45 @@ def test_oversize_upload_is_413(make_workspace, monkeypatch):
     with TestClient(app) as client:
         headers, _, wid = make_workspace(client)
         assert _upload(client, headers, wid).status_code == 413
+
+
+# --- the upload gate ------------------------------------------------------------
+
+
+def test_oversize_upload_is_refused_without_buffering_it_all(make_workspace, monkeypatch):
+    """The cap has to bound memory, not just the row it would have written.
+
+    Reading the whole body before checking the size meant a 1 GB post was a
+    1 GB allocation on a box the deployment plan sizes at 1 GB total.
+    """
+    monkeypatch.setattr(settings, "document_max_bytes", 64 * 1024)
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        big = b"x" * (256 * 1024)
+        r = client.post(
+            f"/api/workspaces/{wid}/documents",
+            files={"file": ("huge.md", big, "text/markdown")},
+            headers=headers,
+        )
+        assert r.status_code == 413, r.text
+        assert "limit" in r.json()["error"]["message"].lower()
+        listed = client.get(f"/api/workspaces/{wid}/documents", headers=headers).json()
+        assert listed["items"] == []
+
+
+def test_extensionless_binary_is_refused_but_extensionless_text_is_not():
+    """`README` is welcome; a renamed binary is not.
+
+    The old rule trusted the *name*: anything without a dot was decoded with
+    errors="replace", so a binary called `payload` became a wall of
+    replacement characters that grounding could then cite as a source.
+    """
+    assert extract_text("README", b"# Notes\nchunk at 500") == "# Notes\nchunk at 500"
+    with pytest.raises(ValueError, match="binary"):
+        extract_text("payload", b"\x7fELF\x02\x01\x00\x00" + b"\x00" * 64)
+
+
+def test_jsx_is_accepted_because_the_picker_offers_it():
+    """The file dialog listed .jsx and the server rejected it — pick a file the
+    app itself offered you and the upload failed after the fact."""
+    assert "const App" in extract_text("App.jsx", b"const App = () => null;")

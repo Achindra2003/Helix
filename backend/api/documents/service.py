@@ -32,7 +32,7 @@ from .models import DocumentChunkRow, DocumentRow
 # Extensions treated as plain text (decoded, never rejected).
 _TEXTY = (
     ".txt", ".md", ".markdown", ".rst", ".csv", ".json", ".yaml", ".yml",
-    ".py", ".js", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
     ".sql", ".html", ".css", ".xml", ".toml", ".ini", ".log",
 )
 
@@ -53,7 +53,19 @@ def extract_text(filename: str, data: bytes) -> str:
         if not text.strip():
             raise ValueError("PDF contains no extractable text (scanned images?)")
         return text
-    if name.endswith(_TEXTY) or "." not in name:
+    if name.endswith(_TEXTY):
+        return data.decode("utf-8", errors="replace")
+    if "." not in name:
+        # Extensionless files are usually real text (README, Makefile,
+        # Dockerfile), so they stay welcome — but the name proves nothing, and
+        # decoding a binary with errors="replace" would ingest a wall of
+        # replacement characters that grounding could then cite. A NUL byte in
+        # the head is the cheap, reliable tell that this is not text.
+        if b"\x00" in data[:8192]:
+            raise ValueError(
+                "unsupported file type — this looks like binary data; "
+                "give it a .txt/.md/code extension if it really is text"
+            )
         return data.decode("utf-8", errors="replace")
     raise ValueError(
         "unsupported file type — upload text/markdown/code files or PDFs"
