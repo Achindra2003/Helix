@@ -80,7 +80,9 @@ export const changePassword = (currentPassword: string, newPassword: string) =>
   });
 // 409 (owns_workspaces) if the caller still owns a workspace — the server
 // refuses to let one account's deletion take a team's workspace with it.
-export const deleteAccount = () => request<void>("/api/me", { method: "DELETE" });
+// Takes the password: this is irreversible, and a bearer token lasts a week.
+export const deleteAccount = (password: string) =>
+  request<void>("/api/me", { method: "DELETE", body: JSON.stringify({ password }) });
 
 // --- workspaces (contract §5) ---
 export const listWorkspaces = () => request<Workspace[]>("/api/workspaces");

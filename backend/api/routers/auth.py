@@ -13,6 +13,7 @@ from ..onboarding import seed_example_workspace
 from ..schemas import (
     AuthResponse,
     ChangePasswordRequest,
+    DeleteAccountRequest,
     ForgotPasswordRequest,
     LoginRequest,
     RegisterRequest,
@@ -149,6 +150,7 @@ async def change_password(
 
 @router.delete("/me", status_code=204)
 async def delete_account(
+    body: DeleteAccountRequest,
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
@@ -161,6 +163,8 @@ async def delete_account(
     history) — `author_id` becomes a dangling reference, which the frontend
     already tolerates elsewhere (falls back to a generic "teammate" label).
     """
+    if not verify_password(body.password, user.pw_hash):
+        raise api_error(401, "unauthorized", "Password is incorrect.")
     owned = (
         await session.execute(select(Workspace.id, Workspace.name).where(Workspace.owner_id == user.id))
     ).all()

@@ -31,6 +31,18 @@ class ChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=6, max_length=200)
 
 
+
+class DeleteAccountRequest(BaseModel):
+    """Deleting an account is irreversible, so it re-authenticates.
+
+    Changing a password already required the current one; deleting the whole
+    account required nothing but a bearer token, and tokens last a week — the
+    weaker gate was on the more destructive action, so a borrowed token or an
+    unlocked laptop was enough.
+    """
+
+    password: str
+
 class ForgotPasswordRequest(BaseModel):
     email: EmailStr
 
