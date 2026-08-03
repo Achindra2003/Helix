@@ -27,6 +27,10 @@ const MATRIX: Record<Action, Record<Role, boolean>> = {
   "permission.edit": { owner: true, collaborator: false, observer: false },
 };
 
+// Mirrors the server's ROLE_RANK (api/models.py). Used to clamp role preview:
+// the client may never rank itself above what the server recorded.
+export const ROLE_RANK: Record<Role, number> = { observer: 0, collaborator: 1, owner: 2 };
+
 export function can(role: Role, action: Action): boolean {
   return MATRIX[action]?.[role] ?? false;
 }

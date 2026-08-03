@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useSession, useActiveWorkspace, useEffectiveRole } from "@/store/session";
 import { useNotifications, useUnreadCount } from "@/store/notifications";
 import { usePresence } from "@/hooks/usePresence";
-import { ROLE_META } from "@/lib/rbac";
+import { ROLE_META, ROLE_RANK } from "@/lib/rbac";
 import { initialOf, colorFor } from "@/lib/format";
 import type { Role } from "@/lib/types";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
@@ -74,6 +74,9 @@ export function TopBar({ viewLabel }: { viewLabel: string }) {
   const ws = useActiveWorkspace();
   const role = useEffectiveRole();
   const setRolePreview = useSession((st) => st.setRolePreview);
+  // The role the server actually recorded, as opposed to what is being
+  // previewed. Preview can only look *down* from here.
+  const realRole = ws?.role ?? "observer";
   const { members, live } = usePresence(ws?.id ?? null);
 
   return (
@@ -101,10 +104,14 @@ export function TopBar({ viewLabel }: { viewLabel: string }) {
         <Bell />
         <ThemeToggle />
         <div className={s.badge}><span>{ROLE_META[role].sigil}</span><span style={{ fontWeight: 600 }}>{ROLE_META[role].label}</span></div>
-        <div className={s.roleSw} title="Preview the workspace as each role">
-          {ROLES.map((r) => (
-            <button key={r} className={role === r ? s.swOn : s.swBtn} title={`View as ${ROLE_META[r].label}`}
-              onClick={() => setRolePreview(r)}>{ROLE_META[r].sigil}</button>
+        {/* Preview only ever looks down: a role above your own is not offered,
+            because it cannot be granted and the controls it would paint are
+            ones the server refuses. */}
+        <div className={s.roleSw} title="See the workspace as a less-privileged role">
+          {ROLES.filter((r) => ROLE_RANK[r] <= ROLE_RANK[realRole]).map((r) => (
+            <button key={r} className={role === r ? s.swOn : s.swBtn}
+              title={r === realRole ? `Your role: ${ROLE_META[r].label}` : `See it as ${ROLE_META[r].label}`}
+              onClick={() => setRolePreview(r === realRole ? null : r)}>{ROLE_META[r].sigil}</button>
           ))}
         </div>
       </div>

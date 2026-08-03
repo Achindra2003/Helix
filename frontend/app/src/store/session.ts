@@ -3,6 +3,7 @@
 // distinct from your real role).
 import { create } from "zustand";
 import type { Role, User, Workspace } from "@/lib/types";
+import { ROLE_RANK } from "@/lib/rbac";
 import { setToken } from "@/lib/auth";
 
 interface SessionState {
@@ -38,15 +39,22 @@ export const useSession = create<SessionState>((set) => ({
 // The role used to render the UI: preview override, else the active workspace role.
 export function useEffectiveRole(): Role {
   return useSession((s) => {
-    if (s.rolePreview) return s.rolePreview;
     const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
+    // Role preview may only ever REDUCE privilege. Looking at the workspace as
+    // an Observer is the feature; ranking yourself up to Owner was a bug that
+    // painted owner-only controls — Invite, Delete workspace, Provider settings
+    // — for people the server then refused. A preview above your real role is
+    // clamped back down to it.
+    //
     // Fail closed. A workspace missing from the list means "we don't know yet"
     // — during boot, or right after accepting an invite — and answering "owner"
     // there paints the full owner UI for someone who may be an Observer, who
     // then collects 403s from controls they should never have been shown.
     // Least privilege is also the safe direction for the flicker: controls
     // appear once the list lands, rather than vanishing after an error.
-    return ws?.role ?? "observer";
+    const real: Role = ws?.role ?? "observer";
+    if (s.rolePreview && ROLE_RANK[s.rolePreview] < ROLE_RANK[real]) return s.rolePreview;
+    return real;
   });
 }
 
