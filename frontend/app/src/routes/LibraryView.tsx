@@ -150,7 +150,11 @@ export function LibraryView() {
                 <div className={s.cardFoot}>
                   {(p.tags ?? []).map((t) => <span key={t} className={s.tag}>{t}</span>)}
                   <div style={{ flex: 1 }} />
-                  {(p.author_id === user?.id || role === "owner") && (
+                  {/* canWrite as well as authorship: a demoted Observer still
+                      authored these, and without the role check their own
+                      prompts kept edit/delete buttons that the server now
+                      refuses. */}
+                  {canWrite && (p.author_id === user?.id || role === "owner") && (
                     <>
                       <button className={`icon-act ${s.cardAct}`} title="Edit prompt" onClick={() => openEdit(p)}>✎</button>
                       <button className={`icon-act ${s.cardAct} ${s.cardActDanger}`} title="Delete prompt"

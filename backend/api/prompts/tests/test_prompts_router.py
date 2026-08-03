@@ -183,3 +183,69 @@ def test_prompt_edit_and_delete_author_or_owner_only(make_workspace, join_worksp
         deleted = client.delete(f"/prompts/{pid}", headers=owner_headers)
         assert deleted.status_code == 200, deleted.text
         assert client.get(f"/prompts/{pid}", headers=owner_headers).status_code == 404
+
+
+def test_demotion_to_observer_revokes_write_over_your_own_prompts(
+    make_workspace, join_workspace
+):
+    """Authorship is not a standing grant.
+
+    Creating a prompt needs Collaborator, so an Observer can never author one —
+    but a Collaborator who wrote prompts and was then demoted kept edit and
+    delete rights over them, which contradicts both the role model and the
+    permission matrix the app displays.
+    """
+    with TestClient(app) as client:
+        owner_headers, owner_id, wid = make_workspace(client)
+        mate_headers, mate_id = join_workspace(client, owner_headers, wid)
+
+        created = client.post(
+            f"/workspaces/{wid}/prompts",
+            json={"title": "Chunking", "body": "chunk at 500", "tags": []},
+            headers=mate_headers,
+        )
+        assert created.status_code == 200, created.text
+        pid = created.json()["id"]
+
+        # As a Collaborator, their own prompt is theirs to change.
+        assert client.patch(
+            f"/prompts/{pid}",
+            json={"title": "Chunking v2", "body": "chunk at 600", "tags": []},
+            headers=mate_headers,
+        ).status_code == 200
+
+        # Demote them.
+        assert client.patch(
+            f"/api/workspaces/{wid}/members/{mate_id}",
+            json={"role": "observer"},
+            headers=owner_headers,
+        ).status_code == 200
+
+        # Reading stays open; writing does not — not even over their own work.
+        assert client.get(f"/prompts/{pid}", headers=mate_headers).status_code == 200
+        assert client.patch(
+            f"/prompts/{pid}",
+            json={"title": "sneak", "body": "x", "tags": []},
+            headers=mate_headers,
+        ).status_code == 403
+        assert client.delete(f"/prompts/{pid}", headers=mate_headers).status_code == 403
+
+        # The owner can still clean it up.
+        assert client.delete(f"/prompts/{pid}", headers=owner_headers).status_code == 200
+
+
+def test_an_outsider_still_cannot_probe_prompt_ids(make_workspace, make_user):
+    """The role floor must not turn a tenancy 404 into an informative 403."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        pid = client.post(
+            f"/workspaces/{wid}/prompts",
+            json={"title": "T", "body": "B", "tags": []},
+            headers=owner_headers,
+        ).json()["id"]
+
+        outsider, _ = make_user(client)
+        assert client.patch(
+            f"/prompts/{pid}", json={"title": "x", "body": "y", "tags": []}, headers=outsider
+        ).status_code == 404
+        assert client.delete(f"/prompts/{pid}", headers=outsider).status_code == 404
