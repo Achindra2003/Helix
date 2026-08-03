@@ -31,7 +31,11 @@ export function MembersView() {
   const setWorkspaces = useSession((st) => st.setWorkspaces);
   const canManage = can(role, "member.manage");
   const canManageWs = can(role, "workspace.manage");
-  const [invite, setInvite] = useState<{ token: string; url: string } | null>(null);
+  const [invite, setInvite] = useState<{ token: string; url: string; role: Role } | null>(null);
+  // Observers exist to be invited — a stakeholder who should read the record
+  // without being able to spend the workspace's key. Without this the role was
+  // reachable only by inviting someone and then demoting them.
+  const [inviteRole, setInviteRole] = useState<Role>("collaborator");
   const [wsName, setWsName] = useState("");
   const [wsBusy, setWsBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -52,10 +56,19 @@ export function MembersView() {
     enabled: !!wid,
   });
 
+  // Clipboard writes are refused in some contexts (no permission, insecure
+  // origin). Say so instead of throwing into the void — the link is on screen
+  // either way.
+  function copyLink(url: string) {
+    Promise.resolve(navigator.clipboard?.writeText(url))
+      .then(() => push("Invite link copied"))
+      .catch(() => push("Couldn't copy — select the link above instead", "error"));
+  }
+
   async function doInvite() {
     try {
-      const inv = await createInvite(wid!);
-      setInvite({ token: inv.token, url: inv.url });
+      const inv = await createInvite(wid!, inviteRole);
+      setInvite({ token: inv.token, url: inv.url, role: inviteRole });
       qc.invalidateQueries({ queryKey: ["invites", wid] });
     } catch (e: any) { push(e?.message ?? "Invite failed", "error"); }
   }
@@ -124,7 +137,17 @@ export function MembersView() {
               Owner ⊃ Collaborator ⊃ Observer. Role is legible at a glance — and re-skins the whole workspace.
             </div>
           </div>
-          {canManage && <Button variant="primary" onClick={doInvite}>+ Invite</Button>}
+          {canManage && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <select className={`mono ${s.roleSel}`} value={inviteRole}
+                title="What the invited person will be able to do"
+                onChange={(e) => setInviteRole(e.target.value as Role)}>
+                <option value="collaborator">as Collaborator</option>
+                <option value="observer">as Observer</option>
+              </select>
+              <Button variant="primary" onClick={doInvite}>+ Invite</Button>
+            </div>
+          )}
         </div>
         <div className="chapter-rule" aria-hidden>❦</div>
 
@@ -137,7 +160,10 @@ export function MembersView() {
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{m.email}</div>
                   <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{m.user_id.slice(0, 8)}</div>
                 </div>
-                {canManage ? (
+                {/* The canonical owner gets a badge, not a dropdown: the server
+                    refuses every change to them ("Cannot demote the workspace
+                    owner"), so offering the choice only produces an error. */}
+                {canManage && m.user_id !== ws?.owner_id ? (
                   <select className={`mono ${s.roleSel}`} value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}>
                     {ROLES.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
                   </select>
@@ -175,7 +201,8 @@ export function MembersView() {
                     </div>
                   </div>
                   <Button variant="ghost" style={{ fontSize: 12 }}
-                    onClick={() => { navigator.clipboard?.writeText(inv.token); push("Token copied"); }}>copy</Button>
+                    title="Copy the join link"
+                    onClick={() => { copyLink(inv.url); }}>copy link</Button>
                   <Button variant="ghost" style={{ fontSize: 12, color: "var(--oxblood)" }}
                     title="Revoke — the link stops admitting anyone, immediately"
                     onClick={() => doRevoke(inv.token)}>revoke</Button>
@@ -264,9 +291,19 @@ export function MembersView() {
       )}
       {invite && (
         <Dialog title="Invite link" onClose={() => setInvite(null)}
-          footer={<Button variant="primary" onClick={() => { navigator.clipboard?.writeText(invite.token); push("Token copied"); }}>Copy token</Button>}>
-          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>Share this token; the recipient joins as a Collaborator.</div>
-          <div className="mono" style={{ wordBreak: "break-all", background: "var(--paper-3)", padding: 12, borderRadius: 8, fontSize: 12 }}>{invite.token}</div>
+          footer={<Button variant="primary"
+            onClick={() => copyLink(invite.url)}>
+            Copy link
+          </Button>}>
+          {/* The link, not the token. This dialog used to show the raw token
+              and say "share this token", so the join URL the server has always
+              generated was never handed to anyone — which is how it stayed
+              broken without being noticed. */}
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
+            Send this link. Whoever opens it joins as {ROLE_META[invite.role].label.toLowerCase()};
+            it works once, and you can revoke it below at any time.
+          </div>
+          <div className="mono" style={{ wordBreak: "break-all", background: "var(--paper-3)", padding: 12, borderRadius: 8, fontSize: 12 }}>{invite.url}</div>
         </Dialog>
       )}
     </div>

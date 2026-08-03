@@ -40,7 +40,13 @@ export function useEffectiveRole(): Role {
   return useSession((s) => {
     if (s.rolePreview) return s.rolePreview;
     const ws = s.workspaces.find((w) => w.id === s.activeWorkspaceId);
-    return ws?.role ?? "owner";
+    // Fail closed. A workspace missing from the list means "we don't know yet"
+    // — during boot, or right after accepting an invite — and answering "owner"
+    // there paints the full owner UI for someone who may be an Observer, who
+    // then collects 403s from controls they should never have been shown.
+    // Least privilege is also the safe direction for the flicker: controls
+    // appear once the list lands, rather than vanishing after an error.
+    return ws?.role ?? "observer";
   });
 }
 

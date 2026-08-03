@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
-import { acceptInvite, previewInvite } from "@/lib/api";
+import { acceptInvite, previewInvite, listWorkspaces } from "@/lib/api";
 import { useSession } from "@/store/session";
 import { Spinner, EmptyState } from "@/components/common/Feedback";
 import { Button } from "@/components/common/Button";
@@ -23,6 +23,7 @@ export function InviteView() {
   const { token } = useParams();
   const nav = useNavigate();
   const user = useSession((st) => st.user);
+  const setWorkspaces = useSession((st) => st.setWorkspaces);
   const [workspace, setWorkspace] = useState<string | null>(null);
   const [error, setError] = useState("");
   const accepting = useRef(false);
@@ -45,13 +46,16 @@ export function InviteView() {
         const preview = await previewInvite(token).catch(() => null);
         if (preview) setWorkspace(preview.workspace_name);
         const ws = await acceptInvite(token);
+        // Refresh the list before navigating: the shell reads the caller's role
+        // out of it, and a workspace that isn't there yet reads as unknown.
+        setWorkspaces(await listWorkspaces());
         try { sessionStorage.removeItem(PARKED); } catch { /* ignore */ }
         nav(`/w/${ws.id}`, { replace: true });
       } catch (e: any) {
         setError(e?.message ?? "This invite is no longer valid.");
       }
     })();
-  }, [token, user, nav]);
+  }, [token, user, nav, setWorkspaces]);
 
   if (error) {
     return (
