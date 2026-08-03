@@ -30,6 +30,8 @@ import { MessageList, type ChatMessage, type ToolActivity } from "@/components/c
 import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
+import { TeamStrip } from "@/components/chat/TeamStrip";
+import { ThreadMenu, type ThreadAction } from "@/components/chat/ThreadMenu";
 import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
 import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog } from "@/components/chat/dialogs";
 import s from "@/components/chat/chat.module.css";
@@ -529,6 +531,47 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Could not post that", "error"); }
   }
 
+  // What moved out of the stage header. Replay is a *mode*, so it earns space
+  // only while it is on; the exports and the housekeeping are rare enough that
+  // one click is the right price for a header you can read.
+  const threadActions: ThreadAction[] = useMemo(() => {
+    if (!activeConv) return [];
+    const out: ThreadAction[] = [];
+    if (messages.length > 0) {
+      out.push({
+        key: "replay", glyph: "▷", label: "Replay this thread",
+        onPick: () => setReplay(1),
+      });
+      out.push({
+        key: "md", glyph: "↓", label: "Export as Markdown",
+        onPick: () => downloadExport(activeConv.id, activeBranchId!, "md")
+          .catch(() => push("Export failed", "error")),
+      });
+      out.push({
+        key: "json", glyph: "↓", label: "Export as JSON",
+        onPick: () => downloadExport(activeConv.id, activeBranchId!, "json")
+          .catch(() => push("Export failed", "error")),
+      });
+    }
+    if (canSend) {
+      out.push({
+        key: "link", glyph: "⛓", label: "Link another thread's context",
+        onPick: () => setLinkDlg(true),
+      });
+    }
+    if (activeConv.author_id === user?.id || role === "owner") {
+      out.push({
+        key: "rename", glyph: "✎", label: "Rename conversation",
+        onPick: () => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title }),
+      });
+      out.push({
+        key: "delete", glyph: "✕", label: "Delete conversation", danger: true,
+        onPick: () => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title }),
+      });
+    }
+    return out;
+  }, [activeConv, activeBranchId, messages.length, canSend, role, user?.id]);
+
   async function doConclude(text: string) {
     if (!activeConvId) return;
     try {
@@ -1002,16 +1045,15 @@ export function ChatView() {
           <>
             <div className={s.stageHead}>
               <div className={s.stageTitleBlock}>
-                <div className={s.stageTitle} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{activeConv.title}</span>
-                  {(activeConv.author_id === user?.id || role === "owner") && (
-                    <>
-                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.6 }} title="Rename conversation"
-                        onClick={() => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✎</button>
-                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.6, color: "var(--oxblood)" }} title="Delete conversation"
-                        onClick={() => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✕</button>
-                    </>
-                  )}
+                {/* The title alone. Rename and delete already exist on the
+                    conversation row in the thread list, and now also in the
+                    thread menu — three copies of one action was two too many,
+                    and they were squeezing the one thing this header must
+                    always show. */}
+                <div className={s.stageTitle}>
+                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>
+                    {activeConv.title}
+                  </span>
                 </div>
                 <div className={s.stageMeta}>
                   <span className={s.chip} style={{ color: activeConv.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)" }}>
@@ -1062,7 +1104,12 @@ export function ChatView() {
                 {/* Only rendered once there is something linked, or an action to
                     offer. "linked context: none" was a permanent label for an
                     empty state — it occupied prime space to say nothing. */}
-                {(references.length > 0 || canSend) && (
+                {/* Only when something IS linked. The "＋ link context" button
+                    lived here permanently to offer an action most threads never
+                    use; it is in the thread menu now, and this row went back to
+                    being what it says it is — a list of what this thread draws
+                    on. */}
+                {references.length > 0 && (
                   <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
                     {references.length > 0 && (
                       <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
@@ -1077,23 +1124,10 @@ export function ChatView() {
                         )}
                       </span>
                     ))}
-                    {canSend && (
-                      <button onClick={() => setLinkDlg(true)} className={s.chip}
-                        title="Pull another shared thread's context into this conversation"
-                        style={{ cursor: "pointer", border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--oxblood)" }}>
-                        ＋ link context
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
-              {messages.length > 0 && (
-                <>
-                  <ReplayBar total={messages.length} value={replay} onChange={setReplay} />
-                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "md").catch(() => push("Export failed", "error"))} title="Export Markdown" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ md</button>
-                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "json").catch(() => push("Export failed", "error"))} title="Export JSON" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ json</button>
-                </>
-              )}
+              <ThreadMenu actions={threadActions} />
               {canSend && messages.length > 0 && !activeConv.conclusion && (
                 <Button onClick={() => setConcludeDlg(true)} title="Say what this thread concluded">
                   <span style={{ color: "var(--verde)" }}>❧</span> Conclude
@@ -1106,6 +1140,15 @@ export function ChatView() {
               )}
             </div>
 
+            {replay !== null && (
+              <div className={s.replayBar}>
+                <span className={s.replayLabel}>Replaying</span>
+                <ReplayBar total={messages.length} value={replay} onChange={setReplay} />
+                <div style={{ flex: 1 }} />
+                <button className={s.teamMute} title="Leave replay"
+                  onClick={() => setReplay(null)}>×</button>
+              </div>
+            )}
             <div className={s.canvas} ref={canvasRef}>
               {shownMessages.length === 0 ? (
                 <EmptyState title="A blank page">
@@ -1120,73 +1163,24 @@ export function ChatView() {
             </div>
 
             <div className={s.composerWrap}>
-              {remoteAuthorId && (
-                <div className={s.remoteBanner}>
-                  <span
-                    className={s.rowDot}
-                    style={{ background: colorFor(emailOf(remoteAuthorId) ?? remoteAuthorId) }}
-                  />
-                  ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
-                </div>
-              )}
-              {roomDrafts.map((d) => (
-                <div key={d.email} className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
-                  <span className={s.rowDot} style={{ background: colorFor(d.email) }} />
-                  <span>{d.email} is drafting in</span>
-                  <button className={s.chip} title="Open their thread"
-                    onClick={() => nav(`/w/${wid}?conv=${d.where.id}`)}
-                    style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 220 }}>
-                    <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {d.where.title}
-                    </span>
-                  </button>
-                  {d.match && (
-                    // one group, so the arrow never wraps away from the thread
-                    // it points at
-                    <span style={{ display: "inline-flex", alignItems: "center", gap: 8, minWidth: 0 }}>
-                      <span style={{ color: "var(--gilt)", flex: "0 0 auto" }}>↳ overlaps</span>
-                      <button className={s.chip} title="Open the thread it overlaps"
-                        onClick={() => nav(`/w/${wid}?conv=${d.match!.id}`)}
-                        style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 220 }}>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {d.match.title}
-                        </span>
-                      </button>
-                      {canSend && (
-                        <button className={s.chip} title="Add that thread as linked context on theirs, before they send"
-                          onClick={() => doLinkFor(d.where.id, d.match!.id)}
-                          style={{ cursor: "pointer", border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--oxblood)" }}>
-                          link it for them
-                        </button>
-                      )}
-                    </span>
-                  )}
-                </div>
-              ))}
-              {canSend && !busy && !resurfaceMuted && resurfaced.length > 0 && (
-                <div className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
-                  <span style={{ color: "var(--gilt)" }}>✦</span>
-                  <span>explored before —</span>
-                  {resurfaced.map((h) => {
-                    const who = h.role === "assistant" ? "Helix"
-                      : h.author_id === user?.id ? "you" : (emailOf(h.author_id) ?? "a teammate");
-                    return (
-                      <button key={h.node_id} className={s.chip}
-                        title={`${who}: “${h.excerpt}”`}
-                        onClick={() => nav(`/w/${wid}?conv=${h.conversation_id}&branch=${h.branch_id}`)}
-                        style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 260 }}>
-                        <span style={{ color: "var(--oxblood)" }}>⊙</span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {h.conversation_title}
-                        </span>
-                        <span style={{ color: "var(--ink-3)", flex: "0 0 auto" }}>· {who}</span>
-                      </button>
-                    );
-                  })}
-                  <button onClick={() => setResurfaceMuted(true)} title="Dismiss for this question"
-                    style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
-                </div>
-              )}
+              <TeamStrip
+                liveAuthor={remoteAuthorId ? (emailOf(remoteAuthorId) ?? "a teammate") : null}
+                drafts={roomDrafts.map((d) => ({
+                  email: d.email,
+                  where: { id: d.where.id, title: d.where.title },
+                  match: d.match ? { id: d.match.id, title: d.match.title } : null,
+                }))}
+                explored={canSend && !busy && !resurfaceMuted ? resurfaced : []}
+                canSend={canSend}
+                onOpen={(convId, branchId) =>
+                  nav(`/w/${wid}?conv=${convId}` + (branchId ? `&branch=${branchId}` : ""))}
+                onLinkFor={doLinkFor}
+                onMute={() => setResurfaceMuted(true)}
+                whoOf={(h) =>
+                  h.role === "assistant" ? "Helix"
+                    : h.author_id === user?.id ? "you"
+                    : (emailOf(h.author_id) ?? "a teammate")}
+              />
               {approval && (
                 <div className={s.approveBar}>
                   <span style={{ fontSize: 15, color: "var(--gilt)" }}>⚿</span>

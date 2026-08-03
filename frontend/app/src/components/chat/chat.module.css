@@ -179,8 +179,34 @@
 /* composer */
 .composerWrap { padding: 14px 26px 20px; border-top: 1px solid var(--rule-soft); position: relative; }
 /* live attribution while a teammate's turn streams into this thread */
-.remoteBanner { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); margin-bottom: 9px; }
-.remoteBanner .rowDot { width: 8px; height: 8px; }
+/* One strip, one question: has the team been here? Three separate banners
+   (live turn / drafting teammate / already explored) used to stack three-deep
+   above the composer, each with its own border, each shoving the writing area
+   further down. They are one subject at three distances, so they share one
+   surface and the composer stops moving. */
+.teamStrip {
+  border: 1px solid var(--rule-soft); border-radius: 10px;
+  background: var(--paper); margin-bottom: 9px;
+  padding: 2px 0; overflow: hidden;
+}
+.teamRow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 11px; font-family: var(--font-mono); font-size: 11.5px;
+  color: var(--ink-3); line-height: 1.5;
+}
+/* A hairline between rows, never above the first — the strip should read as
+   one object with entries, not as the stack of banners it replaced. */
+.teamRow + .teamRow { border-top: 1px solid var(--rule-soft); }
+.teamRow .rowDot { width: 8px; height: 8px; flex: 0 0 auto; }
+.teamWho { color: var(--ink-2); flex: 0 0 auto; }
+.teamSays { flex: 0 0 auto; }
+.teamClip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.teamGroup { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.teamMute {
+  border: 0; background: transparent; cursor: pointer; color: var(--ink-3);
+  font-size: 14px; line-height: 1; padding: 0 2px; flex: 0 0 auto;
+}
+.teamMute:hover { color: var(--oxblood); }
 .composer {
   background: linear-gradient(180deg, var(--paper-0), var(--paper));
   border: 1px solid var(--rule); border-radius: 13px;
@@ -194,7 +220,16 @@
   box-shadow: 0 6px 26px rgba(36, 27, 18, 0.14), 0 0 0 3px rgba(180, 95, 42, 0.12);
 }
 .ta { background: none; border: none; outline: none; resize: none; color: var(--ink); font-size: 15px; font-family: var(--font-read); line-height: 1.5; width: 100%; }
-.composerRow { display: flex; align-items: center; gap: 10px; }
+/* Wraps, and its children never break internally. Adding the "Team" button to
+   an already-full row squeezed the keyboard hint into a four-line column at
+   1280px — the row had no permission to wrap, so the only give left was inside
+   the text. Whole items move to the next line now instead. */
+.composerRow { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; }
+.composerRow > * { flex: 0 0 auto; }
+/* The hint is the first thing that should go when space is short: it teaches a
+   shortcut you discover by pressing Enter once. */
+.composerHint { white-space: nowrap; }
+@media (max-width: 1439px) { .composerHint { display: none; } }
 .sendBtn { background: linear-gradient(180deg, var(--seal-from), var(--seal-to)); color: var(--seal-text); border: 1px solid var(--seal-border); border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,240,215,0.16), 0 2px 9px rgba(143,62,19,0.28); transition: filter 0.15s; }
 .sendBtn:hover:not(:disabled) { filter: brightness(1.12); }
 .sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -351,4 +386,48 @@
 .noteAside {
   font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
   color: var(--ink-faint); flex: 0 0 auto; text-transform: uppercase;
+}
+
+/* The thread menu: the rare actions, one click away, so the header can rank
+   what it keeps. Nothing left the product — replay, both exports, rename,
+   delete and link-context moved in here. */
+.menuWrap { position: relative; flex: 0 0 auto; }
+.menuBtn {
+  min-width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2);
+  font-size: 15px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.menuBtn:hover { border-color: var(--ink-faint); background: var(--paper-3); }
+.menuList {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  min-width: 208px; padding: 5px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 11px;
+  box-shadow: 0 14px 40px rgba(36, 27, 18, 0.18);
+  display: flex; flex-direction: column;
+  animation: hx-rise 0.16s var(--ease-quill) both;
+}
+.menuItem {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: none; background: transparent; border-radius: 7px;
+  font-family: var(--font-ui); font-size: 13px; color: var(--ink);
+  text-align: left; cursor: pointer; transition: background var(--dur-1);
+}
+.menuItem:hover { background: var(--hover-tint); }
+.menuItemDanger { color: var(--oxblood); }
+.menuGlyph { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); flex: 0 0 auto; width: 14px; }
+.menuItemDanger .menuGlyph { color: var(--oxblood); }
+
+/* Replay is a mode, so its scrubber appears only while it is on — it used to
+   sit in the stage header permanently, costing prime space for a control most
+   sessions never touch. */
+.replayBar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 26px; border-bottom: 1px solid var(--rule-soft);
+  background: var(--accent-tint);
+}
+.replayLabel {
+  font-family: var(--font-display); font-size: 10.5px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--oxblood); font-weight: 600; flex: 0 0 auto;
 }

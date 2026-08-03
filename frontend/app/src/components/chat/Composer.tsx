@@ -107,7 +107,7 @@ export function Composer({
         </label>
         <div style={{ flex: 1 }} />
         {text.trim() && (
-          <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
+          <span className={`mono ${s.composerHint}`} style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
             ↵ ask Helix · ⇧↵ new line
           </span>
         )}
