@@ -72,13 +72,31 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
     }
   }
 
-  async function saveAndTest() {
-    if (!(await save())) return;
+  // Test first, save only if it answered. This used to save and then test,
+  // which meant a typo'd key became the workspace's live configuration and
+  // every message failed until someone noticed — the panel would cheerfully
+  // report the connection was broken *after* breaking it.
+  async function testAndSave() {
+    setSaving(true);
+    setTestResult(null);
+    let result: { ok: boolean; detail: string };
     try {
-      setTestResult(await testProviderSettings(wid));
+      result = await testProviderSettings(wid, {
+        provider,
+        // Omitted = test the stored key, so changing only a model doesn't
+        // require re-pasting a key the owner cannot read back.
+        api_key: apiKey.trim() || undefined,
+        base_url: baseUrl.trim(),
+        chat_model: chatModel.trim(),
+        deep_model: deepModel.trim(),
+      });
     } catch (e: any) {
-      setTestResult({ ok: false, detail: e?.message ?? "Test failed" });
+      result = { ok: false, detail: e?.message ?? "Test failed" };
     }
+    setTestResult(result);
+    setSaving(false);
+    if (result.ok) await save();
+    else push("Not saved — the provider did not answer", "error");
   }
 
   if (isLoading || !data) return <Spinner />;
@@ -91,7 +109,7 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
         {data.configured ? "● ready" : "○ no key"}
       </span>
       <span>chat: <span className="mono">{data.effective_provider} / {data.effective_chat_model || "—"}</span></span>
-      <span>deep: <span className="mono">{data.deep_available ? data.effective_deep_model : "unavailable (needs a Groq key)"}</span></span>
+      <span>deep: <span className="mono">{data.deep_available ? data.effective_deep_model : "unavailable (needs a key or a local model)"}</span></span>
       <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
         {data.source === "workspace" ? "workspace settings" : "server default"}
       </span>
@@ -160,7 +178,7 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
             </div>
             <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
               <Button variant="primary" disabled={saving} onClick={() => save()}>Save</Button>
-              <Button disabled={saving} onClick={saveAndTest}>Save &amp; test connection</Button>
+              <Button disabled={saving} onClick={testAndSave}>Test &amp; save connection</Button>
               {data.api_key_masked && (
                 <Button variant="ghost" disabled={saving} onClick={() => save(true)}>Remove key</Button>
               )}

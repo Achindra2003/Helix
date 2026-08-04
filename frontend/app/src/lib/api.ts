@@ -161,9 +161,16 @@ export const putProviderSettings = (
     method: "PUT",
     body: JSON.stringify(body),
   });
-export const testProviderSettings = (wid: string) =>
+// With `candidate`, the server tests those values without storing them — so a
+// wrong key is caught before it becomes the workspace's live configuration.
+// Omit `api_key` inside the candidate to test against the already-stored key.
+export const testProviderSettings = (
+  wid: string,
+  candidate?: { provider: string; api_key?: string; base_url: string; chat_model: string; deep_model: string },
+) =>
   request<{ ok: boolean; detail: string }>(`/api/workspaces/${wid}/settings/provider/test`, {
     method: "POST",
+    body: candidate ? JSON.stringify(candidate) : undefined,
   });
 
 // --- agent tool allowlist (FR-14) ---

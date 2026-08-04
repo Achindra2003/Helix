@@ -527,16 +527,40 @@ async def put_tool_settings(
 @router.post("/workspaces/{workspace_id}/settings/provider/test")
 async def test_provider_settings(
     workspace_id: str,
+    body: ProviderSettingsIn | None = None,
     _owner: Membership = Depends(require_role(ROLE_OWNER)),
     session: AsyncSession = Depends(get_session),
 ):
-    """One cheap live round-trip through the *stored* settings (save, then test).
+    """One cheap live round-trip, through candidate settings or the stored ones.
+
+    With a body, nothing is persisted: the point is to find out a key is wrong
+    *before* it is saved. Saving first meant a typo'd key became the workspace's
+    live configuration and every message failed until someone corrected it —
+    the panel could only tell you it had already broken your workspace.
 
     Returns ``{ok, detail}`` rather than an HTTP error for provider failures —
     a bad key is a result, not an exception.
     """
     row = await session.get(WorkspaceSettings, workspace_id)
-    resolved = resolve(row)
+    if body is not None and body.provider:
+        # An omitted key means "test what is already stored" — so an owner can
+        # check a new model or base URL without re-pasting a key they cannot
+        # read back.
+        key = body.api_key if body.api_key is not None else decrypt_key(
+            row.api_key_encrypted if row else ""
+        )
+        resolved = resolve(
+            WorkspaceSettings(
+                workspace_id=workspace_id,
+                provider=body.provider,
+                api_key_encrypted=encrypt_key(key),
+                base_url=body.base_url or "",
+                chat_model=body.chat_model or "",
+                deep_model=body.deep_model or "",
+            )
+        )
+    else:
+        resolved = resolve(row)
     if resolved.missing_key:
         return {"ok": False, "detail": "No API key configured for this provider."}
     # Bare provider: the owner wants the real, immediate error, not retried or

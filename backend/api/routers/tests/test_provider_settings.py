@@ -308,3 +308,86 @@ def test_chat_provider_defaults_to_resilient_wrapper():
     )
     assert isinstance(wrapped, ResilientProvider)
     assert wrapped.name == "groq"
+
+
+def test_a_bad_key_is_tested_before_it_is_stored(make_workspace, monkeypatch):
+    """It used to save first and then test, so a typo'd key became the
+    workspace's live configuration and every message failed until someone
+    corrected it. The panel could only report the breakage it had caused."""
+    import api.routers.workspaces as ws
+
+    class Dead:
+        name = "groq"
+
+        async def stream_messages(self, messages):
+            raise RuntimeError("Invalid API Key")
+            yield ""  # pragma: no cover - never reached
+
+    monkeypatch.setattr(ws, "build_chat_provider", lambda resolved, resilient=True: Dead())
+
+    with TestClient(app) as client:
+        headers, _uid, wid = make_workspace(client)
+        r = client.post(f"/api/workspaces/{wid}/settings/provider/test", headers=headers,
+                        json={"provider": "groq", "api_key": "gsk_typo",
+                              "base_url": "", "chat_model": "m", "deep_model": ""})
+        assert r.status_code == 200
+        assert r.json()["ok"] is False
+
+        # The candidate was never persisted: the workspace is untouched.
+        after = client.get(f"/api/workspaces/{wid}/settings/provider", headers=headers).json()
+        assert after["provider"] == ""
+        assert after["api_key_masked"] == ""
+
+
+def test_testing_without_a_key_falls_back_to_the_stored_one(make_workspace, monkeypatch):
+    """Changing only the model must not require re-pasting a key the owner
+    cannot read back."""
+    import api.routers.workspaces as ws
+
+    seen = {}
+
+    class Echo:
+        name = "groq"
+
+        async def stream_messages(self, messages):
+            yield "ok"
+
+    def capture(resolved, resilient=True):
+        seen["api_key"] = resolved.api_key
+        seen["chat_model"] = resolved.chat_model
+        return Echo()
+
+    monkeypatch.setattr(ws, "build_chat_provider", capture)
+
+    with TestClient(app) as client:
+        headers, _uid, wid = make_workspace(client)
+        client.put(f"/api/workspaces/{wid}/settings/provider", headers=headers,
+                   json={"provider": "groq", "api_key": "gsk_stored",
+                         "base_url": "", "chat_model": "old", "deep_model": ""})
+
+        r = client.post(f"/api/workspaces/{wid}/settings/provider/test", headers=headers,
+                        json={"provider": "groq", "base_url": "",
+                              "chat_model": "new-model", "deep_model": ""})
+        assert r.json()["ok"] is True
+        assert seen["api_key"] == "gsk_stored"  # the stored key, not blank
+        assert seen["chat_model"] == "new-model"  # but the candidate's model
+
+
+def test_testing_with_no_body_still_tests_what_is_stored(make_workspace, monkeypatch):
+    """The old no-body call is still valid — nothing that used it breaks."""
+    import api.routers.workspaces as ws
+
+    class Echo:
+        name = "groq"
+
+        async def stream_messages(self, messages):
+            yield "ok"
+
+    monkeypatch.setattr(ws, "build_chat_provider", lambda resolved, resilient=True: Echo())
+    with TestClient(app) as client:
+        headers, _uid, wid = make_workspace(client)
+        client.put(f"/api/workspaces/{wid}/settings/provider", headers=headers,
+                   json={"provider": "groq", "api_key": "gsk_stored",
+                         "base_url": "", "chat_model": "m", "deep_model": ""})
+        assert client.post(f"/api/workspaces/{wid}/settings/provider/test",
+                           headers=headers).json()["ok"] is True
