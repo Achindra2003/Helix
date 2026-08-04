@@ -117,13 +117,18 @@ human approval for sensitive calls; and file grounding with citation chips.
 
 **Explicitly undecided product facts** (do not invent answers to these):
 
-- **License is not chosen and no LICENSE file exists.** Nothing may state or
-  imply a license until it is decided.
-- **No output artifact.** A thread cannot become an editable document; the team's
-  conclusion currently leaves the product by copy-paste. Whether to close this
-  loop is an open product decision.
 - **Mobile and small-screen support** has not been established as a requirement.
 - **The hosted instance is not deployed** and has no domain.
+
+**Settled since, and no longer open:**
+
+- **The license is MIT** (`LICENSE`, decided 2026-08-04). Helix may be described
+  as MIT-licensed open source.
+- **A thread can conclude.** `conversation.conclusion` records what the team
+  believes, written by a human; `POST /synthesize` drafts one by reading the
+  branches but is never persisted. Branch verdicts, the decisions ledger and the
+  markdown export carry it. The copy-paste gap this section used to describe is
+  closed; an *editable document* artifact remains unbuilt.
 
 ## Brand Commitments
 

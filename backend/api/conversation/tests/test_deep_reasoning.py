@@ -293,3 +293,47 @@ async def test_runs_through_engine_send_and_persists_final_answer():
         ("user", "why?"),
         ("assistant", "Final answer."),
     ]
+
+
+class _DeadProbe:
+    """A reachability probe reporting what a dead endpoint produces: every LLM
+    call failed, none succeeded."""
+
+    ok = 0
+    errors = 12
+    last_error = "Connection refused"
+    never_reached_model = True
+
+
+class _LibraryProbe:
+    ok = 12
+    errors = 0
+    last_error = ""
+    never_reached_model = False
+
+
+async def test_a_run_that_never_reached_a_model_is_an_error_not_an_answer():
+    """The engine's nodes swallow LLM failures and substitute canned lines, so
+    a workspace pointed at a dead endpoint produced a full, plausible run that
+    reported `done`. Reasoning nobody did, presented as reasoning the team did
+    — the one failure this product cannot ship."""
+    _, _, history = await _node()
+    producer = _producer(_RUN_EVENTS, reachability=_DeadProbe())
+    events = [e async for e in producer.run(history)]
+
+    complete = [e for e in events if isinstance(e, Complete)]
+    assert len(complete) == 1
+    assert complete[0].status == "error"
+    assert "could not be reached" in complete[0].stop_reason
+    assert "Connection refused" in complete[0].stop_reason
+    # And it must not also hand back the fabricated answer.
+    assert not any(isinstance(e, Token) and "Final answer" in e.text for e in events[-2:])
+
+
+async def test_a_healthy_run_is_untouched_by_the_guard():
+    _, _, history = await _node()
+    producer = _producer(_RUN_EVENTS, reachability=_LibraryProbe())
+    events = [e async for e in producer.run(history)]
+    complete = [e for e in events if isinstance(e, Complete)]
+    assert complete[0].status == "done"
+    assert complete[0].stop_reason == "converged"

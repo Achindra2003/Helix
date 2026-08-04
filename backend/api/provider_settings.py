@@ -64,6 +64,20 @@ def mask_key(plain: str) -> str:
 
 
 @dataclass(frozen=True)
+class DeepLLM:
+    """Where a Deep Reasoning run's model calls go.
+
+    Always an OpenAI-compatible endpoint. `base_url=""` means the client's own
+    default (Groq's API); anything else is a full base URL serving
+    `POST {base_url}/chat/completions`.
+    """
+
+    api_key: str
+    base_url: str
+    model: str
+
+
+@dataclass(frozen=True)
 class ResolvedProvider:
     """The provider configuration one workspace's LLM calls actually use."""
 
@@ -79,17 +93,54 @@ class ResolvedProvider:
         return self.provider in _KEY_REQUIRED and not self.api_key
 
     @property
-    def deep_groq_key(self) -> str:
-        """Deep Reasoning runs on Groq (the engine builds a ChatGroq client).
-        A workspace's own Groq key wins; any other provider choice falls back
-        to the server-wide key so self-host setups keep working."""
-        if self.provider == "groq" and self.api_key:
-            return self.api_key
-        return settings.groq_api_key
+    def deep_llm(self) -> DeepLLM:
+        """Where a Deep Reasoning run sends its calls.
+
+        This used to collapse to a single Groq key, which meant Deep Reasoning
+        only ever ran on Groq: a workspace on Ollama or an OpenAI-compatible
+        endpoint silently fell back to the *server's* Groq key, and a purely
+        self-hosted instance with no Groq account at all could not use the
+        product's flagship feature. The chat path had been provider-agnostic
+        since the BYO-key seam landed; only the deep path had not caught up.
+
+        Every branch here returns an OpenAI-compatible endpoint, which is what
+        the engine's client speaks — Groq's own API, Ollama's `/v1`, and
+        anything else serving `POST {base_url}/chat/completions`.
+        """
+        if self.provider == "ollama":
+            # Ollama's native API is /api/generate (what the chat provider
+            # uses); its OpenAI-compatible surface lives under /v1. The key is
+            # a placeholder because the client requires one and Ollama ignores
+            # it — the conventional value for exactly this situation.
+            base = (self.base_url or settings.ollama_base_url).rstrip("/")
+            return DeepLLM(api_key="ollama", base_url=f"{base}/v1", model=self._deep_model_for_kind)
+        if self.provider == "openai_compatible":
+            return DeepLLM(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=self._deep_model_for_kind,
+            )
+        # groq, and the stub/unset case, which keeps the server key as the
+        # fallback so existing self-host setups need to change nothing.
+        key = self.api_key if (self.provider == "groq" and self.api_key) else settings.groq_api_key
+        return DeepLLM(api_key=key, base_url="", model=self._deep_model_for_kind)
+
+    @property
+    def _deep_model_for_kind(self) -> str:
+        """An explicit deep model wins. Otherwise: Groq gets the server's
+        configured deep model, but nobody else can — `deep_reasoning_model`
+        names a Groq model (the 70B), and sending that name to Ollama is a 404.
+        Every other provider falls back to the model that workspace already
+        chats with, which is known to exist there."""
+        if self.deep_model:
+            return self.deep_model
+        if self.provider in ("ollama", "openai_compatible"):
+            return self.chat_model or settings.deep_reasoning_model
+        return settings.deep_reasoning_model
 
     @property
     def resolved_deep_model(self) -> str:
-        return self.deep_model or settings.deep_reasoning_model
+        return self.deep_llm.model
 
 
 def _server_default() -> ResolvedProvider:

@@ -33,6 +33,7 @@ from .. import realtime
 from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
 from ..models import WorkspaceSettings
+from ..reasoning_llm import make_reachability_probe
 from ..telemetry import make_llm_span_callback, record_llm_call
 from ..tools import bindable, resolve_allowlist
 from ..tools.agent import AgentProducer, build_agent_graph
@@ -1077,24 +1078,31 @@ async def escalate_deep_reasoning(
     {run_id}/steer — as many times as it pauses.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
-    # Deep Reasoning runs on Groq: the workspace's own Groq key wins, the
-    # server-wide key is the fallback (self-host), no key at all is a clear 503.
+    # Deep Reasoning follows the workspace's own provider — Groq, a local
+    # Ollama, or any OpenAI-compatible endpoint. Only key-requiring providers
+    # can be unavailable, and that is a clear 503 rather than a failed run.
     resolved = resolve(await session.get(WorkspaceSettings, conv.workspace_id))
-    if not resolved.deep_groq_key:
+    deep_llm = resolved.deep_llm
+    if not deep_llm.api_key:
         raise api_error(
             503,
             "deep_reasoning_unavailable",
-            "Deep Reasoning needs a Groq API key — the workspace owner can add "
-            "one under workspace settings → Provider.",
+            "Deep Reasoning needs a model to call — the workspace owner can add "
+            "an API key, or point the workspace at a local model, under "
+            "workspace settings → Provider.",
         )
 
     run_id = uuid4().hex
     handle_box: list = []  # producer's should_stop closes over the handle
+    # Watches the run from outside the engine, whose nodes swallow LLM errors
+    # and substitute canned text — see make_reachability_probe.
+    reachability = make_reachability_probe()
 
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
         thread_id=uuid4().hex,
-        groq_api_key=resolved.deep_groq_key,
-        groq_model=resolved.resolved_deep_model,
+        groq_api_key=deep_llm.api_key,
+        groq_model=deep_llm.model,
+        base_url=deep_llm.base_url,
         mode=settings.deep_reasoning_mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,
@@ -1107,8 +1115,9 @@ async def escalate_deep_reasoning(
         extra_callbacks=[
             make_llm_span_callback(
                 workspace_id=conv.workspace_id, run_id=run_id,
-                provider="groq", model=resolved.resolved_deep_model,
-            )
+                provider=resolved.provider or "groq", model=deep_llm.model,
+            ),
+            reachability,
         ],
     )
     producer = DeepReasoningProducer(
@@ -1120,6 +1129,7 @@ async def escalate_deep_reasoning(
         deadline_s=settings.deep_reasoning_deadline_s,
         should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
         grounder=_grounder_for(conv.workspace_id),
+        reachability=reachability,
     )
     # Every deep run leaves a durable record (question, signals, outcome, compact
     # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.
@@ -1224,23 +1234,25 @@ async def send_agent_message(
     use the same /conversations/deep/runs/{run_id}/* surface deep runs do.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
-    # Tool calling needs a function-calling model: Groq, same resolution rule
-    # as deep runs (workspace Groq key wins, server key is the self-host
-    # fallback, no key is a clear 503).
+    # Same resolution rule as deep runs: whatever provider the workspace
+    # actually uses. Tool calling additionally needs a *function-calling*
+    # model — most hosted ones qualify, and a local model that does not will
+    # simply never emit tool calls, which reads as a plain answer rather than
+    # an error.
     row = await session.get(WorkspaceSettings, conv.workspace_id)
     resolved = resolve(row)
-    if not resolved.deep_groq_key:
+    deep_llm = resolved.deep_llm
+    if not deep_llm.api_key:
         raise api_error(
             503,
             "agent_unavailable",
-            "Agent runs need a Groq API key — the workspace owner can add one "
-            "under workspace settings → Provider.",
+            "Agent runs need a model to call — the workspace owner can add an "
+            "API key, or point the workspace at a local model, under workspace "
+            "settings → Provider.",
         )
-    model = (
-        resolved.chat_model
-        if resolved.provider == "groq" and resolved.chat_model
-        else settings.groq_model
-    )
+    # The chat model, not the deep one: tool loops want fast and cheap, and the
+    # 70B deep default is neither.
+    model = resolved.chat_model or deep_llm.model
 
     # The allowlist decides what the model's world contains (see api/tools):
     # un-allowed or unavailable tools are never bound, never mentioned.
@@ -1261,13 +1273,14 @@ async def send_agent_message(
     graph, graph_config, make_inputs = build_agent_graph(
         thread_id=uuid4().hex,
         tools=tools,
-        groq_api_key=resolved.deep_groq_key,
+        groq_api_key=deep_llm.api_key,
         groq_model=model,
+        base_url=deep_llm.base_url,
         max_tool_rounds=settings.agent_max_tool_rounds,
         extra_callbacks=[
             make_llm_span_callback(
                 workspace_id=conv.workspace_id, run_id=run_id,
-                provider="groq", model=model,
+                provider=resolved.provider or "groq", model=model,
             )
         ],
     )

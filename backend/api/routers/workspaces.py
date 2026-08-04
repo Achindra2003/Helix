@@ -383,7 +383,10 @@ def _provider_out(row: WorkspaceSettings | None, *, owner: bool) -> dict:
         "effective_deep_model": resolved.resolved_deep_model,
         "source": resolved.source,
         "configured": not resolved.missing_key,
-        "deep_available": bool(resolved.deep_groq_key),
+        # Deep and agent runs now follow the workspace's own provider, so this
+        # is "is there a model to call", not "is there a Groq key". A local
+        # Ollama needs no key and is therefore always available.
+        "deep_available": bool(resolved.deep_llm.api_key),
     }
     if owner:
         # Key material stays owner-only, and even then only in masked form.

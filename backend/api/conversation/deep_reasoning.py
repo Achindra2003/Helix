@@ -75,6 +75,9 @@ class DeepReasoningProducer:
         should_stop: Callable[[], bool] | None = None,
         deadline_s: float | None = None,
         grounder: Grounder | None = None,
+        # Watches whether the engine ever reached a model. See
+        # `reasoning_llm.make_reachability_probe` for why this is necessary.
+        reachability: Any = None,
     ) -> None:
         self._graph = graph
         self._graph_config = graph_config
@@ -85,6 +88,7 @@ class DeepReasoningProducer:
         self._should_stop = should_stop
         self._deadline_s = deadline_s
         self._grounder = grounder
+        self._reachability = reachability
         self._state: dict[str, Any] = {}
         self._idx = 0
         self._answered = False
@@ -114,6 +118,25 @@ class DeepReasoningProducer:
         used = int(self._usage_reader())
         pct = round(used / self._token_budget, 4) if self._token_budget else 0.0
         return Budget(tokens_used=used, tokens_budget=self._token_budget, pct=pct)
+
+    def _unreachable(self) -> Complete | None:
+        """An error to end on, if the run never got a single answer from a model.
+
+        Checked at *every* exit — normal, deadline and kill — because each one
+        can otherwise hand back a partial "answer" that is really the engine's
+        own canned fallback text. The deadline path is the one that bit: a dead
+        endpoint produced 157 steps of introspection and reported `done`.
+        """
+        probe = self._reachability
+        if probe is None or not probe.never_reached_model:
+            return None
+        return Complete(
+            stop_reason=(
+                "the model could not be reached, so nothing was actually reasoned "
+                f"about — {probe.last_error or 'no response from the provider'}"
+            ),
+            status="error",
+        )
 
     async def run(self, history: list) -> AsyncIterator[Event]:
         # Seed over the whole thread (recent context + the question), not just the
@@ -160,6 +183,9 @@ class DeepReasoningProducer:
                 # under backoff retries. Halt cleanly with whatever surfaced so far,
                 # rather than holding the connection open indefinitely.
                 if deadline is not None and time.monotonic() > deadline:
+                    if (dead := self._unreachable()) is not None:
+                        yield dead
+                        return
                     if not self._answered:
                         partial = self._state.get("synthesis") or self._state.get("thought") or ""
                         if partial:
@@ -170,6 +196,9 @@ class DeepReasoningProducer:
                 # Cooperative kill: stop the run between events (RBAC-gated at the
                 # endpoint). Persists whatever answer surfaced so far.
                 if self._should_stop is not None and self._should_stop():
+                    if (dead := self._unreachable()) is not None:
+                        yield dead
+                        return
                     if not self._answered:
                         partial = self._state.get("synthesis") or self._state.get("thought") or ""
                         if partial:
@@ -214,6 +243,10 @@ class DeepReasoningProducer:
                 yield Waiting(reason="steer")
                 return
 
+            if (dead := self._unreachable()) is not None:
+                yield dead
+                return
+
             # If no surface tokens streamed, persist the best final-answer field.
             if not self._answered:
                 answer = self._state.get("surfaced_insight") or self._state.get("synthesis") or ""
@@ -233,6 +266,10 @@ def build_ouroboros_graph(
     thread_id: str,
     groq_api_key: str,
     groq_model: str = "llama-3.3-70b-versatile",
+    # "" keeps the client on Groq's own API. Any other value points the same
+    # OpenAI-compatible client at Ollama's /v1, vLLM, LM Studio, OpenRouter —
+    # whatever the workspace actually runs. See ResolvedProvider.deep_llm.
+    base_url: str = "",
     mode: str = "analyze",
     adaptive: bool = True,
     compute_budget: int = 6,
@@ -261,8 +298,9 @@ def build_ouroboros_graph(
     # reasoning is actually invoked, and only the vendored engine is touched.
     from engine.ouroboros_bootstrap import load_ouroboros
 
+    from ..reasoning_llm import build_reasoning_llm
+
     ouroboros = load_ouroboros()
-    from langchain_groq import ChatGroq
 
     Mode = ouroboros.models.Mode
     MODE_PRESETS = ouroboros.presets.MODE_PRESETS
@@ -309,7 +347,9 @@ def build_ouroboros_graph(
         overrides["steer_interval"] = steer_interval
     cfg = MODE_PRESETS[mode_enum]["config"].model_copy(update=overrides)
 
-    llm = ChatGroq(model=groq_model, temperature=temperature, api_key=groq_api_key or None)
+    llm = build_reasoning_llm(
+        model=groq_model, api_key=groq_api_key, base_url=base_url, temperature=temperature
+    )
     graph = create_ouroboros_graph(llm, cfg)
 
     usage_handler = new_usage_handler()

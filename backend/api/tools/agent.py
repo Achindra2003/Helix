@@ -195,6 +195,10 @@ def build_agent_graph(
     tools: list[ToolSpec],
     groq_api_key: str = "",
     groq_model: str = "llama-3.3-70b-versatile",
+    # "" keeps the client on Groq's own API; any other value points the same
+    # OpenAI-compatible client at whatever the workspace actually runs, so an
+    # agent run works on a local Ollama exactly as a deep run does.
+    base_url: str = "",
     temperature: float = 0.3,
     max_tool_rounds: int = 5,
     llm: Any = None,
@@ -237,10 +241,10 @@ def build_agent_graph(
     from langgraph.graph.message import add_messages
 
     if llm is None:
-        from langchain_groq import ChatGroq
+        from ..reasoning_llm import build_reasoning_llm
 
-        llm = ChatGroq(
-            model=groq_model, temperature=temperature, api_key=groq_api_key or None
+        llm = build_reasoning_llm(
+            model=groq_model, api_key=groq_api_key, base_url=base_url, temperature=temperature
         )
 
     specs = {t.name: t for t in tools}

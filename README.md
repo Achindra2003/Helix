@@ -204,9 +204,14 @@ Set `LLM_PROVIDER` in `backend/.env`:
 | `groq`   | `GROQ_API_KEY`                 | hosted, fast, free tier              |
 | `ollama` | `docker compose --profile ollama up` then `docker compose exec ollama ollama pull llama3.2` | local, ~8GB RAM |
 
-Deep Reasoning always runs on Groq and uses its own model
-(`DEEP_REASONING_MODEL`, default the 70B) so chat can stay on a fast small
-model while the reasoning loop gets the strongest one.
+Deep Reasoning and agent runs follow the same provider the workspace chats
+with — Groq, a local Ollama, or any OpenAI-compatible endpoint — so a fully
+self-hosted Helix with no cloud account still gets its flagship feature. They
+take their own model (`DEEP_REASONING_MODEL`, or **deep model** in the
+Provider panel), so chat can stay on a fast small model while the reasoning
+loop gets the strongest one. On Ollama and OpenAI-compatible endpoints the
+default is simply the workspace's chat model, since the Groq-shaped default
+name would not exist there.
 
 ## Roadmap (post-v2)
 
