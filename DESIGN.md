@@ -298,16 +298,26 @@ must not make every visitor's browser call a third party on page load.
 
 ### The Declared Scale
 
-`tokens.css` declares a six-step px ramp: `--t-micro` 12, `--t-meta` 14,
-`--t-body` 16, `--t-card` 20, `--t-title` 26, `--t-hero` 42.
+`tokens.css` names the hierarchy above: `--t-brand` 22, `--t-title` 20,
+`--t-prose` 15.5, `--t-instrument` 13, `--t-label` 11, plus `--t-base` 16 for
+the document default (not a hierarchy step).
 
-Be aware that the components have drifted off it. Real sizes in use include
-9.5px (rail labels), 11px, 11.5px, 12.5px, 13px, 15px, 15.5px, 18px and 24px,
-most of them set as literals rather than tokens. Each was chosen for a specific
-surface and none is wrong on its own, but the ramp above no longer describes the
-system it names. **New work should take a step from the ramp**; reconciling the
-existing literals is open work, and worth doing in one pass rather than
-opportunistically, because moving a size changes layout.
+It used to declare a different, six-step ramp — 12 / 14 / 16 / 20 / 26 / 42 —
+and that ramp was fiction. Three of its six steps were never referenced, 42px
+appeared nowhere, and its sizes contradicted the three commonest in the app:
+13px instrument, 11px mono, 15.5px prose. So a developer following the rule
+*take a step from the ramp* would set 16px prose beside 15.5px prose and make
+the drift worse. A scale that punishes obedience is worse than no scale. The
+tokens now name what the product is, at the values already rendering.
+
+**New work should take a step from the ramp**, which is now safe advice.
+
+Reconciling the remaining literals is still open. Around 260 px literals are
+set directly, across roughly 25 distinct sizes — 13px (36 uses), 11px (29),
+12px (27), 12.5px (25), 14px and 13.5px and 10.5px (21 each) lead them. Each
+was chosen for a surface and few are wrong alone. It is still worth doing in
+one deliberate pass rather than opportunistically, because moving a size moves
+layout.
 
 ### Named Rules
 

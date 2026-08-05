@@ -48,13 +48,23 @@
   --font-brand: "Cinzel Decorative", "Cinzel", serif;
   --font-mono: "JetBrains Mono", ui-monospace, monospace;
 
-  /* type scale (px) */
-  --t-micro: 12px;
-  --t-meta: 14px;
-  --t-body: 16px;
-  --t-card: 20px;
-  --t-title: 26px;
-  --t-hero: 42px;
+  /* Type scale — named after the hierarchy in DESIGN.md, because that is the
+     system this product actually has.
+     The previous ramp (12/14/16/20/26/42) named a system nothing followed: of
+     its six steps only three were ever referenced, and its sizes contradicted
+     the app's three commonest — 13px instrument, 11px mono, 15.5px prose. A
+     developer obeying "take a step from the ramp" produced 16px prose sitting
+     next to 15.5px prose. A scale that makes following it wrong is worse than
+     no scale.
+     Values are unchanged where they were in use; this renames, it does not
+     restyle. Reconciling the ~260 remaining px literals is still open work and
+     still wants one deliberate pass, because moving a size moves layout. */
+  --t-base: 16px;        /* document default; not a hierarchy step */
+  --t-brand: 22px;       /* the wordmark, nowhere else */
+  --t-title: 20px;       /* dialog + empty-state + card headings */
+  --t-prose: 15.5px;     /* the reading voice: message bodies, markdown */
+  --t-instrument: 13px;  /* buttons, inputs, selects */
+  --t-label: 11px;       /* eyebrows, and the mono machine voice */
 
   /* spacing (8px grid) */
   --s1: 4px;

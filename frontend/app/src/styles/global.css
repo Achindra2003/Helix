@@ -7,7 +7,7 @@ body {
   background: var(--paper-2);
   color: var(--ink);
   font-family: var(--font-body);
-  font-size: var(--t-body);
+  font-size: var(--t-base);
   -webkit-font-smoothing: antialiased;
   text-rendering: optimizeLegibility;
 }
