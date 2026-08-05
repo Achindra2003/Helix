@@ -5,10 +5,14 @@ import { useSession } from "@/store/session";
 import { initialOf } from "@/lib/format";
 import s from "./shell.module.css";
 
+// Labels say what is behind the door, not what we call it in the codebase.
+// "LIBR" was a truncation of an internal name — a newcomer had to click it to
+// find out it holds saved prompts, which is exactly the tax a horizontal
+// product cannot charge.
 const NAV = [
   { key: "", glyph: "⌇", label: "CHAT" },
   { key: "map", glyph: "⎇", label: "MAP" },
-  { key: "library", glyph: "▦", label: "LIBR" },
+  { key: "library", glyph: "▦", label: "PROMPTS" },
   { key: "docs", glyph: "⌘", label: "DOCS" },
   { key: "members", glyph: "♔", label: "TEAM" },
 ];

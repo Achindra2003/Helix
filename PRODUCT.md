@@ -129,6 +129,12 @@ human approval for sensitive calls; and file grounding with citation chips.
   branches but is never persisted. Branch verdicts, the decisions ledger and the
   markdown export carry it. The copy-paste gap this section used to describe is
   closed; an *editable document* artifact remains unbuilt.
+- **Prompts and documents stay separate surfaces** (decided 2026-08-05). They
+  looked like one duplicated idea — two places a team keeps text — but a prompt
+  is something a person *inserts* into the composer and a document is something
+  the model *retrieves from* on its own. Merging them would put two unrelated
+  jobs behind one door. The rail label changed from `LIBR` to `PROMPTS` instead,
+  so the door says what is behind it.
 
 ## Brand Commitments
 
