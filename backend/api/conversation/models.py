@@ -9,7 +9,7 @@ identical semantics to `InMemoryStore`, just durable.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -138,3 +138,45 @@ class NodeRow(Base):
     author_id: Mapped[str | None] = mapped_column(String, nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class ResumableRunRow(Base):
+    """A run that is paused and waiting for a human, held across a restart.
+
+    `deep_runs` is the archive of runs that *finished*; this is the much
+    smaller set that has not. A guided deep run stops at a steer interrupt and
+    an agent turn stops at a sensitive tool call, and both then wait for as
+    long as a person takes — minutes, or overnight. Until this table existed
+    that wait was bounded by the server's uptime: `RunManager` held the handle
+    in a dict, so a deploy or a reboot turned "steer" into a 404 and the work
+    was simply gone.
+
+    Everything here is what it takes to build that run again: `thread_id` is
+    where LangGraph's own checkpoint lives (the reasoning itself), and `events`
+    is the log a reconnecting monitor replays so the trace does not restart
+    blank. Rows are deleted the moment a run reaches a terminal state — a row
+    here means "still owed a human answer", nothing else.
+    """
+
+    __tablename__ = "resumable_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # the run_id
+    kind: Mapped[str] = mapped_column(String)  # deep | agent
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    branch_id: Mapped[str] = mapped_column(String)
+    author_id: Mapped[str] = mapped_column(String)
+    # Private threads are never relayed to the workspace room; the rebuilt
+    # handle has to remember that or a resume would leak one.
+    shared: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The LangGraph checkpoint key. Without it the engine cannot be told where
+    # to continue from, and every other column here is useless.
+    thread_id: Mapped[str] = mapped_column(String)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    steerable: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Token text streamed before the pause. The final assistant node is built
+    # from every segment's tokens joined, so dropping this would silently
+    # publish a reply missing its first half.
+    answer_parts: Mapped[str] = mapped_column(Text, default="")
+    events: Mapped[str] = mapped_column(Text, default="[]")  # JSON: the log
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)

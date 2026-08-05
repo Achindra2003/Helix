@@ -19,6 +19,12 @@ class Settings(BaseSettings):
     #   postgresql+asyncpg://helix:helix@postgres:5432/helix
     database_url: str = "sqlite+aiosqlite:///./helix.db"
 
+    # Where LangGraph checkpoints live — the working state a paused deep or
+    # agent run resumes from. Blank means "beside the application database", so
+    # one volume carries both. Its own file on purpose: the schema belongs to
+    # LangGraph, not to our migrations. See api/checkpointing.py.
+    checkpoint_path: str = ""
+
     # Create tables at boot (api/db.py) instead of running migrations. Default
     # True so the self-hosted install stays one command; the hosted instance
     # sets DB_AUTO_CREATE=0 and runs `alembic upgrade head` as a deploy step.

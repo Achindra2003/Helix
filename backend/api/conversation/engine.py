@@ -84,6 +84,17 @@ class ResumableRun:
         self._parts: list[str] = []
         self.paused = False
 
+    def restore(self, *, parts: list[str]) -> None:
+        """Re-enter the paused state after the run was rebuilt from storage.
+
+        The token text accumulated before the pause has to come back with it:
+        the assistant node is persisted once, from every segment's tokens
+        joined, so a run resumed with an empty `_parts` would publish a reply
+        missing everything said before the restart.
+        """
+        self._parts = list(parts)
+        self.paused = True
+
     async def start(self, *, prompt: str, author_id: str) -> AsyncIterator[Event]:
         user_node = await self._store.add_node(
             branch_id=self._branch_id, role="user", content=prompt, author_id=author_id

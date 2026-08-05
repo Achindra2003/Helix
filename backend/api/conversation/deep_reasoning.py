@@ -350,7 +350,12 @@ def build_ouroboros_graph(
     llm = build_reasoning_llm(
         model=groq_model, api_key=groq_api_key, base_url=base_url, temperature=temperature
     )
-    graph = create_ouroboros_graph(llm, cfg)
+    # The process-lifetime checkpointer, not the engine's per-run context
+    # manager: a guided run pauses in one request and is steered by another,
+    # possibly on the far side of a restart. See api/checkpointing.py.
+    from ..checkpointing import checkpointer
+
+    graph = create_ouroboros_graph(llm, cfg, checkpointer=checkpointer())
 
     usage_handler = new_usage_handler()
     graph_config = {

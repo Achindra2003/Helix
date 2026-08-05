@@ -7,7 +7,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, monitoring, rate_limit, telemetry
+from . import checkpointing, db, monitoring, rate_limit, telemetry
 from .config import secure_jwt_secret, settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
@@ -29,7 +29,12 @@ async def lifespan(app: FastAPI):
     monitoring.init_monitoring()
     telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
+    # One connection for the life of the process: a run paused by this request
+    # is resumed by a later one, so a per-run context manager would be closed
+    # by the time it mattered.
+    await checkpointing.connect()
     yield
+    await checkpointing.disconnect()
     await db.disconnect()
 
 
@@ -162,9 +167,20 @@ app.include_router(realtime_router)
 
 @app.get("/health")
 async def health():
-    """Proves all three tiers: process up, DB round-trips, provider selected."""
+    """Proves all three tiers: process up, DB round-trips, provider selected.
+
+    `durable_runs` says whether a paused run would survive a restart of this
+    process. An operator should be able to find that out without pausing a run
+    and rebooting to see what happens — the checkpointer falls back to memory
+    silently when its driver is missing, and this is where that shows.
+    """
     db_time = await db.db_ping()
-    return {"status": "ok", "db_time": db_time, "provider": settings.llm_provider}
+    return {
+        "status": "ok",
+        "db_time": db_time,
+        "provider": settings.llm_provider,
+        "durable_runs": checkpointing.is_durable(),
+    }
 
 
 @app.get("/api/public-config")

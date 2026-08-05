@@ -42,6 +42,7 @@ from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
+from . import resume
 from ..documents.service import DocumentIndex
 from .events import AgentRunRegistered, DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
@@ -1045,10 +1046,23 @@ def _subscription(handle, *, after: int = 0) -> StreamingResponse:
 async def _require_run(
     run_id: str, user: User, session: AsyncSession, min_role: str | None = None
 ):
-    """The live run handle, once the caller may act on its conversation."""
+    """The live run handle, once the caller may act on its conversation.
+
+    Every control path — steer, kill, status, reconnect — comes through here,
+    which is why rehydration lives here too rather than in four endpoints. A
+    miss is not necessarily a dead run: a run paused before a restart is on
+    disk, and rebuilding it is what turns "steer" back into steering instead of
+    a 404 that was never true (see conversation/resume.py).
+    """
     handle = _runs.get(run_id)
     if handle is None:
-        raise api_error(404, "not_found", "deep run not found (finished or expired)")
+        handle = await resume.rehydrate(run_id, _runs)
+    if handle is None:
+        raise api_error(
+            404, "not_found",
+            "this run is no longer available — it finished, was stopped, or "
+            "was an agent turn waiting on approval when the server restarted",
+        )
     await _require_conversation(handle.conversation_id, user, session, min_role)
     return handle
 
@@ -1098,8 +1112,12 @@ async def escalate_deep_reasoning(
     # and substitute canned text — see make_reachability_probe.
     reachability = make_reachability_probe()
 
+    # Kept, not inlined: this is the LangGraph checkpoint key, and it is what
+    # lets a paused run be rebuilt in a later process (conversation/resume.py).
+    thread_id = uuid4().hex
+
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
-        thread_id=uuid4().hex,
+        thread_id=thread_id,
         groq_api_key=deep_llm.api_key,
         groq_model=deep_llm.model,
         base_url=deep_llm.base_url,
@@ -1169,6 +1187,10 @@ async def escalate_deep_reasoning(
         shared=conv.visibility == "shared",
         run=run,
         recorder=recorder,
+        kind="deep",
+        thread_id=thread_id,
+        prompt=body.prompt,
+        steerable=body.steerable,
     )
     handle_box.append(handle)
     handle.events.append(DeepRunRegistered(run_id=run_id))
@@ -1401,6 +1423,11 @@ async def kill_deep_run(
     same as starting one — a runaway run burns the workspace's own key."""
     handle = await _require_run(run_id, user, session, ROLE_COLLABORATOR)
     _runs.kill(handle)
+    if handle.finished:
+        # A queued or paused run is killed synchronously, without going through
+        # the driver that would otherwise clear its row — so clear it here, or
+        # the next restart would offer to resume something already stopped.
+        await resume.forget(run_id)
     return {"run_id": handle.run_id, "status": handle.status}
 
 

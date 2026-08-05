@@ -16,3 +16,8 @@ langchain-openai==1.4.1
 # engine silently degrades to a lexical bag-of-words fallback — functional, but
 # "semantic convergence" stops being semantic.
 sentence-transformers==5.6.0
+# Durable LangGraph checkpoints. Without this, a paused deep run (waiting for
+# human guidance) or a paused agent turn (waiting for tool approval) lives in a
+# process-local dict and dies on restart — see api/checkpointing.py, which
+# falls back to memory and says so rather than refusing to start.
+langgraph-checkpoint-sqlite==3.1.1

@@ -213,6 +213,20 @@ loop gets the strongest one. On Ollama and OpenAI-compatible endpoints the
 default is simply the workspace's chat model, since the Groq-shaped default
 name would not exist there.
 
+## Restarts
+
+Deep and agent runs pause for a human — a guided run stops for steering, an
+agent turn stops for tool approval — and that wait can outlast the server.
+**A paused run survives a restart**: its reasoning is checkpointed to
+`helix-checkpoints.db` (beside your database; set `CHECKPOINT_PATH` to move
+it) and everything around it to a `resumable_runs` row, so steering it after a
+deploy picks up where it stopped rather than answering "not found".
+
+A run that is *mid-execution* when the process dies is lost, and costs one
+re-run. `GET /health` reports `durable_runs` so you can tell which regime you
+are in — it is `false` if the checkpoint driver is missing, in which case the
+server still starts and says so in the log.
+
 ## Roadmap (post-v2)
 
 - Per-conversation model picker (today the provider/model is set once per

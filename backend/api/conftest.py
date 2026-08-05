@@ -96,3 +96,20 @@ def join_workspace(make_user):
 
     make_user_inner = make_user
     return _join
+
+
+@pytest.fixture(autouse=True)
+def _fresh_checkpointer():
+    """Each test starts with an empty checkpoint store, like a fresh process.
+
+    The graph checkpointer is a process-wide singleton now (a paused run is
+    resumed by a later request, so a per-graph saver would be gone when it
+    mattered). Production keys every run by a fresh uuid, but tests reuse fixed
+    thread ids like "t-test" — so without this, one test's checkpoint is
+    another's starting state and graph tests fail only when run together.
+    """
+    from api import checkpointing
+
+    checkpointing._saver = None
+    yield
+    checkpointing._saver = None

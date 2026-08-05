@@ -236,7 +236,6 @@ def build_agent_graph(
         SystemMessage,
         ToolMessage,
     )
-    from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, START, StateGraph
     from langgraph.graph.message import add_messages
 
@@ -341,10 +340,12 @@ def build_agent_graph(
     )
     g.add_conditional_edges("gate", route_gate, {"tools": "tools", "agent": "agent"})
     g.add_edge("tools", "agent")
-    # MemorySaver: in-process checkpoints, same lifetime as the RunManager
-    # handles that own these runs. The restart-surviving SQL checkpointer is
-    # the documented seam (checkpointer= here).
-    graph = g.compile(checkpointer=MemorySaver(), interrupt_before=["gate"])
+    # The shared, process-lifetime checkpointer. This was a per-graph
+    # MemorySaver, which made a tool-approval pause survive exactly as long as
+    # the process did — and the pause is the whole point of the gate.
+    from ..checkpointing import checkpointer
+
+    graph = g.compile(checkpointer=checkpointer(), interrupt_before=["gate"])
 
     graph_config = {
         "configurable": {"thread_id": thread_id},

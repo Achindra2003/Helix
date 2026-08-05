@@ -193,6 +193,36 @@ def to_dict(event: Event) -> dict[str, Any]:
     return asdict(event)
 
 
+_BY_KIND: dict[str, type] = {
+    cls.kind: cls  # type: ignore[attr-defined]
+    for cls in (
+        UserNode, Token, AssistantNode, Done, DeepRunRegistered, RunQueued,
+        Grounding, AgentRunRegistered, ToolCall, ToolResult, Step, Budget,
+        Waiting, Complete,
+    )
+}
+
+
+def from_dict(data: dict[str, Any]) -> Event:
+    """Rebuild an event from `to_dict` output.
+
+    Needed because a paused run's event log is persisted and replayed after a
+    restart: a subscriber reconnecting with `?after=0` must receive the same
+    frames it would have, and `to_sse` renders real dataclasses (it tests
+    `isinstance(event, Done)` and calls `asdict`).
+
+    `kind` is `init=False` on every event, so it is dropped here and the class
+    supplies it again — which also means an unknown or tampered `kind` raises
+    rather than silently producing a half-built event.
+    """
+    payload = {k: v for k, v in data.items() if k != "kind"}
+    cls = _BY_KIND[data["kind"]]
+    # The two node-carrying events hold a nested dataclass rather than a dict.
+    if "node" in payload and isinstance(payload["node"], dict):
+        payload["node"] = Node(**payload["node"])
+    return cls(**payload)
+
+
 def to_sse(event: Event) -> str:
     """Render an event as a Server-Sent-Events frame.
 
