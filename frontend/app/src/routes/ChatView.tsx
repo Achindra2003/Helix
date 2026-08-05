@@ -3,18 +3,17 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
+  listReferences, addReference, removeReference, listMembers, getProviderSettings,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, killDeepRun, resolveBranch, concludeConversation, postNote,
+  searchWorkspace, resolveBranch, concludeConversation, postNote,
 } from "@/lib/api";
-import { streamSSE, attachSSE } from "@/lib/sse";
+import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
 import type { Branch, BranchStatus, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
-import { useNotifications } from "@/store/notifications";
 import { useUnread } from "@/store/unread";
 import { can } from "@/lib/rbac";
 import { colorFor, nowTime } from "@/lib/format";
@@ -31,17 +30,12 @@ import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
 import { TeamStrip } from "@/components/chat/TeamStrip";
-import { ThreadMenu, type ThreadAction } from "@/components/chat/ThreadMenu";
+import { type ThreadAction } from "@/components/chat/ThreadMenu";
+import { StageHeader } from "@/components/chat/StageHeader";
 import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
 import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog } from "@/components/chat/dialogs";
+import { useDeepRun, pickText } from "@/components/chat/useDeepRun";
 import s from "@/components/chat/chat.module.css";
-
-// Deep runs execute server-side and outlive the tab: remember the in-flight
-// run so a reload can reattach to its stream instead of showing a dead monitor.
-const deepKey = (wid: string) => `helix:deeprun:${wid}`;
-interface SavedDeepRun {
-  runId: string; conversationId: string; branchId: string; question: string; guided: boolean;
-}
 
 // Grounding citations live only in the stream (nodes don't persist them), but
 // history reloads happen after every turn — remember which sources each
@@ -630,161 +624,19 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Delete failed", "error"); }
   }
 
-  function handleDeepEvent(ev: import("@/lib/types").RunEvent) {
-    const run = useMonitor.getState().run;
-    if (!run) return;
-    if (ev.kind === "deep_run") {
-      monitor.patch({ runId: ev.run_id });
-      if (wid) {
-        const saved: SavedDeepRun = {
-          runId: ev.run_id, conversationId: run.conversationId ?? "", branchId: run.branchId ?? "",
-          question: run.question, guided: !!run.onSteer,
-        };
-        sessionStorage.setItem(deepKey(wid), JSON.stringify(saved));
-      }
-    } else if (ev.kind === "queued") {
-      // Waiting behind the workspace's concurrency cap — say so instead of stalling.
-      monitor.patch({ status: "queued", queuePosition: ev.position });
-    } else if (ev.kind === "step") {
-      const p = ev.payload ?? {};
-      const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
-      // Convergence viz: collect each cycle's stability reading (and the run's
-      // resolved halting threshold) for the sparkline + closing ring.
-      const stabNow = typeof p.stability === "number" ? (p.stability as number) : null;
-      const thr = typeof p.stability_threshold === "number" ? (p.stability_threshold as number) : undefined;
-      monitor.patch({
-        depth: ev.depth ?? run.depth,
-        energy: ev.energy ?? run.energy,
-        loopGuard: num("loop_guard", run.loopGuard),
-        stability: num("stability", run.stability),
-        confidence: num("confidence", run.confidence),
-        ...(stabNow !== null && stabNow !== run.stabilityHistory[run.stabilityHistory.length - 1]
-          ? { stabilityHistory: [...run.stabilityHistory, stabNow] } : {}),
-        ...(thr !== undefined ? { threshold: thr } : {}),
-        // A queued run has started; a replayed pause has been steered past.
-        ...(run.status === "queued" || run.status === "waiting" ? { status: "live" as const } : {}),
-      });
-      const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
-      monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
-    } else if (ev.kind === "budget") {
-      monitor.patch({ budgetPct: Math.round(ev.pct <= 1 ? ev.pct * 100 : ev.pct), tokensUsed: ev.tokens_used ?? run.tokensUsed });
-    } else if (ev.kind === "token") {
-      monitor.patch({ answer: ((useMonitor.getState().run?.answer ?? "") + ev.text).replace(/^\s*\[answer\]\s*/i, "") });
-    } else if (ev.kind === "waiting") {
-      monitor.addStep({ kind: "steer", meta: "paused for guidance", text: "The loop is holding — steer it, or let it continue." });
-      monitor.patch({ status: "waiting" });
-    } else if (ev.kind === "complete") {
-      monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
-      if (wid) sessionStorage.removeItem(deepKey(wid));
-      // Your own run finished while you weren't looking (backgrounded tab):
-      // a bell notice, plus a browser notification if permission was granted.
-      if (document.hidden) {
-        useNotifications.getState().add({
-          text: `Your deep run ${ev.status === "done" ? "finished" : ev.status} (${ev.stop_reason})`,
-          conversationId: run.conversationId,
-        });
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          try {
-            new Notification("Helix — deep run finished", { body: run.question.slice(0, 120) });
-          } catch { /* notification is an enhancement, never an error */ }
-        }
-      }
-    } else if (ev.kind === "assistant_node") {
-      const cur = useMonitor.getState().run;
-      if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
-    }
-  }
-
-  /** Await one SSE segment of a deep run; a guided run has several (each pause
-   *  ends the stream, each steer opens the next). History refreshes only when
-   *  the run truly finishes — a paused run has no assistant reply yet. */
-  async function finishDeepSegment(done: Promise<void>, branchId: string) {
-    try {
-      await done;
-      const cur = useMonitor.getState().run;
-      if (cur && cur.status === "live") monitor.patch({ status: "done", stopReason: cur.stopReason || "ended" });
-    } catch (e: any) {
-      const cur = useMonitor.getState().run;
-      if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
-    }
-    const status = useMonitor.getState().run?.status;
-    if (status !== "waiting" && status !== "live" && status !== "queued" && wid) {
-      // Terminal on this client — a reload should not reattach to it.
-      sessionStorage.removeItem(deepKey(wid));
-    }
-    if (status !== "waiting" && activeBranchRef.current === branchId) {
-      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)))).catch(() => {});
-    }
-  }
-
-  async function steerRun(guidance: string) {
-    const cur = useMonitor.getState().run;
-    if (!cur?.runId || !cur.branchId || cur.status !== "waiting") return;
-    monitor.patch({ status: "live" });
-    monitor.addStep({ kind: "steer", meta: "human guidance", text: guidance || "(continue unchanged)" });
-    const h = streamSSE(`/conversations/deep/runs/${cur.runId}/steer`, { guidance }, handleDeepEvent);
-    monitor.patch({ abort: h.abort });
-    await finishDeepSegment(h.done, cur.branchId);
-  }
-
-  async function onDeep(text: string, guided: boolean) {
-    const branchId = await ensureConversation();
-    if (!branchId || !activeConvId) return;
-    // Deep runs take minutes and survive the tab — ask (once, lazily) to be
-    // allowed to notify when one finishes in the background. Denial is fine.
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
-    monitor.start({
-      status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
-      stabilityHistory: [],
-      budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
-      abort: h.abort, conversationId: activeConvId, branchId,
-      canControl: can(role, "run.control"),
-      onSteer: guided ? (g) => { steerRun(g); } : undefined,
-    });
-    await finishDeepSegment(h.done, branchId);
-  }
-
-  // Reconnect-on-load (AI-LANE-CONTRACTS §2.2): if this workspace has an
-  // in-flight deep run from a previous page load, reattach to its stream —
-  // replaying the event log from 0 rebuilds the whole monitor (gauges, trace,
-  // sparkline), then follows live. A finished/expired run just clears itself.
-  useEffect(() => {
-    if (!wid) return;
-    const raw = sessionStorage.getItem(deepKey(wid));
-    if (!raw) return;
-    let saved: SavedDeepRun;
-    try { saved = JSON.parse(raw); } catch { sessionStorage.removeItem(deepKey(wid)); return; }
-    if (!saved?.runId) { sessionStorage.removeItem(deepKey(wid)); return; }
-    (async () => {
-      try {
-        const st = await getDeepRunStatus(saved.runId);
-        if (st.status === "done" || st.status === "error" || st.status === "killed") {
-          sessionStorage.removeItem(deepKey(wid));
-          return;
-        }
-        monitor.start({
-          status: st.status === "queued" ? "queued" : "live",
-          question: saved.question, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
-          stabilityHistory: [], budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
-          conversationId: saved.conversationId, branchId: saved.branchId, runId: saved.runId,
-          queuePosition: st.queue_position ?? undefined,
-          canControl: can(role, "run.control"),
-          onSteer: saved.guided ? (g) => { steerRun(g); } : undefined,
-        });
-        const h = attachSSE(`/conversations/deep/runs/${saved.runId}/stream?after=0`, handleDeepEvent);
-        monitor.patch({ abort: h.abort });
-        await finishDeepSegment(h.done, saved.branchId);
-      } catch {
-        // 404: the run finished and its live handle expired — the assistant
-        // node is already in history, nothing to reattach to.
-        sessionStorage.removeItem(deepKey(wid));
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wid]);
+  // Deep Reasoning's whole lifecycle — segmented streams, steering, killing,
+  // and reattaching to a run that outlived the last page load. The view keeps
+  // ownership of the transcript, so the hook asks for a refresh rather than
+  // learning how to build one.
+  const { onDeep, stopRun } = useDeepRun({
+    wid, role, activeConvId, ensureConversation,
+    isViewing: (branchId) => activeBranchRef.current === branchId,
+    refreshHistory: (branchId) => {
+      getHistory(branchId).then((r) => setMessages(
+        r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)),
+      )).catch(() => {});
+    },
+  });
 
   // --- Live fan-out (FR-5): teammates' activity arrives over the workspace
   // room. A turn streaming on the branch I'm viewing renders in place,
@@ -973,15 +825,6 @@ export function ChatView() {
 
   /** Same contract as the monitor's Stop: the run lives server-side, so the
    *  local stream being aborted is the fallback, not the mechanism. */
-  async function stopRun() {
-    const cur = useMonitor.getState().run;
-    if (!cur) return;
-    if (cur.runId) {
-      try { await killDeepRun(cur.runId); return; } catch { /* fall back to abort */ }
-    }
-    cur.abort?.();
-  }
-
   return (
     <div className={`${s.grid} folio`} data-drawer={drawer ?? undefined}>
       {/* LEFT */}
@@ -1043,110 +886,22 @@ export function ChatView() {
           </EmptyState>
         ) : (
           <>
-            <div className={s.stageHead}>
-              <div className={s.stageTitleBlock}>
-                {/* The title alone. Rename and delete already exist on the
-                    conversation row in the thread list, and now also in the
-                    thread menu — three copies of one action was two too many,
-                    and they were squeezing the one thing this header must
-                    always show. */}
-                <div className={s.stageTitle}>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis", display: "block" }}>
-                    {activeConv.title}
-                  </span>
-                </div>
-                <div className={s.stageMeta}>
-                  <span className={s.chip} style={{ color: activeConv.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)" }}>
-                    {activeConv.visibility === "private" ? "◍ private" : "⊙ shared"}
-                  </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>
-                    on <span style={{ color: "var(--oxblood)" }}>{activeBranch?.name ?? "main"}</span>
-                  </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messages.length} nodes</span>
-                </div>
-                {/* What the thread concluded, above the branch verdict: it is
-                    the answer to the question the whole conversation was
-                    asking, so it outranks the fate of any one exploration. */}
-                {activeConv.conclusion && (
-                  <div className={s.conclusion}>
-                    <span className={s.conclusionLabel}>
-                      <button className={s.toLedger} onClick={() => nav(`/w/${wid}/map?view=decisions`)}
-                        title="Everything this team has decided, and why">Concluded</button>
-                    </span>
-                    <span>{activeConv.conclusion}</span>
-                    {canSend && (
-                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.7 }}
-                        title="Revise the conclusion" onClick={() => setConcludeDlg(true)}>✎</button>
-                    )}
-                  </div>
-                )}
-                {/* The verdict on the branch you are reading. Above the linked
-                    context because "this was abandoned three days ago, and
-                    here is why" outranks everything else in this header — it
-                    is the difference between continuing useful work and
-                    redoing something the team already rejected. */}
-                {activeBranch && activeBranch.status !== "open" && (
-                  <div className={s.branchVerdict} data-status={activeBranch.status}>
-                    <span className={s.verdictMark}>
-                      {activeBranch.status === "adopted" ? "✓" : "✕"}
-                    </span>
-                    <span>
-                      <b>
-                        <button className={s.toLedger} onClick={() => nav(`/w/${wid}/map?view=decisions`)}
-                          title="Everything this team has decided, and why">
-                          {activeBranch.status === "adopted" ? "Adopted" : "Abandoned"}
-                        </button>
-                      </b>
-                      {activeBranch.resolution && <> — {activeBranch.resolution}</>}
-                      {activeBranch.intent && (
-                        <span className={s.verdictIntent}> · was trying: {activeBranch.intent}</span>
-                      )}
-                    </span>
-                    {canFork && (
-                      <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.7 }}
-                        title="Change the verdict"
-                        onClick={() => setResolveDlg(activeBranch)}>⚖</button>
-                    )}
-                  </div>
-                )}
-                {/* Only rendered once there is something linked, or an action to
-                    offer. "linked context: none" was a permanent label for an
-                    empty state — it occupied prime space to say nothing. */}
-                {/* Only when something IS linked. The "＋ link context" button
-                    lived here permanently to offer an action most threads never
-                    use; it is in the thread menu now, and this row went back to
-                    being what it says it is — a list of what this thread draws
-                    on. */}
-                {references.length > 0 && (
-                  <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
-                    {references.length > 0 && (
-                      <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
-                    )}
-                    {references.map((r) => (
-                      <span key={r.id} className={s.chip} title="Replies here draw on this thread's live context"
-                        style={{ color: "var(--ink-2)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        ⛓ {r.title}
-                        {canSend && (
-                          <button onClick={() => doRemoveRef(r.id)} title="Unlink"
-                            style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
-                        )}
-                      </span>
-                    ))}
-                  </div>
-                )}
-              </div>
-              <ThreadMenu actions={threadActions} />
-              {canSend && messages.length > 0 && !activeConv.conclusion && (
-                <Button onClick={() => setConcludeDlg(true)} title="Say what this thread concluded">
-                  <span style={{ color: "var(--verde)" }}>❧</span> Conclude
-                </Button>
-              )}
-              {canFork && (
-                <Button onClick={() => activeBranch?.head_node_id ? setForkDlg({ nodeId: activeBranch.head_node_id }) : push("Send a message before forking", "error")}>
-                  <span style={{ color: "var(--oxblood)" }}>⌇</span> Fork
-                </Button>
-              )}
-            </div>
+            <StageHeader
+              conversation={activeConv}
+              branch={activeBranch}
+              references={references}
+              messageCount={messages.length}
+              canSend={canSend}
+              canFork={canFork}
+              threadActions={threadActions}
+              onConclude={() => setConcludeDlg(true)}
+              onResolve={(b) => setResolveDlg(b)}
+              onFork={() => activeBranch?.head_node_id
+                ? setForkDlg({ nodeId: activeBranch.head_node_id })
+                : push("Send a message before forking", "error")}
+              onUnlinkRef={doRemoveRef}
+              onOpenLedger={() => nav(`/w/${wid}/map?view=decisions`)}
+            />
 
             {replay !== null && (
               <div className={s.replayBar}>
@@ -1334,12 +1089,3 @@ export function ChatView() {
 // experiment") says nothing; "we adopted 'chunk at 500 with overlap'" is a
 // decision. The name stays, shortened to a label for the lineage.
 
-function pickText(p: Record<string, unknown>): string {
-  if (!p) return "";
-  for (const k of ["thought", "synthesis", "surfaced_insight", "insight", "reflection", "seed"]) {
-    const v = p[k];
-    if (typeof v === "string" && v.trim()) return v;
-  }
-  const v = Object.values(p).find((x) => typeof x === "string" && (x as string).length > 4);
-  return (v as string) ?? "";
-}
