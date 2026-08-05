@@ -72,6 +72,12 @@ _MAIN_THREAD = [
 # settled on SQLite — so the Map shows two live directions from one node, which
 # is the entire "Git for your team's AI work" claim in one screen.
 _FORK_NAME = "What if we assume Postgres?"
+# Why the fork was made. Without it a branch is an orphan someone has to
+# reconstruct a motive for; with it the Map reads as "we were testing X".
+_FORK_INTENT = (
+    "Price the Postgres-first path before ruling it out — the thread was "
+    "converging on SQLite from convenience rather than evidence."
+)
 _FORK_THREAD = [
     ("user", "Assume we go with Postgres from day one. What does that cost us?"),
     (
@@ -86,6 +92,41 @@ _FORK_THREAD = [
         "chosen, not inherited.",
     ),
 ]
+
+# What came of the fork. Seeded *abandoned* on purpose: an adopted branch is
+# the easy case, and the claim this product actually makes is that the road
+# not taken stays readable with its reason attached. A verdict without a
+# reason is refused by the API, and would be worthless here for the same
+# reason — so the seed models the thing the API insists on.
+_FORK_RESOLUTION = (
+    "Abandoned. The cost is real, but it lands on every self-hoster at install "
+    "time, and this service is installed far more often than it is scaled. "
+    "Keeping the query layer free of dialect-specific SQL preserves the option, "
+    "so choosing SQLite now is not the same as being stuck with it."
+)
+
+# What the thread concluded. Written by a human in the real product (the LLM
+# can draft one via /synthesize, but nothing persists until a person accepts
+# it), so seeding it as authored content is faithful rather than a shortcut.
+_CONCLUSION = (
+    "SQLite is the default; Postgres is the documented upgrade.\n\n"
+    "The deciding constraint turned out to be the 512 MB deployment target, "
+    "not install convenience — a Postgres-by-default install cannot meet it. "
+    "Every query stays behind an interface and avoids SQLite-only syntax, so a "
+    "team that outgrows the default changes a connection string.\n\n"
+    "Revisit if we ever run a hosted tier where we own the database."
+)
+
+# A note: addressed to teammates, never sent to the model (context.py filters
+# role="note" out of both build_messages and render_transcript). Seeded because
+# the feature is invisible until one exists — an empty thread cannot show you
+# that some of its content is deliberately not part of the conversation.
+_NOTE = (
+    "Note for whoever picks this up: the 512 MB box in “Deployment "
+    "constraints” is what actually settles this, not the one-command install. "
+    "Worth leading with that — the install argument sounds like laziness, the "
+    "memory ceiling doesn't."
+)
 
 # The referenced conversation: separate thread, linked in as live background
 # context. This is what puts an edge on the Map.
@@ -243,8 +284,33 @@ async def _seed(session: AsyncSession, user_id: str) -> str:
         conversation_id=conversation.id,
         from_node_id=nodes[1].id,
         name=_FORK_NAME,
+        intent=_FORK_INTENT,
     )
     await _add_turns(branch.id, _FORK_THREAD, user_id)
+
+    # --- and what came of it --------------------------------------------------
+    # The seed used to stop at the fork, which meant every new account's first
+    # impression demonstrated only divergence — the half a single-player chat
+    # app also has. The verdict, the conclusion and the note below are the half
+    # that is Helix, and they are what puts the first two rows in the decisions
+    # ledger before the user has typed anything.
+    await _store.resolve_branch(
+        branch_id=branch.id,
+        status="abandoned",
+        resolution=_FORK_RESOLUTION,
+        resolved_by=user_id,
+    )
+    await _store.add_node(
+        branch_id=conversation.default_branch_id,
+        role="note",
+        content=_NOTE,
+        author_id=user_id,
+    )
+    await _store.set_conclusion(
+        conversation_id=conversation.id,
+        conclusion=_CONCLUSION,
+        concluded_by=user_id,
+    )
 
     await _store.add_reference(
         conversation_id=conversation.id,

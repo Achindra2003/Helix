@@ -91,6 +91,66 @@ def test_the_seeded_thread_is_actually_forked(client, seeding):
     assert fork_history[-1]["content"] != root_history[-1]["content"]
 
 
+def test_the_seed_demonstrates_convergence_not_just_divergence(client, seeding):
+    """The gap this closes: the seed used to stop at the fork.
+
+    Branching is the half a single-player chat app also has. What a new user
+    needs to see on first load is the half that is Helix — that an exploration
+    gets a verdict with a reason, and a thread reaches a conclusion someone
+    signed. Both land in the decisions ledger before the user has typed
+    anything, which is also the only way most people will discover it exists.
+    """
+    headers = _register(client, "converged@test.dev")
+    ws = _seeded_workspace(client, headers)
+    main = _main_thread(client, headers, ws["id"])
+
+    branches = _items(
+        client.get(f"/conversations/{main['id']}/branches", headers=headers)
+    )
+    fork = next(b for b in branches if b["name"] == onboarding._FORK_NAME)
+    # Abandoned, not adopted: the road not taken is the one whose reason has to
+    # survive, and it is the harder case to render.
+    assert fork["status"] == "abandoned"
+    assert fork["resolution"] == onboarding._FORK_RESOLUTION
+    assert fork["intent"] == onboarding._FORK_INTENT
+    assert fork["resolved_by"]
+
+    conversation = client.get(f"/conversations/{main['id']}", headers=headers).json()
+    assert conversation["conclusion"] == onboarding._CONCLUSION
+
+    # Both reach the ledger, which is where a person catching up actually reads
+    # them. Two rows, one verdict and one conclusion.
+    decisions = _items(client.get(f"/workspaces/{ws['id']}/decisions", headers=headers))
+    kinds = {d["kind"] for d in decisions}
+    assert kinds == {"verdict", "conclusion"}, decisions
+
+
+def test_the_seeded_thread_carries_a_note(client, seeding):
+    """A note is invisible as a feature until one exists — an empty thread
+    cannot show you that some of its content is deliberately not sent to the
+    model. So the seed ships one, on the main branch where it will be read.
+
+    That notes are filtered out of the model context is the rule itself, and it
+    is pinned in `conversation/tests/test_router.py`; this only asserts the seed
+    produces a real one for that rule to apply to.
+    """
+    headers = _register(client, "noted@test.dev")
+    ws = _seeded_workspace(client, headers)
+    main = _main_thread(client, headers, ws["id"])
+
+    branches = _items(
+        client.get(f"/conversations/{main['id']}/branches", headers=headers)
+    )
+    root = next(b for b in branches if b["name"] != onboarding._FORK_NAME)
+    history = client.get(
+        f"/conversations/branches/{root['id']}/history", headers=headers
+    ).json()["nodes"]
+
+    note = next(n for n in history if n["role"] == "note")
+    assert note["content"] == onboarding._NOTE
+    assert note["author_id"]  # a note is always attributable to a person
+
+
 def test_seeded_deep_run_matches_the_shape_real_runs_persist(client, seeding):
     """Guards the one place this module writes a row the store does not own.
 
