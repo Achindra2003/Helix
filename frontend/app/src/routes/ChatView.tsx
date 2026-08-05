@@ -1069,7 +1069,10 @@ export function ChatView() {
                     asking, so it outranks the fate of any one exploration. */}
                 {activeConv.conclusion && (
                   <div className={s.conclusion}>
-                    <span className={s.conclusionLabel}>Concluded</span>
+                    <span className={s.conclusionLabel}>
+                      <button className={s.toLedger} onClick={() => nav(`/w/${wid}/map?view=decisions`)}
+                        title="Everything this team has decided, and why">Concluded</button>
+                    </span>
                     <span>{activeConv.conclusion}</span>
                     {canSend && (
                       <button className={`icon-act ${s.branchAct}`} style={{ opacity: 0.7 }}
@@ -1088,7 +1091,12 @@ export function ChatView() {
                       {activeBranch.status === "adopted" ? "✓" : "✕"}
                     </span>
                     <span>
-                      <b>{activeBranch.status === "adopted" ? "Adopted" : "Abandoned"}</b>
+                      <b>
+                        <button className={s.toLedger} onClick={() => nav(`/w/${wid}/map?view=decisions`)}
+                          title="Everything this team has decided, and why">
+                          {activeBranch.status === "adopted" ? "Adopted" : "Abandoned"}
+                        </button>
+                      </b>
                       {activeBranch.resolution && <> — {activeBranch.resolution}</>}
                       {activeBranch.intent && (
                         <span className={s.verdictIntent}> · was trying: {activeBranch.intent}</span>

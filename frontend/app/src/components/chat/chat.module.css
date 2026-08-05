@@ -360,6 +360,21 @@
   text-transform: uppercase; color: var(--gilt-1); font-weight: 600;
   flex: 0 0 auto; white-space: nowrap;
 }
+/* The word that names a decision is also the way to all of them.
+   The decisions ledger is the payoff of the whole convergence build and it sat
+   behind a mode toggle on the Map, which is not where the question "what did
+   we decide?" occurs to anyone. It occurs here, reading a thread that has
+   already decided something. So the label becomes the door — inheriting its
+   own type so it stays a label, with a dotted rule as the only hint that it
+   leads somewhere. No new chrome: a thread with nothing decided shows no door,
+   because there would be nothing behind it. */
+.toLedger {
+  border: 0; background: transparent; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; font-weight: inherit;
+  border-bottom: 1px dotted currentColor;
+}
+.toLedger:hover { color: var(--oxblood); }
 /* The compose box in the conclude dialog — reading voice, because what you
    write here becomes the record. */
 .concludeBox {

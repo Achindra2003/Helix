@@ -10,7 +10,7 @@
 // tree, rows by node seq, conversations flowing left→right. Node payloads are
 // lean (no content); hover fetches the branch history lazily for an excerpt.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { getWorkspaceMap, getHistory } from "@/lib/api";
 import { onRoomEvent } from "@/lib/realtime";
@@ -229,7 +229,18 @@ interface Hover {
 export function MapView() {
   const { wid } = useParams();
   // "structure" is the stemma; "decisions" is the ledger of recorded verdicts.
-  const [mode, setMode] = useState<"stemma" | "decisions">("stemma");
+  //
+  // In the URL rather than in component state, because a mode nothing can link
+  // to is a mode nothing will send you to. The ledger is the answer to "what
+  // did we decide?", and the places that question occurs to people — a
+  // concluded thread, a branch with a verdict on it — are elsewhere in the app.
+  // They can now point here.
+  const [params, setParams] = useSearchParams();
+  const mode = params.get("view") === "decisions" ? "decisions" : "stemma";
+  const setMode = (next: "stemma" | "decisions") =>
+    // replace: flipping a view is not a place you want the back button to
+    // walk through on the way out of the Map.
+    setParams(next === "decisions" ? { view: "decisions" } : {}, { replace: true });
   const nav = useNavigate();
   const qc = useQueryClient();
   const user = useSession((st) => st.user);
