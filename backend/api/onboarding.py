@@ -98,8 +98,12 @@ _FORK_THREAD = [
 # not taken stays readable with its reason attached. A verdict without a
 # reason is refused by the API, and would be worthless here for the same
 # reason — so the seed models the thing the API insists on.
+# It does not restate the status. Every surface that shows a resolution already
+# prefixes it with the verdict — the branch header, the ledger, the decision
+# report — so an opening "Abandoned." rendered as "Abandoned — Abandoned. ..."
+# in all three.
 _FORK_RESOLUTION = (
-    "Abandoned. The cost is real, but it lands on every self-hoster at install "
+    "The cost is real, but it lands on every self-hoster at install "
     "time, and this service is installed far more often than it is scaled. "
     "Keeping the query layer free of dialect-specific SQL preserves the option, "
     "so choosing SQLite now is not the same as being stuck with it."

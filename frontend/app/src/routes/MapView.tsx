@@ -12,7 +12,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getWorkspaceMap, getHistory } from "@/lib/api";
+import { getWorkspaceMap, getHistory, downloadWorkspaceReport } from "@/lib/api";
 import { onRoomEvent } from "@/lib/realtime";
 import { usePresenceStore } from "@/store/presence";
 import { useSession } from "@/store/session";
@@ -20,6 +20,7 @@ import type { Branch, MapConversation, MapNode, Node } from "@/lib/types";
 import { colorFor } from "@/lib/format";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import { DecisionLedger } from "@/components/map/DecisionLedger";
+import { useToast } from "@/components/common/Toast";
 import s from "./map.module.css";
 
 // --- deterministic stemma layout ------------------------------------------
@@ -244,6 +245,7 @@ export function MapView() {
   const nav = useNavigate();
   const qc = useQueryClient();
   const user = useSession((st) => st.user);
+  const { push } = useToast();
   const presence = usePresenceStore((st) => st.users);
 
   const { data } = useQuery({
@@ -393,6 +395,14 @@ export function MapView() {
         </span>
         {/* Rendered conditionally, not `hidden`: .legend sets display:flex,
             which outranks the UA stylesheet's [hidden] { display: none }. */}
+        {mode === "decisions" && (
+          <button className={s.exportLedger}
+            title="Every decision here, as a document you can hand to someone who wasn't there"
+            onClick={() => downloadWorkspaceReport(wid!, "md")
+              .catch(() => push("Export failed", "error"))}>
+            ❧ export decisions
+          </button>
+        )}
         {mode === "stemma" && (
         <div className={s.legend}>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--ink-2)" /></svg> you ask</span>

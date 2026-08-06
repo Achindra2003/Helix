@@ -129,6 +129,20 @@ human approval for sensitive calls; and file grounding with citation chips.
   branches but is never persisted. Branch verdicts, the decisions ledger and the
   markdown export carry it. The copy-paste gap this section used to describe is
   closed; an *editable document* artifact remains unbuilt.
+- **The record leaves the product as a document** (decided 2026-08-06). Export
+  used to require a branch, so it produced one path — and the alternative that
+  was weighed and rejected, which is half of why a decision holds, was in no
+  file at all. There are now two decision reports, in Markdown and JSON:
+  `GET /conversations/{id}/export` *without* a branch renders the whole
+  conversation — every exploration including the abandoned ones, each verdict
+  with its reason and who recorded it, the reasoning runs, the threads it drew
+  context from — and `GET /workspaces/{id}/export` gathers the same decisions
+  across a workspace, which is the ledger as a file. Notes render as notes in
+  every export, marked as never having reached the model.
+  **Not** in the reports, on purpose: per-message grounding citations. They
+  live only in the live stream and were never persisted on nodes, so listing
+  "the sources cited" would mean inventing them. Linked threads are recorded,
+  and are listed.
 - **Prompts and documents stay separate surfaces** (decided 2026-08-05). They
   looked like one duplicated idea — two places a team keeps text — but a prompt
   is something a person *inserts* into the composer and a document is something

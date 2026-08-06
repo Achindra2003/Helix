@@ -236,16 +236,17 @@ export const resolveBranch = (bid: string, status: BranchStatus, resolution: str
     body: JSON.stringify({ status, resolution }),
   });
 // Export is auth-gated, so a plain <a href> can't carry the JWT: fetch with the
-// token and hand the payload to the browser as a blob download.
-export const downloadExport = async (cid: string, branchId: string, format: "md" | "json") => {
+// token and hand the payload to the browser as a blob download. The server
+// names the file (Content-Disposition); the fallback only covers a proxy that
+// strips the header.
+const downloadFile = async (path: string, fallback: string) => {
   const token = getToken();
-  const res = await fetch(
-    `${API_BASE}/conversations/${cid}/export?format=${format}&branch=${branchId}`,
-    { headers: token ? { Authorization: `Bearer ${token}` } : {} },
-  );
+  const res = await fetch(`${API_BASE}${path}`, {
+    headers: token ? { Authorization: `Bearer ${token}` } : {},
+  });
   if (!res.ok) throw new ApiError(res.status, "export_failed", `Export failed (HTTP ${res.status})`);
   const disposition = res.headers.get("Content-Disposition") ?? "";
-  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? `conversation.${format}`;
+  const filename = /filename="([^"]+)"/.exec(disposition)?.[1] ?? fallback;
   const blob = await res.blob();
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
@@ -254,6 +255,23 @@ export const downloadExport = async (cid: string, branchId: string, format: "md"
   a.click();
   URL.revokeObjectURL(url);
 };
+
+/** One branch, root to head: the fair copy of a single path. */
+export const downloadExport = (cid: string, branchId: string, format: "md" | "json") =>
+  downloadFile(
+    `/conversations/${cid}/export?format=${format}&branch=${branchId}`,
+    `conversation.${format}`,
+  );
+
+/** The whole conversation as a decision report — every exploration, including
+ *  the abandoned ones, with its verdict and reason. Omitting `branch` is what
+ *  asks for the report rather than a transcript. */
+export const downloadReport = (cid: string, format: "md" | "json") =>
+  downloadFile(`/conversations/${cid}/export?format=${format}`, `report.${format}`);
+
+/** Every decision in the workspace, gathered — the ledger as a document. */
+export const downloadWorkspaceReport = (wid: string, format: "md" | "json") =>
+  downloadFile(`/workspaces/${wid}/export?format=${format}`, `decisions.${format}`);
 
 // --- deep-run control (AI-LANE-CONTRACTS §2.2): the run outlives the tab ---
 export type DeepRunStatus = {

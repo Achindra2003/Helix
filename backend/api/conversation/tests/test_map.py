@@ -144,3 +144,114 @@ def test_viewing_presence_reaches_teammates(make_workspace, join_workspace):
                     u for u in frame["users"] if u["user_id"] == owner_id
                 )
                 assert owner_entry["viewing"] is None
+
+
+# --- the workspace decision report --------------------------------------------
+
+
+def _decide(client, headers, wid, title, conclusion):
+    """A thread that reaches a conclusion, with one abandoned fork."""
+    created = _create_conv(client, headers, wid, title=title)
+    cid, branch_id = created["conversation_id"], created["branch_id"]
+    client.post(
+        f"/conversations/{branch_id}/messages", json={"prompt": "seed"}, headers=headers
+    )
+    node_id = client.get(
+        f"/conversations/branches/{branch_id}/history", headers=headers
+    ).json()["nodes"][0]["id"]
+    fork = client.post(
+        f"/conversations/{cid}/fork",
+        json={"from_node_id": node_id, "name": "alt", "intent": "the other way"},
+        headers=headers,
+    ).json()["branch_id"]
+    client.post(
+        f"/conversations/branches/{fork}/resolve",
+        json={"status": "abandoned", "resolution": "measured slower"},
+        headers=headers,
+    )
+    client.post(
+        f"/conversations/{cid}/conclude", json={"conclusion": conclusion}, headers=headers
+    )
+    return cid
+
+
+def test_the_workspace_report_answers_what_did_we_decide(make_workspace):
+    """The ledger answers this on screen; until now nothing answered it in a file.
+
+    "Give me everything we've settled" had no export at all — the only one was
+    a single branch's transcript. This is the artifact you hand to a reviewer,
+    a new teammate, or yourself in a year.
+    """
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        _decide(client, headers, wid, "Chunking", "We chunk at 500.")
+        _decide(client, headers, wid, "Caching", "We cache nothing for now.")
+
+        md = client.get(f"/workspaces/{wid}/export", headers=headers)
+        assert md.status_code == 200
+        assert md.headers["content-type"].startswith("text/markdown")
+        body = md.text
+        assert "what the team has decided" in body
+        for expected in (
+            "## Chunking",
+            "## Caching",
+            "We chunk at 500.",
+            "We cache nothing for now.",
+            # Each verdict keeps its reason and its motive.
+            "measured slower",
+            "the other way",
+        ):
+            assert expected in body, expected
+
+        report = client.get(
+            f"/workspaces/{wid}/export", params={"format": "json"}, headers=headers
+        ).json()
+        assert report["kind"] == "workspace_report"
+        # Two conclusions and two verdicts.
+        assert report["decision_count"] == 4
+        assert {t["title"] for t in report["threads"]} == {"Chunking", "Caching"}
+
+
+def test_a_thread_that_decided_nothing_is_not_a_decision(make_workspace):
+    """Same rule as the ledger: an open exploration is not a decision."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        _create_conv(client, headers, wid, title="Just thinking")
+
+        report = client.get(
+            f"/workspaces/{wid}/export", params={"format": "json"}, headers=headers
+        ).json()
+        assert report["threads"] == []
+        assert report["decision_count"] == 0
+        md = client.get(f"/workspaces/{wid}/export", headers=headers).text
+        assert "No decisions recorded yet" in md
+
+
+def test_the_workspace_report_respects_private_threads(make_workspace, join_workspace):
+    """A report is a document that leaves the building — it must not carry
+    someone else's private thread out with it."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        mate_headers, _ = join_workspace(client, owner_headers, wid)
+
+        created = _create_conv(
+            client, owner_headers, wid, title="Owner secret", visibility="private"
+        )
+        client.post(
+            f"/conversations/{created['conversation_id']}/conclude",
+            json={"conclusion": "not for everyone"},
+            headers=owner_headers,
+        )
+
+        mine = client.get(f"/workspaces/{wid}/export", headers=owner_headers).text
+        theirs = client.get(f"/workspaces/{wid}/export", headers=mate_headers).text
+        assert "not for everyone" in mine
+        assert "not for everyone" not in theirs
+        assert "Owner secret" not in theirs
+
+
+def test_the_workspace_report_is_membership_gated(make_workspace, make_user):
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        outsider, _ = make_user(client)
+        assert client.get(f"/workspaces/{wid}/export", headers=outsider).status_code == 404

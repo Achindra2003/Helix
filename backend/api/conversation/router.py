@@ -42,7 +42,7 @@ from . import engine
 from .context import ReferenceBlock
 from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
-from . import resume
+from . import reports, resume
 from ..documents.service import DocumentIndex
 from .events import AgentRunRegistered, DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
@@ -379,16 +379,76 @@ async def list_branches(
     return {"items": [asdict(b) for b in branches]}
 
 
+async def _export_decision_report(conv, format: str, session: AsyncSession):
+    """Gather the whole conversation and hand it to the report renderer.
+
+    The reading lives here because it needs the store and the session; the
+    shaping and the prose live in `reports.py`, so Markdown and JSON are one
+    report rendered twice rather than two documents that drift.
+    """
+    branches = await _store.list_branches(conv.id)
+    histories = {b.id: await _store.get_history(b.id) for b in branches}
+    runs = (
+        (
+            await session.execute(
+                select(DeepRunRow)
+                .where(DeepRunRow.conversation_id == conv.id)
+                .order_by(DeepRunRow.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    references = []
+    for ref_id in await _store.list_reference_ids(conv.id):
+        ref = await _store.get_conversation(ref_id)
+        if ref is not None:
+            references.append(ref)
+
+    report = await reports.build_conversation_report(
+        conv=conv,
+        branches=branches,
+        histories=histories,
+        deep_runs=list(runs),
+        references=references,
+        names=reports.Names(session),
+    )
+    stem = reports.filename_stem(conv.title, "conversation")
+    if format == "json":
+        return JSONResponse(
+            content=report,
+            headers={"Content-Disposition": f'attachment; filename="{stem}-report.json"'},
+        )
+    return Response(
+        content=reports.render_conversation_markdown(report),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{stem}-report.md"'},
+    )
+
+
 @router.get("/{conversation_id}/export")
 async def export_conversation(
     conversation_id: str,
-    branch: str,
+    branch: str | None = None,
     format: str = "md",
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Export a branch's full history (root -> head) as Markdown or JSON (F9)."""
+    """Export this conversation as Markdown or JSON (F9).
+
+    With `branch`, one branch's history root -> head: the fair copy of a single
+    path, which is what a transcript is.
+
+    Without it, the whole conversation as a decision report — every
+    exploration including the abandoned ones, each verdict with its reason and
+    who recorded it, the reasoning runs, and the threads it drew context from.
+    That is the export the product's own claim requires: a branch export shows
+    the road taken, and the road *not* taken is half of why a decision holds.
+    """
     conv = await _require_conversation(conversation_id, user, session)
+    if branch is None:
+        return await _export_decision_report(conv, format, session)
+
     br = await _store.get_branch(branch)
     if br is None or br.conversation_id != conversation_id:
         raise api_error(404, "not_found", "branch not found")
@@ -452,6 +512,17 @@ async def export_conversation(
     lines += ["---", ""]
     for n in nodes:
         who = "Helix" if n.role == "assistant" else await _who(n.author_id)
+        if n.role == "note":
+            # A note is addressed to teammates and is filtered out of the model
+            # context. Rendered like a turn it was indistinguishable from a
+            # prompt, so the one artifact that leaves the product could not
+            # tell "what we asked the AI" from "what we said to each other" —
+            # a fidelity bug in exactly the document meant to be trusted later.
+            lines.append(f"> **Note from {who or 'a teammate'}** — written for the team, never sent to the model")
+            lines.append(">")
+            lines += [f"> {line}" for line in n.content.splitlines()]
+            lines.append("")
+            continue
         lines.append(f"**{who}**")
         lines.append("")
         lines.append(n.content)

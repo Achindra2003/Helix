@@ -209,6 +209,17 @@
 }
 .modeBtn:hover { color: var(--ink-2); background: var(--hover-tint); }
 .modeOn { background: var(--accent-tint); color: var(--oxblood); }
+/* Take the ledger with you. It sits at the right end of the toolbar, present
+   only in decisions mode, because it is an action *on* what is being read
+   rather than a third way of reading it — putting it in the tablist would say
+   the opposite. */
+.exportLedger {
+  margin-left: auto; border: 1px solid var(--rule); border-radius: 8px;
+  font-family: var(--font-ui); font-size: 12px; font-weight: 600;
+  padding: 5px 12px; background: transparent; color: var(--ink-3);
+  cursor: pointer; transition: background var(--dur-1), color var(--dur-1);
+}
+.exportLedger:hover { color: var(--oxblood); background: var(--hover-tint); }
 /* A thread's conclusion outranks the verdicts beneath it — gilt, not verde. */
 .ledgerRow[data-status="concluded"] { border-left: 3px solid var(--gilt); }
 .ledgerRow[data-status="concluded"] .ledgerMark { color: var(--gilt-1); }

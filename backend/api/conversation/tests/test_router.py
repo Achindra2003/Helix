@@ -1123,6 +1123,152 @@ def test_export_and_ledger_both_carry_the_conclusion(make_workspace):
         assert conclusion["status"] == "concluded"
 
 
+# --- the decision report: the document that leaves the product ----------------
+
+
+def _decided_thread(client, headers, wid):
+    """A thread with an abandoned fork and a conclusion — a whole small decision."""
+    cid, fork_id = _seeded_fork(client, headers, wid, intent="semantic chunking")
+    client.post(
+        f"/conversations/branches/{fork_id}/resolve",
+        json={"status": "abandoned", "resolution": "too slow at query time"},
+        headers=headers,
+    )
+    client.post(
+        f"/conversations/{cid}/conclude",
+        json={"conclusion": "We chunk at 500 with overlap."},
+        headers=headers,
+    )
+    return cid, fork_id
+
+
+def test_the_report_carries_the_road_not_taken(make_workspace):
+    """The gap this closes, and it was a contradiction of the product's thesis.
+
+    Export used to require a branch, so it produced one path. Helix's whole
+    claim is that a decision stays defensible because the alternative you
+    rejected is still readable — and that alternative was in no file. Asking
+    for the conversation, rather than a branch of it, now yields every
+    exploration with its verdict, its reason, and who recorded it.
+    """
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, _ = _decided_thread(client, headers, wid)
+
+        body = client.get(f"/conversations/{cid}/export", headers=headers).text
+
+        assert "**Concluded:**" not in body  # the report has real sections
+        assert "## What was decided" in body
+        assert "We chunk at 500 with overlap." in body
+        # The abandoned exploration, its motive and its reason — the half a
+        # single-path transcript threw away.
+        assert "## How it was decided" in body
+        assert "**Was trying:** semantic chunking" in body
+        assert "**Verdict: Abandoned** — too slow at query time" in body
+        # The decision leads; the working is below it.
+        assert body.index("What was decided") < body.index("How it was decided")
+
+
+def test_the_report_and_its_json_are_the_same_report(make_workspace):
+    """Two renderings of one structure, so they cannot drift apart."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, _ = _decided_thread(client, headers, wid)
+
+        md = client.get(f"/conversations/{cid}/export", headers=headers)
+        js = client.get(
+            f"/conversations/{cid}/export", params={"format": "json"}, headers=headers
+        )
+        assert md.headers["content-type"].startswith("text/markdown")
+        report = js.json()
+
+        assert report["kind"] == "conversation_report"
+        assert report["conclusion"]["text"] == "We chunk at 500 with overlap."
+        assert report["conclusion"]["recorded_by"]  # attributed to a person
+        fork = next(e for e in report["explorations"] if not e["is_trunk"])
+        assert fork["status"] == "abandoned"
+        assert fork["resolution"] == "too slow at query time"
+        assert fork["intent"] == "semantic chunking"
+        # Everything the Markdown asserts above is present in the JSON too.
+        assert fork["resolution"] in md.text and fork["intent"] in md.text
+
+
+def test_a_fork_reports_only_what_it_added(make_workspace):
+    """A fork's history begins with the trunk it grew from.
+
+    Printing that per branch would repeat the shared prefix once per
+    exploration and bury the divergence, which is the one thing the reader
+    came for.
+    """
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        cid, fork_id = _seeded_fork(client, headers, wid)
+        client.post(
+            f"/conversations/{fork_id}/messages",
+            json={"prompt": "only on the fork"},
+            headers=headers,
+        )
+
+        report = client.get(
+            f"/conversations/{cid}/export", params={"format": "json"}, headers=headers
+        ).json()
+        trunk = next(e for e in report["explorations"] if e["is_trunk"])
+        fork = next(e for e in report["explorations"] if not e["is_trunk"])
+
+        assert any("seed" in t["content"] for t in trunk["turns"])
+        assert any("only on the fork" in t["content"] for t in fork["turns"])
+        # The trunk's turn is not repeated under the fork.
+        assert not any("seed" in t["content"] for t in fork["turns"])
+
+
+def test_exports_distinguish_a_note_from_a_prompt(make_workspace):
+    """A fidelity bug in the one artifact meant to be trusted later.
+
+    Notes are written to teammates and filtered out of the model context, but
+    they rendered exactly like a user turn — so the exported record could not
+    tell what the model was asked from what the team said to each other.
+    """
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        created = _create_conv(client, headers, wid, title="Noted")
+        cid, branch_id = created["conversation_id"], created["branch_id"]
+        client.post(
+            f"/conversations/{branch_id}/notes",
+            json={"content": "careful, the vendor benchmark is synthetic"},
+            headers=headers,
+        )
+
+        for params in ({}, {"branch": branch_id}):  # report and branch export
+            body = client.get(
+                f"/conversations/{cid}/export", params=params, headers=headers
+            ).text
+            assert "never sent to the model" in body, params
+            assert "> careful, the vendor benchmark is synthetic" in body, params
+
+        report = client.get(
+            f"/conversations/{cid}/export", params={"format": "json"}, headers=headers
+        ).json()
+        note = next(
+            t
+            for e in report["explorations"]
+            for t in e["turns"]
+            if t["role"] == "note"
+        )
+        assert note["sent_to_model"] is False
+
+
+def test_report_of_an_undecided_thread_says_so(make_workspace):
+    """Silence would read as an export bug; "nothing yet" is a true statement."""
+    with TestClient(app) as client:
+        headers, _, wid = make_workspace(client)
+        created = _create_conv(client, headers, wid, title="Open")
+        body = client.get(
+            f"/conversations/{created['conversation_id']}/export", headers=headers
+        ).text
+        assert "Nothing concluded yet" in body
+        assert "No forks" in body
+
+
 # --- notes: humans talking to each other ------------------------------------
 
 

@@ -17,6 +17,7 @@
 // Runs on 8002/5175 so a dev pair and an onboarding run are both undisturbed.
 // No LLM key: every assertion is about seeded content and navigation.
 import { spawn } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { chromium } from "playwright";
@@ -68,6 +69,13 @@ function check(ok, label) {
 
 const text = (page) => page.evaluate(() => document.body.innerText);
 
+/** Run `act`, catch the download it triggers, and return the file's contents. */
+async function grab(page, act) {
+  const [download] = await Promise.all([page.waitForEvent("download"), act()]);
+  const path = await download.path();
+  return await readFile(path, "utf8");
+}
+
 let browser;
 async function main() {
   await assertPortsFree();
@@ -86,7 +94,11 @@ async function main() {
 
   browser = await chromium.launch();
   const errors = new Set();
-  const page = await (await browser.newContext({ viewport: { width: 1440, height: 900 } })).newPage();
+  // acceptDownloads: the reports are downloads, and reading what actually
+  // lands on disk is the only honest way to test a document.
+  const page = await (await browser.newContext({
+    viewport: { width: 1440, height: 900 }, acceptDownloads: true,
+  })).newPage();
   page.setDefaultTimeout(30_000);
   page.on("pageerror", (e) => errors.add(e.message.slice(0, 140)));
 
@@ -162,6 +174,36 @@ async function main() {
   await page.getByRole("button", { name: "Abandoned", exact: true }).click();
   await page.waitForTimeout(1000);
   check(/view=decisions/.test(page.url()), "and the verdict is a door to the ledger too");
+
+  // --- the record as a document ---------------------------------------------
+  // Everything above proves the record is readable *in the app*. A record you
+  // can only defend by logging in is a UI, not a record — so these two prove
+  // it leaves the building intact.
+  console.log("\nthe record, as a document you can hand over");
+
+  // The ledger's own export, from the ledger, which is where the question is.
+  const ledgerDownload = await grab(page, () =>
+    page.getByRole("button", { name: /export decisions/i }).click());
+  check(/what the team has decided/.test(ledgerDownload),
+    "the ledger exports as a decisions document");
+  check(/512 MB deployment target/.test(ledgerDownload),
+    "carrying the conclusion");
+  check(/installed far more often than it is scaled/.test(ledgerDownload),
+    "and each verdict's reason");
+
+  // The conversation report, from the thread menu.
+  await page.goto(`${UI}/w/${wid}`);
+  await page.getByText("Choosing a database", { exact: true }).first().click();
+  await page.waitForTimeout(1200);
+  await page.getByTitle("More actions for this thread").first().click();
+  await page.waitForTimeout(400);
+  const report = await grab(page, () =>
+    page.getByRole("menuitem", { name: /Export decision report/ }).click());
+  check(/## What was decided/.test(report), "the thread exports as a decision report");
+  check(/Verdict: Abandoned/.test(report),
+    "with the road not taken — the half a branch transcript threw away");
+  check(/never sent to the model/.test(report),
+    "and a note marked as never having reached the model");
 
   await browser.close();
   for (const e of errors) failures.push(`page error: ${e}`);

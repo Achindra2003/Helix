@@ -3,7 +3,7 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference, listMembers, getProviderSettings,
+  listReferences, addReference, removeReference, listMembers, getProviderSettings, downloadReport,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
   searchWorkspace, resolveBranch, concludeConversation, postNote,
 } from "@/lib/api";
@@ -536,13 +536,24 @@ export function ChatView() {
         key: "replay", glyph: "▷", label: "Replay this thread",
         onPick: () => setReplay(1),
       });
+      // The report first, and named for what it answers. It is the whole
+      // thread — every exploration including the abandoned ones, each verdict
+      // with its reason — where the two below are one branch's transcript.
+      // Someone who wants "what did we decide, and why" wants this one, and
+      // before it existed the only thing they could take away was a single
+      // path with the alternative missing.
       out.push({
-        key: "md", glyph: "↓", label: "Export as Markdown",
+        key: "report", glyph: "❧", label: "Export decision report",
+        onPick: () => downloadReport(activeConv.id, "md")
+          .catch(() => push("Export failed", "error")),
+      });
+      out.push({
+        key: "md", glyph: "↓", label: "Export this branch (Markdown)",
         onPick: () => downloadExport(activeConv.id, activeBranchId!, "md")
           .catch(() => push("Export failed", "error")),
       });
       out.push({
-        key: "json", glyph: "↓", label: "Export as JSON",
+        key: "json", glyph: "↓", label: "Export this branch (JSON)",
         onPick: () => downloadExport(activeConv.id, activeBranchId!, "json")
           .catch(() => push("Export failed", "error")),
       });

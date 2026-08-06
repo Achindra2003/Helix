@@ -13,11 +13,13 @@ message excerpts lazily from the existing history route on hover.
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends
+from fastapi.responses import JSONResponse, Response
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db import get_session
 from ..deps import get_current_user
-from ..models import User
+from ..models import User, Workspace
+from . import reports
 from . import router as conversation_router_mod
 
 router = APIRouter(tags=["map"])
@@ -98,6 +100,50 @@ async def workspace_decisions(
     # than crashing the sort (older rows predate the column).
     out.sort(key=lambda d: d["resolved_at"] or "", reverse=True)
     return {"items": out}
+
+
+@router.get("/workspaces/{workspace_id}/export")
+async def export_workspace_decisions(
+    workspace_id: str,
+    format: str = "md",
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """The whole team's decisions, as a document.
+
+    The route above answers "what did we decide?" on screen. This answers it in
+    a file — which is the form the question usually takes when it is being
+    asked by someone outside the team, or by a reviewer, or a year later.
+    Until this existed the only export was a single branch's transcript, so
+    "give me everything we've settled" had no answer at all.
+
+    Same visibility rule as the ledger and the conversation list: shared
+    threads, plus the caller's own private ones.
+    """
+    store = conversation_router_mod._store
+    await conversation_router_mod._require_membership(workspace_id, user, session)
+
+    workspace = await session.get(Workspace, workspace_id)
+    conversations = await store.list_conversations(workspace_id, user.id)
+    branches_by_conv = {c.id: await store.list_branches(c.id) for c in conversations}
+
+    report = await reports.build_workspace_report(
+        workspace_name=workspace.name if workspace else "Workspace",
+        conversations=conversations,
+        branches_by_conv=branches_by_conv,
+        names=reports.Names(session),
+    )
+    stem = reports.filename_stem(report["workspace"], "workspace")
+    if format == "json":
+        return JSONResponse(
+            content=report,
+            headers={"Content-Disposition": f'attachment; filename="{stem}-decisions.json"'},
+        )
+    return Response(
+        content=reports.render_workspace_markdown(report),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{stem}-decisions.md"'},
+    )
 
 
 @router.get("/workspaces/{workspace_id}/map")
