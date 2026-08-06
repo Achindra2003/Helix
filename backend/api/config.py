@@ -39,6 +39,17 @@ class Settings(BaseSettings):
     # it (an intermittent failure that only appears under concurrency).
     db_pooled: bool = False
 
+    # Open a fresh connection per checkout instead of keeping a pool. This
+    # exists for the test suite, which builds a new event loop for every
+    # `TestClient` while sharing one module-level engine — and an asyncpg
+    # connection belongs to the loop that opened it, so a pooled one blows up
+    # in the next test with "another operation is in progress". See
+    # api/conftest.py, which sets it for Postgres runs.
+    #
+    # Leave it off everywhere else: a server runs one loop for its whole life,
+    # where the pool is exactly what you want.
+    db_no_pool: bool = False
+
     # Give every new account a populated example workspace (api/onboarding.py):
     # a forked thread, a reference edge, a finished deep-run trace, and an
     # ingested document. Static content, so it costs no tokens and works before

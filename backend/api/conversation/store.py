@@ -479,6 +479,30 @@ class DbStore:
 
         async with self._sf() as s:
             conv_id, branch_id = _uuid(), _uuid()
+            # The conversation is inserted before the branch that references
+            # it, and the `flush` is what makes that true — not the order of
+            # the `add` calls.
+            #
+            # `branches.conversation_id` is a real foreign key, but no
+            # `relationship()` joins the two mappers, and the ORM derives flush
+            # ordering from relationships rather than from table constraints.
+            # With no dependency to honour it falls back to sorting mappers by
+            # name, and `BranchRow` sorts before `ConversationRow` — so the
+            # child was always written first, whatever this method did.
+            #
+            # SQLite never objected, because it does not enforce foreign keys
+            # unless a connection asks it to. Postgres does, so every attempt
+            # to start a conversation died on `branches_conversation_id_fkey`.
+            row = ConversationRow(
+                id=conv_id,
+                workspace_id=workspace_id,
+                author_id=author_id,
+                title=title,
+                visibility=visibility,
+                default_branch_id=branch_id,
+            )
+            s.add(row)
+            await s.flush()
             s.add(
                 BranchRow(
                     id=branch_id,
@@ -489,15 +513,6 @@ class DbStore:
                     head_node_id=None,
                 )
             )
-            row = ConversationRow(
-                id=conv_id,
-                workspace_id=workspace_id,
-                author_id=author_id,
-                title=title,
-                visibility=visibility,
-                default_branch_id=branch_id,
-            )
-            s.add(row)
             await s.commit()
             return self._to_conversation(row)
 

@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
-from sqlalchemy import text
+from sqlalchemy import DateTime, text
+from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
     async_sessionmaker,
@@ -33,6 +34,9 @@ def _engine_kwargs() -> dict:
     if settings.database_url.startswith("postgresql+asyncpg") and settings.db_pooled:
         kwargs["connect_args"] = {"statement_cache_size": 0}
         kwargs["prepared_statement_cache_size"] = 0
+    if settings.db_no_pool:
+        # Test-suite posture only — see the setting's own note in config.py.
+        kwargs["poolclass"] = NullPool
     return kwargs
 
 
@@ -42,7 +46,26 @@ SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 
 class Base(DeclarativeBase):
-    """Declarative base for all ORM models."""
+    """Declarative base for all ORM models.
+
+    Every timestamp in this product is tz-aware UTC — `models._now()` returns
+    `datetime.now(timezone.utc)` and nothing writes a naive one. This map is
+    what makes the *schema* say so.
+
+    Without it, `Mapped[datetime]` resolves to a bare `DateTime`, which compiles
+    to `TIMESTAMP WITHOUT TIME ZONE`. SQLite does not care — it stores a string
+    either way — so the mismatch was invisible for the whole life of the
+    project. Postgres cares: asyncpg refuses an aware value into a naive column
+    with `can't subtract offset-naive and offset-aware datetimes`, which meant
+    creating a conversation, saving a prompt, embedding a node and recording an
+    LLM call all returned 500 on Postgres while every test passed on SQLite.
+
+    Declared here rather than on thirteen columns because the rule belongs to
+    the product, not to any one table: a model added later inherits it, and
+    cannot reintroduce the bug by forgetting a keyword argument.
+    """
+
+    type_annotation_map = {datetime: DateTime(timezone=True)}
 
 
 async def connect() -> None:

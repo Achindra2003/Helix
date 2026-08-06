@@ -10,7 +10,18 @@ import os
 from pathlib import Path
 
 os.environ["LLM_PROVIDER"] = "stub"
-os.environ["DATABASE_URL"] = "sqlite+aiosqlite:///./test_helix.db"
+# SQLite unless the caller names a database. This one line is why the Postgres
+# breakage survived: the URL used to be set unconditionally, so all 356 tests
+# ran against SQLite and *could not* be pointed anywhere else. SQLite accepts a
+# tz-aware datetime into a naive column; Postgres rejects it, which meant the
+# suite was green against a schema the production database refuses.
+#
+# `TEST_DATABASE_URL` is the seam. CI sets it to a throwaway Postgres (see
+# .github/workflows/ci.yml, job `backend-postgres`) and runs the identical
+# suite, so a dialect-specific defect fails a build instead of a deploy.
+os.environ["DATABASE_URL"] = os.environ.get(
+    "TEST_DATABASE_URL", "sqlite+aiosqlite:///./test_helix.db"
+)
 os.environ["GROQ_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-secret"
 # Rate limiting off by default: the suite registers hundreds of users from one
@@ -26,11 +37,41 @@ os.environ["RATE_LIMIT_ENABLED"] = "0"
 # back on explicitly.
 os.environ["SEED_EXAMPLE_WORKSPACE"] = "0"
 
-# Fresh DB per test session (delete up front; leave the file behind afterwards
-# for post-mortem inspection).
-_test_db = Path(__file__).resolve().parent.parent / "test_helix.db"
-if _test_db.exists():
-    _test_db.unlink()
+if os.environ["DATABASE_URL"].startswith("sqlite"):
+    # Fresh DB per test session (delete up front; leave the file behind
+    # afterwards for post-mortem inspection).
+    _test_db = Path(__file__).resolve().parent.parent / "test_helix.db"
+    if _test_db.exists():
+        _test_db.unlink()
+else:
+    # Every `TestClient` runs the app in its own event loop, and an asyncpg
+    # connection is bound to the loop that opened it. One module-level engine
+    # pooling across all of them fails the moment the second client starts.
+    os.environ["DB_NO_POOL"] = "1"
+
+    # A server-side database has no file to delete, so drop the schema instead
+    # and let the app's own `db.connect()` rebuild it. Same promise as above:
+    # the session starts empty. Without this, a second run against the same
+    # Postgres inherits the first one's rows, and every test that counts a
+    # user's workspaces starts failing for a reason that isn't its own.
+    import asyncio
+
+    async def _drop_schema() -> None:
+        from api import db as _db
+        from api import models as _m  # noqa: F401
+        from api import telemetry as _t  # noqa: F401
+        from api.conversation import embeddings as _e  # noqa: F401
+        from api.conversation import models as _cm  # noqa: F401
+        from api.documents import models as _dm  # noqa: F401
+        from api.prompts import models as _pm  # noqa: F401
+
+        async with _db.engine.begin() as conn:
+            await conn.run_sync(_db.Base.metadata.drop_all)
+        # Dispose before the tests start: this ran in a throwaway event loop,
+        # and an asyncpg connection left in the pool is bound to that loop.
+        await _db.engine.dispose()
+
+    asyncio.run(_drop_schema())
 
 
 import uuid

@@ -1,10 +1,15 @@
 """HTTP wiring for FR-14: the agent run endpoints, the approval flow, and the
 owner-managed tool allowlist settings.
 
-Same recipe as the deep-run router tests: real FastAPI app, real auth/RBAC in
-the hermetic DB, in-memory conversation store, and `build_agent_graph`
-monkeypatched to a fake — the graph itself is proven in test_agent_graph.py;
-here we prove the HTTP surface around it.
+Same recipe as the deep-run router tests: real FastAPI app, real auth/RBAC and
+conversation store in the hermetic DB, and `build_agent_graph` monkeypatched to
+a fake — the graph itself is proven in test_agent_graph.py; here we prove the
+HTTP surface around it.
+
+The store used to be swapped for an in-memory one, which left the conversation
+in RAM while an agent turn's record was written to SQL. That row references its
+conversation by foreign key, so it was only ever accepted because SQLite does
+not enforce foreign keys; on Postgres the write failed and the record vanished.
 """
 import json
 from types import SimpleNamespace
@@ -14,13 +19,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from starlette.testclient import TestClient
 
 import api.conversation.router as router_mod
-from api.conversation.store import InMemoryStore
 from api.main import app
-
-
-@pytest.fixture(autouse=True)
-def in_memory_store(monkeypatch):
-    monkeypatch.setattr(router_mod, "_store", InMemoryStore())
 
 
 def _parse_sse(body: str) -> list[str]:

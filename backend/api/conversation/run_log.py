@@ -15,10 +15,13 @@ dataset the eval harness samples from.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, AsyncIterator
 
 from .models import DeepRunRow
+
+log = logging.getLogger(__name__)
 
 # Keep step excerpts compact: the trace is for diagnosis, not archival replay.
 _EXCERPT_CHARS = 300
@@ -144,7 +147,13 @@ class DeepRunRecorder:
                 session.add(row)
                 await session.commit()
         except Exception:
-            pass
+            # Still swallowed — the run itself already succeeded on its own
+            # terms, and losing its record must not fail it. But it is logged
+            # now: this `except` used to be a bare `pass`, and that silence is
+            # how "no deep run is ever recorded on Postgres" stayed invisible.
+            # A history that quietly stops filling in is worse than one that
+            # errors, because nobody goes looking for rows they think exist.
+            log.exception("Failed to persist the record for deep run %s", row.id)
 
     async def wrap(self, gen: AsyncIterator) -> AsyncIterator:
         """Relay `gen` unchanged while observing it; flush when the segment ends.

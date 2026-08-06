@@ -13,13 +13,17 @@ from starlette.testclient import TestClient
 import api.conversation.router as router_mod
 from api.conversation.events import Complete, Step, Waiting
 from api.conversation.run_log import DeepRunRecorder
-from api.conversation.store import InMemoryStore
 from api.main import app
 
 
-@pytest.fixture(autouse=True)
-def in_memory_store(monkeypatch):
-    monkeypatch.setattr(router_mod, "_store", InMemoryStore())
+# These tests deliberately run against the router's real, database-backed
+# store. They used to swap in an `InMemoryStore`, which put the conversation in
+# RAM while the recorder wrote `deep_runs` to SQL — so every row this module
+# asserted on referenced a conversation that did not exist in the database.
+# SQLite accepts that, because it does not enforce foreign keys unless asked;
+# Postgres rejects it, and the recorder swallowed the error, so the runs simply
+# never appeared. A persistence test has no business faking the store whose
+# rows it is checking.
 
 
 def _create_conv(client, headers, workspace_id, **overrides):
