@@ -1,4 +1,5 @@
 import type { Branch } from "@/lib/types";
+import { activatable } from "@/lib/a11y";
 import s from "./chat.module.css";
 
 // Depth from parent links so the lineage indents like a Git tree.
@@ -55,10 +56,15 @@ export function BranchTree({
         ].filter(Boolean).join("\n") || undefined;
         return (
           <div key={b.id}>
+          {/* The row stays a plain clickable container so the whole strip is
+              still a mouse target. The keyboard and screen-reader entry point
+              is the branch name below — putting it here would make ARIA treat
+              this row's contents as presentational and hide the resolve,
+              rename and delete buttons along with the verdict mark. */}
           <div
             className={`${s.branchRow} ${on ? s.branchOn : ""}`}
-            onClick={() => onSelect(b.id)}
             title={title}
+            onClick={() => onSelect(b.id)}
           >
             <span className="mono" style={{ fontSize: 12, color: "var(--ink-faint)", width: depth * 14, display: "inline-block", textAlign: "right" }}>
               {depth ? "└" : ""}
@@ -66,6 +72,7 @@ export function BranchTree({
             <span className={s.branchDot} style={{ background: on ? "var(--oxblood)" : "var(--ink-faint)", boxShadow: on ? "0 0 0 3px rgba(143,62,19,0.16)" : "none" }} />
             <span
               className={s.branchName}
+              aria-current={on ? "true" : undefined}
               style={{
                 color: on ? "var(--ink)" : "var(--ink-3)",
                 flex: 1,
@@ -74,6 +81,7 @@ export function BranchTree({
                 opacity: b.status === "abandoned" ? 0.6 : 1,
                 textDecoration: b.status === "abandoned" ? "line-through" : undefined,
               }}
+              {...activatable(() => onSelect(b.id))}
             >
               {b.name}
             </span>
@@ -82,17 +90,27 @@ export function BranchTree({
                 {mark.glyph}
               </span>
             )}
+            {/* aria-label, not just title: the button's own text is a glyph,
+                and text content wins the accessible-name computation — so
+                without these these announce as "⚖", "✎", "✕". Now that the
+                row beside them is reachable by keyboard, arriving at three
+                unnamed buttons would be a half-fix of the same journey. */}
             <span className={s.branchActs}>
               {onResolve && (
-                <button className={`icon-act ${s.branchAct}`} title={resolved ? "Change the verdict" : "Record what came of this"}
+                <button className={`icon-act ${s.branchAct}`}
+                  title={resolved ? "Change the verdict" : "Record what came of this"}
+                  aria-label={`${resolved ? "Change the verdict on" : "Record what came of"} ${b.name}`}
                   onClick={(e) => { e.stopPropagation(); onResolve(b); }}>⚖</button>
               )}
               {fork && onRename && (
                 <button className={`icon-act ${s.branchAct}`} title="Rename branch"
+                  aria-label={`Rename ${b.name}`}
                   onClick={(e) => { e.stopPropagation(); onRename(b); }}>✎</button>
               )}
               {fork && onDelete && (
-                <button className={`icon-act ${s.branchAct}`} style={{ color: "var(--oxblood)" }} title="Delete branch"
+                <button className={`icon-act ${s.branchAct}`} style={{ color: "var(--oxblood)" }}
+                  title="Delete branch"
+                  aria-label={`Delete ${b.name}`}
                   onClick={(e) => { e.stopPropagation(); onDelete(b); }}>✕</button>
               )}
             </span>

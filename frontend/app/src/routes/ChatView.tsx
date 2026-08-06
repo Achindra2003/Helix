@@ -16,6 +16,7 @@ import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
 import { useUnread } from "@/store/unread";
 import { can } from "@/lib/rbac";
+import { activatable } from "@/lib/a11y";
 import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
@@ -975,7 +976,8 @@ export function ChatView() {
                 </div>
               )}
               {canSend && providerUnconfigured && (
-                <div className={s.remoteBanner} style={{ cursor: "pointer" }} onClick={() => nav(`/w/${wid}/members`)}>
+                <div className={s.remoteBanner} style={{ cursor: "pointer" }}
+                  {...activatable(() => nav(`/w/${wid}/members`))}>
                   ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
                   {" "}<u>Add a key under TEAM → Provider</u> (owners only).
                 </div>

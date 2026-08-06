@@ -1,6 +1,7 @@
 import { motion } from "framer-motion";
 import type { Conversation } from "@/lib/types";
 import { colorFor } from "@/lib/format";
+import { activatable } from "@/lib/a11y";
 import { stagger, rise } from "@/lib/motion";
 import s from "./chat.module.css";
 
@@ -26,7 +27,9 @@ export function ConversationList({
       <motion.div variants={stagger} initial="hidden" animate="show">
         {conversations.map((c) => (
           <motion.div key={c.id} variants={rise} whileHover={{ x: 2 }}
-            className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`} onClick={() => onSelect(c.id)}>
+            aria-current={c.id === activeId ? "true" : undefined}
+            className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`}
+            {...activatable(() => onSelect(c.id))}>
             <span style={{ fontSize: 13, color: c.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)", marginTop: 1 }}>
               {c.visibility === "private" ? "◍" : "⊙"}
             </span>

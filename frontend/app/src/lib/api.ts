@@ -24,6 +24,13 @@ export class ApiError extends Error {
 // expired session — those must never nuke the session.
 const AUTH_RESULT_PATHS = ["/api/auth/", "/api/me/password"];
 
+// Names the address actually being called, rather than the port a developer's
+// machine happens to use. "Is the backend running on :8000?" is nonsense to
+// someone on a deployed instance — and this is the first thing anyone sees
+// when their connection drops.
+const unreachable = () =>
+  `Cannot reach Helix at ${API_BASE}. It may be offline, or your connection dropped.`;
+
 function sessionExpired() {
   // A hard redirect is deliberate — the app's state is stale beyond repair
   // once the token is dead.
@@ -43,7 +50,7 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
   try {
     res = await fetch(API_BASE + path, { ...opts, headers });
   } catch {
-    throw new ApiError(0, "network", "Cannot reach the Helix API. Is the backend running on :8000?");
+    throw new ApiError(0, "network", unreachable());
   }
   if (res.status === 204) return undefined as T;
   const text = await res.text();
@@ -343,7 +350,7 @@ export const uploadDocument = async (wid: string, file: File): Promise<Workspace
       body: form,
     });
   } catch {
-    throw new ApiError(0, "network", "Cannot reach the Helix API. Is the backend running on :8000?");
+    throw new ApiError(0, "network", unreachable());
   }
   const text = await res.text();
   const data = text ? JSON.parse(text) : undefined;

@@ -108,3 +108,38 @@
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); animation: hx-rise 0.2s ease both; max-width: 460px;
 }
 .toastErr { border-color: var(--oxblood); }
+
+/* the error boundary — the screen that replaced a white page */
+.boundary {
+  margin: auto; max-width: 520px; padding: 56px 32px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  min-height: 100vh; justify-content: center;
+}
+.boundaryMark { opacity: 0.5; }
+.boundaryTitle {
+  font-family: var(--font-display); font-size: var(--t-title);
+  color: var(--ink); font-weight: 500; margin: 0;
+}
+.boundaryBody {
+  font-family: var(--font-read); font-size: var(--t-prose);
+  color: var(--ink-3); line-height: 1.6; margin: 0;
+}
+/* The error text itself: mono, quiet, and allowed to wrap — a long React
+   message must not push a horizontal scrollbar onto the page that exists to
+   apologise for a layout going wrong. */
+.boundaryDetail {
+  font-family: var(--font-mono); font-size: var(--t-label);
+  color: var(--ink-3); background: var(--hover-tint);
+  border: 1px solid var(--rule-soft); border-radius: var(--radius);
+  padding: 10px 12px; margin: 4px 0 0; max-width: 100%;
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
+}
+.boundaryActs { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.boundaryBtn {
+  font-family: var(--font-ui); font-size: var(--t-instrument); font-weight: 600;
+  padding: 9px 18px; border-radius: var(--radius); cursor: pointer;
+  background: var(--oxblood); color: var(--on-accent); border: 1px solid var(--oxblood);
+}
+.boundaryBtnQuiet {
+  background: transparent; color: var(--ink-2); border-color: var(--rule);
+}

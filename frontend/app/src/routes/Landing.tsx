@@ -254,6 +254,11 @@ const FEATURES: Feature[] = [
   },
 ];
 
+// Where the source lives. Kept here as one constant because two places on
+// this page point at it, and a fork that retargets one and not the other is
+// worse than a fork that retargets neither.
+const REPO_URL = "https://github.com/Achindra2003/Helix";
+
 export function Landing() {
   const nav = useNavigate();
   const user = useSession((s) => s.user);
@@ -298,6 +303,13 @@ export function Landing() {
         <div className={s.navLinks}>
           <a className={`${s.navLink} ${s.navHideSm}`} href="#features">Features</a>
           <a className={`${s.navLink} ${s.navHideSm}`} href="#claim">The claim</a>
+          {/* The landing page of an open-source product pointed at no
+              repository. Every claim below — self-hostable, your keys, the
+              test count — is checkable only if someone can get to the source,
+              and this is the one page strangers actually arrive on. */}
+          <a className={s.navLink} href={REPO_URL} target="_blank" rel="noreferrer">
+            GitHub ↗
+          </a>
           <ThemeToggle />
           <button className={s.ctaGhost} onClick={enter} style={{ padding: "9px 16px", fontSize: 13.5 }}>
             {user ? "Enter workspace ⟶" : "Sign in ⟶"}
@@ -391,7 +403,7 @@ export function Landing() {
           {[
             { num: <CountUp to={8} suffix="/8" />, label: "deep runs that converged on the hard question set" },
             { num: <CountUp to={48} suffix="%" />, label: "of blind 4-pass tokens — at higher quality" },
-            { num: <CountUp to={261} />, label: "tests, run with no network and no API key" },
+            { num: <CountUp to={374} />, label: "tests, run with no network and no API key" },
           ].map((st, i) => (
             <Reveal key={i} delay={i * 0.1}>
               <div className={s.stat}>
@@ -429,7 +441,10 @@ export function Landing() {
             <div className={s.colophonMark}><Logo size={28} /></div>
             <div className={s.colophonLine}>"One shared context — many branching minds."</div>
             <div>Helix — a specialisation project · FastAPI · React · a vendored Ouroboros engine</div>
-            <div>Self-hostable. Your keys, your data.</div>
+            <div>
+              Self-hostable. Your keys, your data.{" "}
+              <a href={REPO_URL} target="_blank" rel="noreferrer">Source on GitHub</a> · MIT
+            </div>
           </div>
         </Reveal>
       </footer>
