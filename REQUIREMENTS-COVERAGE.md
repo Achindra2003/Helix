@@ -65,12 +65,23 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
   milestone).
 - **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**Verification:** backend `pytest -q` → **261 passed** (hermetic: stub provider
-+ throwaway SQLite, no network/keys required; includes RBAC-gating, WebSocket
-room, guided-steer, provider resilience, durable deep runs, file grounding,
-deep-run grounding, the agent tool loop with its approval gate and allowlist
-policy, and an adversarial injection-regression corpus);
-frontend `npm run build` typechecks clean; a scripted live end-to-end run
-(2 users over real HTTP + WS + Groq) passes 15/15 checks: presence, live token
-fan-out, fork, references, guided steer to convergence, observer gating,
-authed export.
+**Verification (8 August 2026):** backend `pytest -q` -> **461 passed, 6
+failed** — the six are long-known *environment* reds on Windows only (four
+alembic path resolutions in `test_migrations`, one POSIX file-mode assertion in
+`test_secure_config`, and one that fails *because* a real Tavily key is present
+in the local `.env`); Ubuntu CI is green. Hermetic otherwise: stub provider,
+throwaway SQLite, no network or keys required. Coverage includes RBAC gating,
+the WebSocket room, guided steer, provider resilience, durable deep runs, file
+grounding, citation persistence across stores and forks, branch votes, document
+metadata, the agent tool loop with its approval gate and allowlist policy, tool
+spans and the tool ledger, MCP discovery and its description-drift guard, and an
+adversarial injection-regression corpus.
+
+Every migration in this pass was verified by hand: applies, downgrades,
+re-applies, and `alembic check` reports no model drift.
+
+Frontend `npm run build` typechecks clean. Three Playwright runs against the
+real app: `e2e/usability.mjs` (keyboard navigation and the error boundary),
+`e2e/convergence.mjs` (the decision record, in place and exported), and
+`e2e/citations.mjs` — which asserts the thing this milestone turns on, that a
+grounded reply still shows its sources **after a browser reload**.
