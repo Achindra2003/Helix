@@ -1,5 +1,15 @@
 # Plan — from the three-room run-through to v1
 
+> **Status, 8 August 2026.** Stages 0–3 are **done**; Stages 4 (Review preset)
+> and 5 (deployment) are not started, at the user's direction. Item 1.5 was
+> decided as **(b) — Observers may write notes only**. Two things turned out
+> differently from the plan below and are corrected in place: the citation break
+> was larger than described (they existed *only* in browser memory), and item
+> 2.6 was smaller (`status` was already first-class; the real defect was a raw
+> Python exception rendered as the assistant's reply). The deployment tension
+> the plan raises is unchanged and now more acute: `docker compose up` has still
+> never been run.
+
 `SCENARIOS.md` walked every module through three rooms (general team, dev team,
 research team) and came back with five breaks and a list of things worth
 building. This is the order to do them in, why that order, and what "done"

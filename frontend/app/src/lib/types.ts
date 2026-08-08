@@ -78,6 +78,10 @@ export interface Conversation {
   conclusion?: string;
   concluded_by?: string | null;
   concluded_at?: string | null;
+  // The external artifact this thread is about — a PR, an issue, a spec URL.
+  // Written for the agent as much as the reader: a team says "this change" for
+  // forty turns and never says the number.
+  subject?: string;
 }
 
 // A conversation linked in as live cross-thread context (see addReference).
@@ -288,11 +292,42 @@ export interface ToolCatalogItem {
   sensitive: boolean; // sensitive ⇒ every call pauses for human approval
   available: boolean;
   allowed: boolean;
+  /** "builtin", or "mcp:<server>". The catalog has two sources, and which
+   *  tools we wrote versus which arrived from someone else's server is the
+   *  thing an owner most needs to notice. */
+  source?: string;
+  /** An MCP tool whose description or schema changed since it was reviewed.
+   *  Unavailable until a human reads the new text — a description goes
+   *  straight into the model's context, so a server that could rewrite one
+   *  after approval would make the allowlist meaningless. */
+  needs_review?: boolean;
 }
 
 export interface ToolSettings {
   allowed: string[];
   items: ToolCatalogItem[];
+}
+
+/** One MCP server this workspace has been pointed at. */
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  auth_header: string;
+  /** Whether a credential is stored — never what it is. */
+  has_auth: boolean;
+  enabled: boolean;
+  last_error: string;
+  last_synced_at: string | null;
+  tools: McpServerTool[];
+}
+
+export interface McpServerTool {
+  name: string;
+  /** Verbatim, as the server wrote it and as the model will read it. */
+  description: string;
+  sensitive: boolean;
+  needs_review: boolean;
 }
 
 export interface Health {

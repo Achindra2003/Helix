@@ -215,3 +215,41 @@ export function LinkContextDialog(
     </Dialog>
   );
 }
+
+/** What this thread is about.
+ *
+ * A field for the agent as much as for the reader. A dev team says "this
+ * change" for forty turns and never says the number, so an agent holding a
+ * GitHub tool had everything it needed except which pull request to fetch.
+ * Free text rather than a typed PR reference: what a thread is about is often
+ * an issue, a spec, or a ticket, and a schema per artifact kind would be
+ * building for a product we do not have.
+ */
+export function SubjectDialog({ conv, onClose, onSave }: {
+  conv: Conversation;
+  onClose: () => void;
+  onSave: (subject: string) => void;
+}) {
+  const [value, setValue] = useState(conv.subject ?? "");
+  return (
+    <Dialog title="What is this thread about?" onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" onClick={() => onSave(value.trim())}>Save</Button>
+      </>}>
+      <Field label="A pull request, an issue, a spec — anything with an address">
+        <Input value={value} autoFocus onChange={(e) => setValue(e.target.value)}
+          placeholder="https://github.com/acme/api/pull/482"
+          onKeyDown={(e) => { if (e.key === "Enter") onSave(value.trim()); }} />
+      </Field>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.55 }}>
+        Agent runs are told this, so “does this match the spec?” resolves without
+        anyone restating which change is meant. If the workspace has a tool that
+        can read it, the agent will use it.
+        {conv.subject && (
+          <div style={{ marginTop: 6 }}>Clear the field to unset it.</div>
+        )}
+      </div>
+    </Dialog>
+  );
+}

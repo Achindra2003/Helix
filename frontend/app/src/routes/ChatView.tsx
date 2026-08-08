@@ -5,7 +5,7 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, downloadReport,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, resolveBranch, voteBranch, concludeConversation, postNote,
+  searchWorkspace, resolveBranch, voteBranch, concludeConversation, setConversationSubject, postNote,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
@@ -35,7 +35,7 @@ import { TeamStrip } from "@/components/chat/TeamStrip";
 import { type ThreadAction } from "@/components/chat/ThreadMenu";
 import { StageHeader } from "@/components/chat/StageHeader";
 import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
-import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog } from "@/components/chat/dialogs";
+import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog, SubjectDialog } from "@/components/chat/dialogs";
 import { useDeepRun, pickText } from "@/components/chat/useDeepRun";
 import s from "@/components/chat/chat.module.css";
 
@@ -144,6 +144,7 @@ export function ChatView() {
   // Recording what came of an exploration (adopted / abandoned / reopened).
   const [resolveDlg, setResolveDlg] = useState<Branch | null>(null);
   const [concludeDlg, setConcludeDlg] = useState(false);
+  const [subjectDlg, setSubjectDlg] = useState(false);
 
   // The thread on screen is by definition read — keep its unread marker clear
   // even as live turns stream into it.
@@ -603,6 +604,11 @@ export function ChatView() {
         key: "link", glyph: STATE.linked, label: "Link another thread's context",
         onPick: () => setLinkDlg(true),
       });
+      out.push({
+        key: "subject", glyph: STATE.linked,
+        label: activeConv.subject ? "Change what this thread is about" : "Say what this thread is about",
+        onPick: () => setSubjectDlg(true),
+      });
     }
     if (activeConv.author_id === user?.id || role === "owner") {
       out.push({
@@ -616,6 +622,15 @@ export function ChatView() {
     }
     return out;
   }, [activeConv, activeBranchId, messages.length, canSend, role, user?.id]);
+
+  async function doSubject(subject: string) {
+    if (!activeConvId) return;
+    try {
+      await setConversationSubject(activeConvId, subject);
+      await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      push(subject ? "Thread pointed at its subject" : "Subject cleared");
+    } catch (e: any) { push(e?.message ?? "Could not save that", "error"); }
+  }
 
   async function doConclude(text: string) {
     if (!activeConvId) return;
@@ -1122,6 +1137,10 @@ export function ChatView() {
       {forkDlg && (
         <ForkDialog onClose={() => setForkDlg(null)}
           onConfirm={(name, intent) => { doFork(forkDlg.nodeId, name, intent); setForkDlg(null); }} />
+      )}
+      {subjectDlg && activeConv && (
+        <SubjectDialog conv={activeConv} onClose={() => setSubjectDlg(false)}
+          onSave={(v) => { doSubject(v); setSubjectDlg(false); }} />
       )}
       {concludeDlg && activeConv && (
         <ConcludeDialog conv={activeConv} onClose={() => setConcludeDlg(false)}

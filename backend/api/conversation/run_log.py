@@ -103,6 +103,30 @@ class DeepRunRecorder:
             conf = payload.get("confidence")
             if isinstance(conf, (int, float)):
                 self._confidence = float(conf)
+        elif kind in ("tool_call", "tool_result"):
+            # Agent runs were archived with an empty trace. The recorder only
+            # ever understood `step` events, which deep runs emit and agent
+            # runs do not — so a row existed saying an agent run happened and
+            # nothing at all about what it did. The tool transcript *is* the
+            # agent run's trace, in the same sense the reasoning steps are a
+            # deep run's, and "the agent gave a weird answer yesterday" is only
+            # answerable if the calls behind it were kept.
+            entry: dict[str, Any] = {
+                "idx": len(self._steps),
+                "node": kind,
+                "depth": 0,
+                "tool": getattr(event, "name", ""),
+            }
+            if kind == "tool_call":
+                # Arguments, not a digest: unlike the ledger, this trace is
+                # workspace data already — it lives beside the conversation it
+                # came from and is read by the same people.
+                entry["arguments"] = getattr(event, "arguments", {})
+                entry["sensitive"] = bool(getattr(event, "sensitive", False))
+            else:
+                entry["status"] = getattr(event, "status", "")
+                entry["thought"] = str(getattr(event, "content", ""))[:_EXCERPT_CHARS]
+            self._steps.append(entry)
         elif kind == "complete":
             self._status = event.status
             self._stop_reason = event.stop_reason

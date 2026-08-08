@@ -37,6 +37,8 @@ from ..reasoning_llm import make_reachability_probe
 from ..telemetry import make_llm_span_callback, record_llm_call
 from ..tools import bindable, resolve_allowlist
 from ..tools.agent import AgentProducer, build_agent_graph
+from ..tools.telemetry import ToolObserver
+from ..tools.mcp_service import load_mcp_tools
 from ..tools.builtin import make_tools
 from . import engine
 from .context import ReferenceBlock
@@ -148,6 +150,11 @@ class Conclude(BaseModel):
     # Empty clears the conclusion — reopening a thread the team thought it had
     # settled is a legitimate thing to need.
     conclusion: str = ""
+
+
+class SetSubject(BaseModel):
+    # Empty clears it. A thread can stop being about a particular change.
+    subject: str = ""
 
 
 class InsertPrompt(BaseModel):
@@ -768,6 +775,45 @@ async def post_note(
             exclude_user=user.id,
         )
     return asdict(node)
+
+
+@router.post("/{conversation_id}/subject")
+async def set_conversation_subject(
+    conversation_id: str,
+    body: SetSubject,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Point the thread at the artifact it is about — a PR, an issue, a spec.
+
+    Written for the agent as much as for the reader. A dev team discusses "this
+    change" for forty turns and never says the number, so an agent holding a
+    GitHub tool had everything it needed except which pull request to fetch.
+    With this, "does this match the spec?" resolves without anyone restating
+    what "this" is.
+
+    Free text, not a typed GitHub reference: the thing a thread is about is not
+    always a PR, and a schema per artifact kind would be building for a product
+    we do not have. Collaborator+, the same bar as concluding.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    updated = await _store.set_subject(
+        conversation_id=conv.id, subject=body.subject.strip()[:500]
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "conversation not found")
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.subject",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "subject": updated.subject,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
 
 
 @router.post("/{conversation_id}/conclude")
@@ -1500,16 +1546,18 @@ async def send_agent_message(
     # The allowlist decides what the model's world contains (see api/tools):
     # un-allowed or unavailable tools are never bound, never mentioned.
     allowed = resolve_allowlist(row.tool_allowlist if row else None)
-    tools = bindable(
-        make_tools(
-            workspace_id=conv.workspace_id,
-            viewer_id=user.id,
-            documents=_documents,
-            embeddings=_embeddings,
-            tavily_key=settings.tavily_api_key,
-        ),
-        allowed,
+    catalog = make_tools(
+        workspace_id=conv.workspace_id,
+        viewer_id=user.id,
+        documents=_documents,
+        embeddings=_embeddings,
+        tavily_key=settings.tavily_api_key,
     )
+    # The second source. MCP tools join the same list and are filtered by the
+    # same allowlist — the whole point of mapping them onto `ToolSpec` is that
+    # nothing below this line has to know where a tool came from.
+    catalog += await load_mcp_tools(session, conv.workspace_id)
+    tools = bindable(catalog, allowed)
 
     run_id = uuid4().hex
     handle_box: list = []
@@ -1520,10 +1568,17 @@ async def send_agent_message(
         groq_model=model,
         base_url=deep_llm.base_url,
         max_tool_rounds=settings.agent_max_tool_rounds,
+        # Every tool execution and every approval lands in the tool ledger,
+        # attributed to this run and this workspace.
+        observer=ToolObserver(workspace_id=conv.workspace_id, run_id=run_id),
         extra_callbacks=[
             make_llm_span_callback(
                 workspace_id=conv.workspace_id, run_id=run_id,
                 provider=resolved.provider or "groq", model=model,
+                # The ledger's `kind` was chat|deep, so every token an agent
+                # run spent was invisible in the same table that answers the
+                # budget question.
+                kind="agent",
             )
         ],
     )
@@ -1538,6 +1593,7 @@ async def send_agent_message(
         grounder=_grounder_for(conv.workspace_id),
         should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
         deadline_s=settings.deep_reasoning_deadline_s,
+        subject=conv.subject,
     )
     recorder = DeepRunRecorder(
         run_id=run_id,
@@ -1596,7 +1652,10 @@ async def approve_agent_tool(
     )
 
     resume_from = handle.seq
-    _runs.steer(handle, lambda: run.steer("approve" if body.approved else "deny"))
+    # The verdict carries who gave it: the gate is the product's safety story,
+    # and "who let the agent call the web?" must be answerable later.
+    verdict = f"{'approve' if body.approved else 'deny'}:{user.id}"
+    _runs.steer(handle, lambda: run.steer(verdict))
     return _subscription(handle, after=resume_from)
 
 

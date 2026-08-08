@@ -46,6 +46,14 @@ class ConversationRow(Base):
     conclusion: Mapped[str] = mapped_column(Text, default="")
     concluded_by: Mapped[str | None] = mapped_column(String, nullable=True)
     concluded_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # The external artifact this thread is about: a pull request, an issue, a
+    # spec URL. Written for the agent as much as for the reader — a team
+    # discussing "this change" for forty turns never says the number, so an
+    # agent holding a GitHub tool had everything it needed except which PR to
+    # fetch. One free-text field rather than a typed GitHub reference, because
+    # the thing being pointed at is not always a PR and inventing a schema for
+    # every kind would be building for a product we do not have.
+    subject: Mapped[str] = mapped_column(String, default="")
 
 
 class BranchRow(Base):

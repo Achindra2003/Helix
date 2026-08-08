@@ -77,6 +77,8 @@ class Conversation:
     conclusion: str = ""
     concluded_by: str | None = None
     concluded_at: datetime | None = None
+    # The external artifact this thread is about (a PR, an issue, a spec URL).
+    subject: str = ""
 
 
 @dataclass
@@ -160,6 +162,12 @@ class ConversationStore(Protocol):
         self, *, conversation_id: str, conclusion: str, concluded_by: str
     ) -> Conversation | None:
         """Record (or clear, with an empty string) what the thread concluded."""
+        ...
+
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        """Point the thread at the artifact it is about (empty clears it)."""
         ...
 
     async def resolve_branch(
@@ -433,6 +441,15 @@ class InMemoryStore:
         conv.concluded_at = datetime.now(timezone.utc) if conclusion else None
         return conv
 
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return None
+        conv.subject = subject
+        return conv
+
     async def resolve_branch(
         self, *, branch_id: str, status: str, resolution: str, resolved_by: str
     ) -> Branch | None:
@@ -540,6 +557,7 @@ class DbStore:
             conclusion=row.conclusion or "",
             concluded_by=row.concluded_by,
             concluded_at=row.concluded_at,
+            subject=row.subject or "",
         )
 
     async def create_conversation(
@@ -1046,6 +1064,19 @@ class DbStore:
             row.conclusion = conclusion
             row.concluded_by = concluded_by if conclusion else None
             row.concluded_at = datetime.now(timezone.utc) if conclusion else None
+            await s.commit()
+            return self._to_conversation(row)
+
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        from .models import ConversationRow
+
+        async with self._sf() as s:
+            row = await s.get(ConversationRow, conversation_id)
+            if row is None:
+                return None
+            row.subject = subject
             await s.commit()
             return self._to_conversation(row)
 

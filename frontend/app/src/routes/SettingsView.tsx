@@ -9,6 +9,7 @@ import { Dialog } from "@/components/common/Dialog";
 import { Input } from "@/components/common/Input";
 import { ProviderPanel } from "./ProviderPanel";
 import { ToolsPanel } from "./ToolsPanel";
+import { McpPanel } from "./McpPanel";
 import s from "./members.module.css";
 
 /**
@@ -80,6 +81,7 @@ export function SettingsView() {
 
         {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
         {wid && <ToolsPanel wid={wid} isOwner={role === "owner"} />}
+        {wid && <McpPanel wid={wid} isOwner={role === "owner"} />}
 
         {canManageWs && (
           <>

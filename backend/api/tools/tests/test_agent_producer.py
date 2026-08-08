@@ -154,7 +154,9 @@ async def test_resume_normalizes_the_decision_and_denial_maps_as_denied():
     producer = _producer(graph)
     events = [e async for e in producer.resume("whatever")]  # unclear ⇒ deny
 
-    assert graph.updates == [{"decision": "deny"}]
+    # `decided_by` rides along empty here: this resume named no one, which is
+    # exactly what a decision arriving without an id looks like.
+    assert graph.updates == [{"decision": "deny", "decided_by": ""}]
     result = next(e for e in events if isinstance(e, ToolResult))
     assert result.status == "denied" and result.name == "web_search"
     # No messages-mode streaming in this fake: the final content falls back
@@ -166,7 +168,7 @@ async def test_resume_normalizes_the_decision_and_denial_maps_as_denied():
 async def test_resume_approve_passes_through():
     graph = FakeGraph([[("updates", {"agent": {"messages": [AIMessage(content="ok")]}})]])
     events = [e async for e in _producer(graph).resume("  APPROVE ")]
-    assert graph.updates == [{"decision": "approve"}]
+    assert graph.updates == [{"decision": "approve", "decided_by": ""}]
     assert isinstance(events[-1], Complete)
 
 

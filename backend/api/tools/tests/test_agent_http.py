@@ -168,7 +168,7 @@ def test_sensitive_pause_then_approve_resumes_and_persists(monkeypatch, make_wor
     # web_search must be available (key) AND owner-allowed to be bound at all.
     monkeypatch.setattr(router_mod.settings, "tavily_api_key", "tvly-test")
     with TestClient(app) as client:
-        headers, _, wid = make_workspace(client)
+        headers, uid, wid = make_workspace(client)
         branch_id = _create_conv(client, headers, wid)["branch_id"]
         assert client.put(
             f"/api/workspaces/{wid}/settings/tools",
@@ -199,7 +199,13 @@ def test_sensitive_pause_then_approve_resumes_and_persists(monkeypatch, make_wor
         )
         assert second.status_code == 200
         cont = _events(second.text)
-        assert graph.decisions == [{"decision": "approve"}]
+        # The verdict carries who gave it. The approval gate is the product's
+        # safety story, and it used to leave no record of the decider at all —
+        # "who let the agent call the web?" is now answerable from the state
+        # the run was resumed with, and from the tool ledger it writes.
+        assert len(graph.decisions) == 1
+        assert graph.decisions[0]["decision"] == "approve"
+        assert graph.decisions[0]["decided_by"] == uid
         assert [e["kind"] for e in cont][-1] == "assistant_node"
         assert cont[-1]["node"]["content"] == "Approved answer."
 

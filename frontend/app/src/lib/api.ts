@@ -5,7 +5,7 @@ import { useSession } from "@/store/session";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, BranchStatus, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
-  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings, Decision, PublicConfig,
+  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings, Decision, PublicConfig, McpServer,
   ReasoningMode, ServerNotice,
 } from "@/lib/types";
 
@@ -206,6 +206,37 @@ export const putToolSettings = (wid: string, allowed: string[]) =>
     body: JSON.stringify({ allowed }),
   });
 
+// --- MCP servers: the catalog's second source ---
+// Every one of these returns the whole list, so the panel never has to merge a
+// partial response into local state and guess what the server now believes.
+export const listMcpServers = (wid: string) =>
+  request<{ items: McpServer[] }>(`/api/workspaces/${wid}/mcp`);
+export const addMcpServer = (
+  wid: string,
+  body: { name: string; url: string; auth_header?: string; auth_value?: string },
+) =>
+  request<{ items: McpServer[] }>(`/api/workspaces/${wid}/mcp`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+export const syncMcpServer = (wid: string, id: string) =>
+  request<{ summary: { discovered: number; added: number; needs_review: number; removed: number }; items: McpServer[] }>(
+    `/api/workspaces/${wid}/mcp/${id}/sync`,
+    { method: "POST" },
+  );
+// Accept a tool's *current* description as read. Its own endpoint, not a flag
+// on sync, because approving what a server now says is a decision a person
+// takes after reading it.
+export const reviewMcpTool = (wid: string, id: string, tool: string) =>
+  request<{ items: McpServer[] }>(
+    `/api/workspaces/${wid}/mcp/${id}/tools/${encodeURIComponent(tool)}/review`,
+    { method: "POST" },
+  );
+export const removeMcpServer = (wid: string, id: string) =>
+  request<{ items: McpServer[] }>(`/api/workspaces/${wid}/mcp/${id}`, {
+    method: "DELETE",
+  });
+
 // --- conversations (live engine routes are root-level) ---
 // Identity (viewer/author) is derived server-side from the JWT — never sent.
 export const listConversations = (workspaceId: string) => {
@@ -251,6 +282,13 @@ export const forkBranch = (cid: string, fromNodeId: string, name: string, intent
 // Record what came of an exploration. `status: "open"` reopens it and clears
 // the verdict. The server requires a reason for adopted/abandoned — a verdict
 // without one is not a record.
+// Point the thread at what it is about, so an agent with a GitHub tool knows
+// which pull request "this change" means. Empty clears it.
+export const setConversationSubject = (cid: string, subject: string) =>
+  request<Conversation>(`/conversations/${cid}/subject`, {
+    method: "POST",
+    body: JSON.stringify({ subject }),
+  });
 export const resolveBranch = (bid: string, status: BranchStatus, resolution: string) =>
   request<Branch>(`/conversations/branches/${bid}/resolve`, {
     method: "POST",

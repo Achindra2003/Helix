@@ -73,6 +73,17 @@
 }
 .branchRow:hover .branchActs { opacity: 1; pointer-events: auto; }
 .branchOn:hover .branchActs { background: linear-gradient(90deg, transparent, var(--paper-2) 22%); }
+/* The technical reason under a failed run. Mono, quiet, wrapping — it is a
+   forwardable detail, not the message, and a long traceback fragment must not
+   push a horizontal scrollbar across the thread. */
+.runError {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-3); background: var(--hover-tint);
+  border: 1px solid var(--rule-soft); border-radius: 5px;
+  padding: 6px 9px; margin-top: 8px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
 .branchAct { color: var(--ink-3); font-size: 11px; flex: 0 0 auto; }
 .branchAct:hover { color: var(--oxblood); }
 

@@ -2,9 +2,13 @@
 and an approval gate for the sensitive ones.
 
 Three policy layers, deliberately separate:
-1. **Catalog** — what exists (`builtin.make_tools`). A tool that can't work in
-   this deployment (web search without a key) is visibly unavailable, not
-   silently missing.
+1. **Catalog** — what exists. Two sources now: `builtin.make_tools` (the three
+   we wrote) and `mcp.make_mcp_tools` (whatever the workspace's MCP servers
+   advertise). MCP is a *source*, not a subsystem, because `ToolSpec` already
+   has MCP's shape — name, description, JSON-schema parameters, a handler —
+   so everything below applies to a discovered tool unchanged. A tool that
+   can't work in this deployment (web search without a key) is visibly
+   unavailable, not silently missing.
 2. **Allowlist** — what this workspace permits (owner-managed, stored on
    `WorkspaceSettings.tool_allowlist`). Only allowed tools are even *offered*
    to the model: an un-allowed tool isn't "refused at call time", it does not
@@ -34,6 +38,12 @@ class ToolSpec:
     # search without a key). It stays in the catalog so the settings UI can
     # say *why* it's greyed out, but it is never offered to the model.
     available: bool = True
+    # Where this tool came from: "builtin", or "mcp:<server name>". The
+    # catalog has two sources now, and an owner deciding what to allow needs
+    # to know which tools we wrote and which arrived from someone else's
+    # server. It also tags every ledger row, so an incident can be traced to a
+    # source rather than only to a name.
+    source: str = "builtin"
 
 
 def openai_schema(spec: ToolSpec) -> dict:

@@ -188,19 +188,42 @@ grounding citations on the node and put them in the export.
 
 ## Cross-cutting findings
 
-1. **Citations are not persisted** (research: breaks; all rooms: weakens the
-   export). One column and one export section.
-2. **No converge primitive** — no reaction, vote or ranking anywhere in the
-   product (general: breaks brainstorming; dev: weakens review).
-3. **No repo awareness** (dev: breaks).
-4. **Documents carry no metadata** (research: bends; general: harmless).
-5. **Observers cannot speak** (research: bends; all rooms: costs the third role).
-6. **`REQUIREMENTS-COVERAGE.md` now points at doors that have moved.** It tells
-   a reader to find the provider under `TEAM → Provider` (it is SETUP), the
-   library under `LIBR` (it is PROMPTS), and shows glyphs that were retired
-   (`⚒ Agent`, `⌘ spec.md`, `⊙ Shared`). It is the document that maps
-   requirement → where to see it, which makes it the document a marker follows.
-   Stale by one refactor.
+**All six are now closed.** The plan they became is `PLAN-V1.md`; what each one
+turned out to be is recorded here, because two of them were not what this
+document first said.
+
+1. **Citations are not persisted** — ✅ *fixed, and it was worse than written
+   here.* This said "one column and one export section". It was neither: the
+   only place citations existed anywhere was a module-level record in
+   `ChatView.tsx`, populated from live SSE. `nodes` had no column, `get_history`
+   had nothing to return, and a page reload dropped the evidence for every
+   grounded answer in the thread. Now a `node_citations` table (a table, not a
+   column — "which answers cite this paper?" is a query), written in the same
+   transaction as the reply, hydrated on the history read, inherited across
+   forks, and carried into both exports.
+2. **No converge primitive** — ✅ *fixed.* `branch_votes`, approval-style: a
+   member may back any number of branches. The tally is shown while a verdict is
+   being written and never drives it — adopting still requires someone to write
+   down why.
+3. **No repo awareness** — ✅ *fixed, as MCP rather than as a GitHub
+   integration.* `ToolSpec` already had MCP's shape, so a discovered tool passes
+   through the allowlist, the approval gate and the tool ledger unchanged.
+   Plus `conversations.subject`, which is the piece that made it useful: a team
+   says "this change" for forty turns and never says the number.
+4. **Documents carry no metadata** — ✅ *fixed.* Author/year/title/identifier,
+   none of it inferred, and one `cite_as` rule shared by the chip, the exports
+   and the model's own context so they cannot drift.
+5. **Observers cannot speak** — ✅ *decided and fixed.* Option (b): notes only.
+   Safe by construction rather than by policy — a note never enters the model's
+   context, so an Observer cannot change a reply, spend the budget, or alter a
+   thread's lineage.
+6. **`REQUIREMENTS-COVERAGE.md` points at doors that have moved** — ✅ *fixed*,
+   along with the retired glyphs still live in the code that this document did
+   not catch (`⊙`/`◍` for visibility, `⛓` for a linked thread, `☁` beside the
+   provider).
+
+The one finding this run-through did **not** raise, and which turned out to
+matter most: the agent tool layer had no telemetry at all. See `PLAN-V1.md` §2.
 
 ---
 

@@ -35,6 +35,10 @@ export interface ChatMessage {
   // Agent tool ledger — what the model did before it answered (stream-only,
   // like grounding: nodes don't persist it, this session's memory does).
   tools?: ToolActivity[];
+  // The technical reason a run failed, when one did. Shown as a small aside
+  // under the plain-language message rather than *as* the message: a reader
+  // cannot act on a Python exception, but the person they forward it to can.
+  error?: string;
 }
 
 /** Marks the `@handles` in a note so the person addressed can find their own
@@ -167,6 +171,11 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
                 {PLACE.docs} {g.cite_as || g.filename} §{g.chunk_index + 1}
               </span>
             ))}
+          </div>
+        )}
+        {m.error && (
+          <div className={s.runError} title="What the server reported">
+            {m.error}
           </div>
         )}
         {m.tokens && <div className={s.colophon}>❧ {m.tokens} ❧</div>}

@@ -39,6 +39,10 @@ from ..provider_settings import (
 )
 from ..providers.pricing import estimate_cost_usd
 from ..telemetry import LlmCallRow
+from ..tools.telemetry import ToolCallRow
+from ..tools.mcp import McpError
+from ..tools.mcp_service import load_mcp_tools, sync_server
+from ..tools.models import McpServerRow, McpToolRow
 from ..tools import resolve_allowlist
 from ..tools.builtin import make_tools
 from ..schemas import (
@@ -369,6 +373,35 @@ async def get_workspace_usage(
                 "cost_usd": round(cost, 6) if cost is not None else None,
             }
         )
+    # What the workspace's agents have actually been doing. Grouped per tool
+    # and outcome rather than listed, because the useful reading is a shape —
+    # "web_search: 40 ok, 3 error, 12 denied" answers "is this tool working"
+    # and "is the team refusing it" at once, and both are questions the tool
+    # layer could not answer at all until it had a ledger.
+    tool_grouped = (
+        await session.execute(
+            select(
+                ToolCallRow.tool_name,
+                ToolCallRow.source,
+                ToolCallRow.status,
+                func.count(ToolCallRow.id),
+                func.coalesce(func.avg(ToolCallRow.latency_ms), 0),
+            )
+            .where(ToolCallRow.workspace_id == workspace_id)
+            .group_by(ToolCallRow.tool_name, ToolCallRow.source, ToolCallRow.status)
+        )
+    ).all()
+    tools = [
+        {
+            "tool": name,
+            "source": source,
+            "status": status,
+            "calls": int(count),
+            "avg_latency_ms": int(avg_latency or 0),
+        }
+        for name, source, status, count, avg_latency in tool_grouped
+    ]
+
     return {
         "chat_tokens_approx": int(chat_tokens or 0),
         "deep_run_tokens": int(deep_tokens or 0),
@@ -376,6 +409,7 @@ async def get_workspace_usage(
         # a static price table (None when the model isn't listed).
         "calls": calls,
         "estimated_cost_usd": round(total_cost, 6) if total_cost is not None else None,
+        "tools": tools,
     }
 
 
@@ -486,10 +520,18 @@ class ToolAllowlistIn(BaseModel):
     allowed: list[str]
 
 
-def _tools_out(row: WorkspaceSettings | None, *, workspace_id: str, viewer_id: str) -> dict:
+async def _tools_out(
+    row: WorkspaceSettings | None, *, workspace_id: str, viewer_id: str, session
+) -> dict:
     """The catalog with this workspace's policy applied — what the settings UI
     renders: every tool that exists, whether it can work here (`available`),
-    and whether the owner permits it (`allowed`)."""
+    and whether the owner permits it (`allowed`).
+
+    Both sources, in one list. An owner deciding what an agent may do should
+    not have to hold two screens in their head, and the thing they most need to
+    notice — that a tool came from someone else's server — is a property of the
+    row, not of which panel it happens to be in.
+    """
     allowed = resolve_allowlist(row.tool_allowlist if row else None)
     catalog = make_tools(
         workspace_id=workspace_id,
@@ -498,15 +540,26 @@ def _tools_out(row: WorkspaceSettings | None, *, workspace_id: str, viewer_id: s
         embeddings=None,
         tavily_key=settings.tavily_api_key,
     )
+    catalog = catalog + await load_mcp_tools(session, workspace_id)
     return {
         "allowed": allowed,
         "items": [
             {
                 "name": t.name,
+                # Verbatim, always. This is text a third party wrote that goes
+                # into the model's context, so the owner approving it must read
+                # exactly what the model will read — no summarising, no
+                # truncation in the payload.
                 "description": t.description,
                 "sensitive": t.sensitive,
                 "available": t.available,
                 "allowed": t.name in allowed,
+                "source": t.source,
+                # An MCP tool that is allowed but unavailable has almost always
+                # had its description rewritten since review. Saying so is the
+                # difference between a tool that looks broken and one that is
+                # waiting for a human.
+                "needs_review": t.source.startswith("mcp:") and not t.available,
             }
             for t in catalog
         ],
@@ -523,7 +576,9 @@ async def get_tool_settings(
     have tools, and which calls will pause for approval."""
     await get_membership(workspace_id, user, session)
     row = await session.get(WorkspaceSettings, workspace_id)
-    return _tools_out(row, workspace_id=workspace_id, viewer_id=user.id)
+    return await _tools_out(
+        row, workspace_id=workspace_id, viewer_id=user.id, session=session
+    )
 
 
 @router.put("/workspaces/{workspace_id}/settings/tools")
@@ -547,6 +602,11 @@ async def put_tool_settings(
             tavily_key=settings.tavily_api_key,
         )
     }
+    # MCP tools are catalog entries like any other, so they are allowlistable
+    # like any other. The rejection below still applies: a name from neither
+    # source is a typo or a stale client, and accepting it silently would let
+    # an allowlist claim to permit something that does not exist.
+    catalog_names |= {t.name for t in await load_mcp_tools(session, workspace_id)}
     names = [n.strip() for n in body.allowed]
     unknown = sorted(set(names) - catalog_names)
     if unknown:
@@ -561,7 +621,9 @@ async def put_tool_settings(
     row.tool_allowlist = json.dumps(names)
     await session.commit()
     await session.refresh(row)
-    return _tools_out(row, workspace_id=workspace_id, viewer_id=user.id)
+    return await _tools_out(
+        row, workspace_id=workspace_id, viewer_id=user.id, session=session
+    )
 
 
 @router.post("/workspaces/{workspace_id}/settings/provider/test")
@@ -760,3 +822,203 @@ async def accept_invite(
 
     ws = await session.get(Workspace, invite.workspace_id)
     return _ws_out(ws, role)
+
+
+# --- MCP servers: the catalog's second source ---------------------------------
+class McpServerIn(BaseModel):
+    name: str
+    url: str
+    auth_header: str = ""
+    # Write-only. Never echoed back — same rule the provider API key follows.
+    auth_value: str = ""
+    enabled: bool = True
+
+
+def _mcp_out(server: McpServerRow, tools: list[McpToolRow]) -> dict:
+    return {
+        "id": server.id,
+        "name": server.name,
+        "url": server.url,
+        "auth_header": server.auth_header,
+        # Whether a credential exists, never what it is.
+        "has_auth": bool(server.auth_value_encrypted),
+        "enabled": server.enabled,
+        "last_error": server.last_error,
+        "last_synced_at": server.last_synced_at.isoformat() if server.last_synced_at else None,
+        "tools": [
+            {
+                "name": t.tool_name,
+                # Verbatim: this is what the model will be told, and the owner
+                # approving it has to see exactly that.
+                "description": t.description,
+                "sensitive": t.sensitive,
+                "needs_review": t.description_digest != t.approved_digest,
+            }
+            for t in tools
+        ],
+    }
+
+
+async def _mcp_servers_of(session, workspace_id: str) -> list[dict]:
+    servers = (
+        await session.execute(
+            select(McpServerRow)
+            .where(McpServerRow.workspace_id == workspace_id)
+            .order_by(McpServerRow.created_at)
+        )
+    ).scalars().all()
+    rows = (
+        await session.execute(
+            select(McpToolRow).where(McpToolRow.workspace_id == workspace_id)
+        )
+    ).scalars().all()
+    by_server: dict[str, list[McpToolRow]] = {}
+    for row in rows:
+        by_server.setdefault(row.server_id, []).append(row)
+    return [_mcp_out(s, by_server.get(s.id, [])) for s in servers]
+
+
+@router.get("/workspaces/{workspace_id}/mcp")
+async def list_mcp_servers(
+    workspace_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Any member may read. What an agent can reach is not a secret from the
+    people whose work it acts on — and the composer's own hint about what the
+    agent can do is built from the same list."""
+    await get_membership(workspace_id, user, session)
+    return {"items": await _mcp_servers_of(session, workspace_id)}
+
+
+@router.post("/workspaces/{workspace_id}/mcp", status_code=201)
+async def add_mcp_server(
+    workspace_id: str,
+    body: McpServerIn,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Point this workspace at an MCP server, and discover what it offers.
+
+    Owner-only, and deliberately the same bar as the allowlist itself: adding a
+    server is adding a *source* of tools, which is a larger decision than
+    permitting any one of them.
+
+    Discovery runs immediately. A server that cannot be reached is still saved,
+    with the error recorded — the usual reason is a typo'd URL or a missing
+    credential, and making someone re-enter the whole form to retry would be
+    the wrong lesson to draw from a failed request.
+    """
+    name = body.name.strip()[:60]
+    url = body.url.strip()[:500]
+    if not name or not url:
+        raise api_error(422, "invalid", "a server needs a name and a URL")
+    if not url.startswith(("http://", "https://")):
+        raise api_error(422, "invalid", "the URL must be http(s)")
+
+    clash = await session.scalar(
+        select(McpServerRow).where(
+            McpServerRow.workspace_id == workspace_id, McpServerRow.name == name
+        )
+    )
+    if clash is not None:
+        raise api_error(409, "conflict", f"a server called '{name}' already exists here")
+
+    server = McpServerRow(
+        workspace_id=workspace_id,
+        name=name,
+        url=url,
+        auth_header=body.auth_header.strip()[:100],
+        auth_value_encrypted=encrypt_key(body.auth_value.strip()),
+        enabled=body.enabled,
+        created_by=user.id,
+    )
+    session.add(server)
+    await session.commit()
+    await session.refresh(server)
+
+    try:
+        await sync_server(session, server)
+    except McpError:
+        pass  # recorded on the row; the panel shows it
+    await session.refresh(server)
+    return {"items": await _mcp_servers_of(session, workspace_id)}
+
+
+@router.post("/workspaces/{workspace_id}/mcp/{server_id}/sync")
+async def sync_mcp_server(
+    workspace_id: str,
+    server_id: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Re-ask a server what it offers.
+
+    The response's `needs_review` count is the number that matters: tools whose
+    description or schema moved since an owner last looked. Those are now
+    unavailable to the model until someone re-approves them, because a
+    description is text a third party writes directly into the model's context.
+    """
+    server = await session.get(McpServerRow, server_id)
+    if server is None or server.workspace_id != workspace_id:
+        raise api_error(404, "not_found", "server not found")
+    try:
+        summary = await sync_server(session, server)
+    except McpError as exc:
+        raise api_error(502, "mcp_unreachable", str(exc))
+    return {"summary": summary, "items": await _mcp_servers_of(session, workspace_id)}
+
+
+@router.post("/workspaces/{workspace_id}/mcp/{server_id}/tools/{tool_name}/review")
+async def review_mcp_tool(
+    workspace_id: str,
+    server_id: str,
+    tool_name: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Accept a tool's *current* description as reviewed.
+
+    The one action that makes a drifted tool usable again. It exists as its own
+    endpoint rather than a flag on sync because approving what a server now
+    says is a decision a person takes after reading it — folding it into the
+    refresh would approve every change automatically, which is precisely the
+    hole this guards.
+    """
+    server = await session.get(McpServerRow, server_id)
+    if server is None or server.workspace_id != workspace_id:
+        raise api_error(404, "not_found", "server not found")
+    row = await session.scalar(
+        select(McpToolRow).where(
+            McpToolRow.server_id == server_id, McpToolRow.tool_name == tool_name
+        )
+    )
+    if row is None:
+        raise api_error(404, "not_found", "tool not found")
+    row.approved_digest = row.description_digest
+    await session.commit()
+    return {"items": await _mcp_servers_of(session, workspace_id)}
+
+
+@router.delete("/workspaces/{workspace_id}/mcp/{server_id}", status_code=200)
+async def remove_mcp_server(
+    workspace_id: str,
+    server_id: str,
+    _owner: Membership = Depends(require_role(ROLE_OWNER)),
+    session: AsyncSession = Depends(get_session),
+):
+    """Remove a server and everything it contributed.
+
+    The allowlist is left alone on purpose. A name in it that no longer exists
+    is inert — `bindable` offers only tools present in the catalog — and
+    scrubbing it would silently discard an owner's decision if the same server
+    were added back an hour later.
+    """
+    server = await session.get(McpServerRow, server_id)
+    if server is None or server.workspace_id != workspace_id:
+        raise api_error(404, "not_found", "server not found")
+    await session.execute(delete(McpToolRow).where(McpToolRow.server_id == server_id))
+    await session.delete(server)
+    await session.commit()
+    return {"items": await _mcp_servers_of(session, workspace_id)}

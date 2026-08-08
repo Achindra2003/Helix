@@ -236,6 +236,7 @@ def build_messages(
     references: list[ReferenceBlock] | None = None,
     recalled: str | None = None,
     grounding: str | None = None,
+    subject: str | None = None,
 ) -> list[Message]:
     """Render branch history (root -> head) into role-structured chat messages.
 
@@ -250,6 +251,12 @@ def build_messages(
     ``recalled`` is the recall block precomputed against persisted node vectors
     (the production path — see `EmbeddingIndex.recall_block`); ``None`` falls
     back to inline on-the-fly embedding for direct callers.
+
+    ``subject`` is the external artifact this thread is about — a pull request,
+    an issue, a document URL. It exists for the agent: a team discussing "this
+    change" for forty turns never says the number, so an agent holding a GitHub
+    tool had everything it needed except which PR to fetch. Stated as fact
+    rather than instruction, because it is context, not a command.
     """
     # Notes are addressed to teammates, not to the model. "No, try the other
     # way" is coordination, not a prompt: letting it into the context would
@@ -262,6 +269,17 @@ def build_messages(
     messages: list[Message] = []
     if system:
         messages.append({"role": "system", "content": system})
+    if subject:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    f"This thread is about: {subject}\n"
+                    "If you have a tool that can read it, use that reference "
+                    "rather than asking which one is meant."
+                ),
+            }
+        )
     if references:
         block = render_references(references)
         if block:

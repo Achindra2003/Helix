@@ -84,12 +84,14 @@ async def connect() -> None:
     this does.
     """
     # Import models so they register on Base.metadata before create_all. All
-    # six modules, explicitly: a table that has not been imported is silently
+    # seven modules, explicitly: a table that has not been imported is silently
     # absent. `telemetry` used to be missing here and `llm_calls` was created
     # only because api/main.py imports it first — true by accident, and it
     # would have broken the moment that import moved.
     from . import models  # noqa: F401
     from . import telemetry as telemetry_models  # noqa: F401
+    from .tools import telemetry as tool_telemetry_models  # noqa: F401
+    from .tools import models as tool_models  # noqa: F401
     from .conversation import embeddings as embedding_models  # noqa: F401
     from .conversation import models as conversation_models  # noqa: F401
     from .documents import models as document_models  # noqa: F401

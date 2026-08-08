@@ -85,7 +85,15 @@ export function useAgentRun({
       setApproval({ runId: run.runId, calls: (run.asst.tools ?? []).filter((t) => t.status === "pending") });
     } else if (ev.kind === "complete") {
       if (ev.status === "error" && !run.acc) {
-        run.asst.body = `[${ev.stop_reason}]`;
+        // `stop_reason` on a failed run is `error: <python exception repr>`.
+        // Rendering it raw put a traceback fragment in the thread wearing
+        // Helix's name — the reader cannot act on `KeyError: 'id'`, and the
+        // record now contains a sentence Helix never said. Say what happened
+        // instead, and keep the technical detail where a developer looks for
+        // it (the run archive keeps the full reason).
+        run.asst.body =
+          "The agent run failed before it could answer. Nothing was saved to the thread beyond this note — try again, or ask without tools.";
+        run.asst.error = ev.stop_reason;
         setMessages((m) => [...m]);
       }
     } else if (ev.kind === "assistant_node") {
