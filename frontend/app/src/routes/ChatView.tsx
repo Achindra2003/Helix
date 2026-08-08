@@ -990,7 +990,7 @@ export function ChatView() {
               />
               {approval && (
                 <div className={s.approveBar}>
-                  <span style={{ fontSize: 15, color: "var(--gilt)" }}>⚿</span>
+                  <span style={{ fontSize: 15, color: "var(--gilt)" }} aria-hidden>{STATE.waiting}</span>
                   <span style={{ minWidth: 0 }}>
                     Helix wants to run{" "}
                     {approval.calls.length === 0 ? <strong>a sensitive tool</strong> : approval.calls.map((c, i) => (
@@ -1007,10 +1007,16 @@ export function ChatView() {
                   <Button variant="ghost" onClick={() => decideApproval(false)}>Deny</Button>
                 </div>
               )}
+              {/* Went to TEAM, and said SETUP. The provider moved to workspace
+                  settings when the Team page was split, and this banner — the
+                  one thing a workspace with no key can click — kept pointing at
+                  the page it had left. No glyph either: the sentence is the
+                  whole message, and the mark that used to sit here was ⚿, which
+                  renders as an empty box on plenty of machines. */}
               {canSend && providerUnconfigured && (
                 <div className={s.remoteBanner} style={{ cursor: "pointer" }}
-                  {...activatable(() => nav(`/w/${wid}/members`))}>
-                  ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
+                  {...activatable(() => nav(`/w/${wid}/settings`))}>
+                  This workspace has no LLM key yet — replies can't stream until one is added.
                   {" "}<u>Add a key under SETUP → Provider</u> (owners only).
                 </div>
               )}

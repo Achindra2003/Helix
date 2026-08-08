@@ -10,6 +10,7 @@ import { useEffectiveRole, useActiveWorkspace } from "@/store/session";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
+import { Select } from "@/components/common/Input";
 import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
 import { ROLE_SIGIL } from "@/lib/glyphs";
@@ -101,12 +102,12 @@ export function MembersView() {
           </div>
           {canManage && (
             <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <select className={`mono ${s.roleSel}`} value={inviteRole}
+              <Select compact className="mono" value={inviteRole}
                 title="What the invited person will be able to do"
                 onChange={(e) => setInviteRole(e.target.value as Role)}>
                 <option value="collaborator">as Collaborator</option>
                 <option value="observer">as Observer</option>
-              </select>
+              </Select>
               <Button variant="primary" onClick={doInvite}>+ Invite</Button>
             </div>
           )}
@@ -126,9 +127,10 @@ export function MembersView() {
                     refuses every change to them ("Cannot demote the workspace
                     owner"), so offering the choice only produces an error. */}
                 {canManage && m.user_id !== ws?.owner_id ? (
-                  <select className={`mono ${s.roleSel}`} value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}>
+                  <Select compact className="mono" value={m.role}
+                    onChange={(e) => changeRole(m.user_id, e.target.value)}>
                     {ROLES.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
-                  </select>
+                  </Select>
                 ) : (
                   <div className={s.badge}>{ROLE_META[m.role].sigil} {ROLE_META[m.role].label}</div>
                 )}

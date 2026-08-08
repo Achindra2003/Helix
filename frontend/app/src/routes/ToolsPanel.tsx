@@ -4,7 +4,7 @@ import { getToolSettings, putToolSettings } from "@/lib/api";
 import { Button } from "@/components/common/Button";
 import { Spinner } from "@/components/common/Feedback";
 import { useToast } from "@/components/common/Toast";
-import { ACTION } from "@/lib/glyphs";
+import { ACTION, STATE } from "@/lib/glyphs";
 import s from "./members.module.css";
 
 /** Owner-governed agent tool allowlist (FR-14). What's checked here is the
@@ -55,7 +55,7 @@ export function ToolsPanel({ wid, isOwner }: { wid: string; isOwner: boolean }) 
         <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
           Agent runs (the composer's <span className="mono" style={{ fontSize: 12 }}>{ACTION.agent} Agent</span> button)
           may only use the tools enabled here — anything unchecked is never even offered to the model.
-          Tools marked <span style={{ color: "var(--gilt)" }}>⚿</span> leave the workspace, so every call
+          Tools marked <span style={{ color: "var(--gilt)" }} aria-hidden>{STATE.waiting}</span> leave the workspace, so every call
           pauses for a member's approval first.
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
@@ -80,7 +80,7 @@ export function ToolsPanel({ wid, isOwner }: { wid: string; isOwner: boolean }) 
                   <span className="mono" style={{ fontSize: 13, color: "var(--ink)" }}>{t.name}</span>
                   {t.sensitive && (
                     <span className="mono" title="Every call pauses for a member's approval"
-                      style={{ fontSize: 10, color: "var(--gilt)", marginLeft: 8 }}>⚿ needs approval</span>
+                      style={{ fontSize: 10, color: "var(--gilt)", marginLeft: 8 }}>{STATE.waiting} needs approval</span>
                   )}
                   {!t.available && (
                     <span className="mono" style={{ fontSize: 10, color: "var(--ink-3)", marginLeft: 8 }}>

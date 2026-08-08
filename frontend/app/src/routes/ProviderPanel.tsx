@@ -4,7 +4,7 @@ import {
   getProviderSettings, putProviderSettings, testProviderSettings, getWorkspaceUsage,
 } from "@/lib/api";
 import { Button } from "@/components/common/Button";
-import { Field, Input } from "@/components/common/Input";
+import { Field, Input, Select } from "@/components/common/Input";
 import { Spinner } from "@/components/common/Feedback";
 import { useToast } from "@/components/common/Toast";
 import s from "./members.module.css";
@@ -182,13 +182,13 @@ export function ProviderPanel({ wid, isOwner }: { wid: string; isOwner: boolean 
                 screen — where the card clips rather than scrolls. */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 12 }}>
               <Field label="Provider">
-                <select
-                  className={`mono ${s.roleSel}`}
+                <Select
+                  className="mono"
                   value={provider}
                   onChange={(e) => { setProvider(e.target.value); setTestResult(null); }}
                 >
                   {PROVIDERS.map((p) => <option key={p.value} value={p.value}>{p.label}</option>)}
-                </select>
+                </Select>
               </Field>
               <Field label={data.api_key_masked ? `API key (stored: ${data.api_key_masked})` : "API key"}>
                 <Input
