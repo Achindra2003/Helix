@@ -1,15 +1,20 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "framer-motion";
 import { Button } from "@/components/common/Button";
+import { DeepButton } from "./DeepButton";
+import { MentionPicker, mentionAt } from "./MentionPicker";
+import { ACTION, PLACE } from "@/lib/glyphs";
 import s from "./chat.module.css";
 
 export function Composer({
-  provider, busy, onSend, onDeep, onAgent, onNote, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed,
+  provider, busy, onSend, onDeep, onAgent, onNote, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed, wid,
 }: {
   provider: string;
+  /** The workspace whose members `@` resolves against. */
+  wid?: string;
   busy: boolean;
   onSend: (text: string) => void;
-  onDeep: (text: string, guided: boolean) => void;
+  onDeep: (text: string, guided: boolean, mode?: string) => void;
   // Agent mode (FR-14): the model gets hands — the workspace's allowed tools,
   // with sensitive calls pausing for approval.
   onAgent: (text: string) => void;
@@ -55,9 +60,9 @@ export function Composer({
     onSend(t);
     update("");
   }
-  function deep() {
+  function deep(mode: string) {
     const t = text.trim() || "What is the most defensible choice here, and why?";
-    onDeep(t, guided);
+    onDeep(t, guided, mode);
     update("");
   }
   function agent() {
@@ -73,49 +78,72 @@ export function Composer({
     update("");
   }
 
+  // `@` addresses a teammate. The picker is mounted only while the caret sits
+  // in an unfinished handle, and it takes Enter before the composer does —
+  // otherwise picking a name would send the message.
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  const [caret, setCaret] = useState(0);
+  const [dismissed, setDismissed] = useState(false);
+  const mention = dismissed ? null : mentionAt(text, caret);
+
+  function pickMention(handle: string) {
+    const m = mentionAt(text, caret);
+    if (!m) return;
+    const next = text.slice(0, m.from) + "@" + handle + " " + text.slice(caret);
+    update(next);
+    const at = m.from + handle.length + 2;
+    requestAnimationFrame(() => {
+      taRef.current?.focus();
+      taRef.current?.setSelectionRange(at, at);
+      setCaret(at);
+    });
+  }
+
   return (
     <div className={s.composer}>
+      {wid && mention && (
+        <MentionPicker wid={wid} query={mention.query}
+          onPick={pickMention} onDismiss={() => setDismissed(true)} />
+      )}
       <textarea
+        ref={taRef}
         className={s.ta}
         rows={2}
-        placeholder="Continue the thread, or escalate to Deep Reasoning…"
+        placeholder="Continue the thread, or escalate to Deep Reasoning… @ a teammate to ask them"
         value={text}
-        onChange={(e) => update(e.target.value)}
+        onChange={(e) => { update(e.target.value); setCaret(e.target.selectionStart ?? 0); setDismissed(false); }}
+        onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
         onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
       />
       <div className={s.composerRow}>
-        <Button onClick={onLibrary} style={{ padding: "6px 11px", fontSize: 12.5 }} title="Insert from prompt library">
-          <span style={{ color: "var(--oxblood)" }}>▦</span> Library
+        <div className={s.composerActions}>
+        <Button onClick={onLibrary} style={{ padding: "6px 11px", fontSize: 12 }} title="Insert from prompt library">
+          <span style={{ color: "var(--oxblood)" }} aria-hidden>{PLACE.prompts}</span> Library
         </Button>
-        <Button onClick={deep} disabled={busy} style={{ padding: "6px 11px", fontSize: 12.5, borderColor: "var(--oxblood)", color: "var(--oxblood)" }} title="Escalate to Deep Reasoning">
-          <span>⟳</span> Deep Reasoning
-        </Button>
-        <Button onClick={agent} disabled={busy} style={{ padding: "6px 11px", fontSize: 12.5 }}
+        <DeepButton busy={busy} guided={guided} onGuidedChange={setGuided} onRun={deep} />
+        <Button onClick={agent} disabled={busy} style={{ padding: "6px 11px", fontSize: 12 }}
           title={agentHint ?? "Agent: Helix answers with tools — searching before it speaks"}>
-          <span style={{ color: "var(--oxblood)" }}>⚒</span> Agent
+          <span style={{ color: "var(--oxblood)" }} aria-hidden>{ACTION.agent}</span> Agent
         </Button>
-        <Button onClick={note} disabled={!text.trim()} style={{ padding: "6px 11px", fontSize: 12.5 }}
+        <Button onClick={note} disabled={!text.trim()} style={{ padding: "6px 11px", fontSize: 12 }}
           title="Say this to your teammates instead of to Helix — it stays in the thread, and the model never reads it">
-          <span style={{ color: "var(--verde)" }}>❝</span> Team
+          <span style={{ color: "var(--verde)" }} aria-hidden>{ACTION.note}</span> Team
         </Button>
-        <label
-          title="Guided: the run pauses between reasoning cycles so you can steer it from the monitor"
-          style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: guided ? "var(--violet)" : "var(--ink-3)", cursor: "pointer", userSelect: "none" }}
-        >
-          <input type="checkbox" checked={guided} onChange={(e) => setGuided(e.target.checked)} style={{ accentColor: "var(--violet)" }} />
-          ⟂ guided
-        </label>
-        <div style={{ flex: 1 }} />
-        {text.trim() && (
-          <span className={`mono ${s.composerHint}`} style={{ fontSize: 10.5, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
+        </div>
+        <div className={s.composerSend}>
+          {/* Always rendered, faded when there's nothing to send: conditionally
+              mounting it is what used to push this button onto a second row. */}
+          <span className={`mono ${s.composerHint} ${text.trim() ? s.composerHintOn : ""}`}
+            aria-hidden={!text.trim()}
+            style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
             ↵ ask Helix · ⇧↵ new line
           </span>
-        )}
-        <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>☁ {provider}</span>
-        <motion.button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)"
-          whileHover={reduce || busy ? undefined : { scale: 1.08, y: -1 }}
-          whileTap={{ scale: 0.9 }}
-          transition={{ type: "spring", stiffness: 500, damping: 20 }}>↑</motion.button>
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{provider}</span>
+          <motion.button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)"
+            whileHover={reduce || busy ? undefined : { scale: 1.08, y: -1 }}
+            whileTap={{ scale: 0.9 }}
+            transition={{ type: "spring", stiffness: 500, damping: 20 }}>↑</motion.button>
+        </div>
       </div>
     </div>
   );

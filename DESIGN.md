@@ -299,8 +299,9 @@ must not make every visitor's browser call a third party on page load.
 ### The Declared Scale
 
 `tokens.css` names the hierarchy above: `--t-brand` 22, `--t-title` 20,
-`--t-prose` 15.5, `--t-instrument` 13, `--t-label` 11, plus `--t-base` 16 for
-the document default (not a hierarchy step).
+`--t-prose` 15.5, `--t-lede` 15, `--t-body` 14, `--t-instrument` 13,
+`--t-small` 12, `--t-label` 11, `--t-micro` 10, plus `--t-base` 16 for the
+document default (not a hierarchy step).
 
 It used to declare a different, six-step ramp — 12 / 14 / 16 / 20 / 26 / 42 —
 and that ramp was fiction. Three of its six steps were never referenced, 42px
@@ -312,12 +313,28 @@ tokens now name what the product is, at the values already rendering.
 
 **New work should take a step from the ramp**, which is now safe advice.
 
-Reconciling the remaining literals is still open. Around 260 px literals are
-set directly, across roughly 25 distinct sizes — 13px (36 uses), 11px (29),
-12px (27), 12.5px (25), 14px and 13.5px and 10.5px (21 each) lead them. Each
-was chosen for a surface and few are wrong alone. It is still worth doing in
-one deliberate pass rather than opportunistically, because moving a size moves
-layout.
+The reconciliation this section used to defer has been done, in one pass. The
+count of literals set directly is unchanged — 281 — but they now land on **15
+distinct sizes instead of 26**, and the fine tier, where all the reading
+happens, is exactly seven steps: 10 · 11 · 12 · 13 · 14 · 15 · 15.5.
+
+What was wrong was never any single value. It was that fourteen sizes lived
+between 8.5px and 15px — 10.5 beside 11, 12.5 beside 12, 13.5 beside 13 — so
+two chips in the same row, written months apart by the same hand, sat on
+baselines half a pixel out. No reader can name that; every reader feels it as
+the interface being slightly out of tune. 99 literals were snapped to the
+nearest surviving step. The largest single movement was 0.5px, except one
+8.5px label; nothing was relaid out, and the change is invisible per element
+and audible across a screen.
+
+The coarse tier keeps its one-offs on purpose — 16, 17, 18, 20, 22, 24, 32, 40
+— because those are not drift: a markdown `h2`, a rail glyph and a page title
+are different jobs that happen to be near each other in size. Its own genuine
+duplicates (19 beside 20, 21 beside 22, 26 beside 24) were snapped with the
+rest, which is what turned the markdown headings into a clean 16 / 18 / 20.
+
+**Take a step from the ramp.** If no step fits, that is a design question worth
+raising, not something to settle with a half-pixel.
 
 ### Named Rules
 
@@ -492,7 +509,7 @@ tells the two cases apart rather than reporting every small control.
 
 ### Navigation
 
-The rail is a 68px column of stacked glyph-over-label items in mono at 9.5px
+The rail is a 68px column of stacked glyph-over-label items in mono at 10px
 with 0.08em tracking. Active items turn `oxblood`. The active highlight is a
 **single element that slides between items** rather than a class toggled on each
 — a layout animation, so the highlight travels. The rail is a `<nav>` landmark

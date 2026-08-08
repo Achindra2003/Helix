@@ -14,7 +14,7 @@ from .conversation.router import router as conversation_router
 from .documents.router import router as documents_router
 from .prompts.router import router as prompts_router
 from .realtime import router as realtime_router
-from .routers import auth, workspaces
+from .routers import auth, notices, workspaces
 
 
 @asynccontextmanager
@@ -158,6 +158,7 @@ async def validation_handler(_: Request, exc: RequestValidationError):
 
 app.include_router(auth.router)
 app.include_router(workspaces.router)
+app.include_router(notices.router)
 app.include_router(conversation_router)
 app.include_router(map_router)
 app.include_router(prompts_router)
@@ -195,10 +196,16 @@ async def public_config():
 
     Empty `notice` (the default) means self-hosted: no banner, because on your
     own instance a warning about data being wiped would simply be false.
+
+    `registration_open` is safe to publish for the same reason it is useful:
+    anyone can discover it by posting to /auth/register once. Saying so up front
+    only spares a visitor the trouble of filling in a form that was never going
+    to be accepted.
     """
     return {
         "notice": settings.public_notice,
         "notice_link": settings.public_notice_link,
+        "registration_open": settings.allow_registration,
     }
 
 

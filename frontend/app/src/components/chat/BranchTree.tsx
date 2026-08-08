@@ -1,5 +1,6 @@
 import type { Branch } from "@/lib/types";
 import { activatable } from "@/lib/a11y";
+import { ACTION } from "@/lib/glyphs";
 import s from "./chat.module.css";
 
 // Depth from parent links so the lineage indents like a Git tree.
@@ -38,7 +39,7 @@ export function BranchTree({
     <>
       <div className={s.divider} />
       <div className={s.lineHead}>
-        <span style={{ color: "var(--oxblood)", fontSize: 14 }}>⌇</span>
+        <span style={{ color: "var(--oxblood)", fontSize: 14 }} aria-hidden>{ACTION.fork}</span>
         <span className="eyebrow">Branch lineage</span>
       </div>
       {branches.map((b) => {

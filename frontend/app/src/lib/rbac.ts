@@ -1,6 +1,7 @@
 // RBAC — policy as data (contract §2). The default seed matrix; the client uses
 // it to hide/disable controls. The server is the real enforcer (once gated).
 import type { Role } from "@/lib/types";
+import { ROLE_SIGIL } from "@/lib/glyphs";
 
 export type Action =
   | "conversation.read"
@@ -49,7 +50,7 @@ export const PERMISSION_ROWS: { key: string; action: Action }[] = [
 ];
 
 export const ROLE_META: Record<Role, { sigil: string; label: string }> = {
-  owner: { sigil: "♔", label: "Owner" },
-  collaborator: { sigil: "⌇", label: "Collaborator" },
-  observer: { sigil: "◉", label: "Observer" },
+  owner: { sigil: ROLE_SIGIL.owner, label: "Owner" },
+  collaborator: { sigil: ROLE_SIGIL.collaborator, label: "Collaborator" },
+  observer: { sigil: ROLE_SIGIL.observer, label: "Observer" },
 };

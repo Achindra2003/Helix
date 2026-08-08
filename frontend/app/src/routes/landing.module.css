@@ -42,14 +42,20 @@
 @media (max-width: 720px) { .navHideSm { display: none; } }
 
 /* ── hero ────────────────────────────────────────────────────────── */
+/* Two rows, not one. The hero used to centre a copy block and an instrument in
+   a full viewport, which at 1080px left ~350px of empty parchment above the
+   title and ~250px below the buttons — the page's most valuable screen spent on
+   air. The instrument now fills the band it sits in, and the proof rail closes
+   the fold on something a reader can check. */
 .hero {
   position: relative;
   min-height: calc(100vh - 60px);
   display: grid;
   grid-template-columns: 1.05fr 0.95fr;
+  grid-template-rows: 1fr auto;
   align-items: center;
   gap: 24px;
-  padding: clamp(24px, 5vh, 64px) clamp(20px, 5vw, 56px) 40px;
+  padding: clamp(20px, 4vh, 48px) clamp(20px, 5vw, 56px) clamp(56px, 8vh, 84px);
   max-width: 1240px; margin: 0 auto; width: 100%;
 }
 .heroCopy { position: relative; z-index: 2; max-width: 560px; }
@@ -74,9 +80,32 @@
   position: relative; z-index: 1; display: flex; align-items: center; justify-content: center;
   pointer-events: none;
 }
+/* The instrument is sized by its column, not by its width attribute — it is the
+   thing that fills the hero band, so it must grow with it. */
+.heroArt svg { width: min(100%, clamp(420px, 38vw, 640px)); height: auto; }
+
+/* ── the proof rail: the last line above the fold ────────────────── */
+/* Three columns, not a wrapping row: as a flex row the third fact dropped to a
+   line of its own at 1440 and the rail read as a sentence that ran out of
+   room. Ruled columns are also simply what this page's world does. */
+.proof {
+  grid-column: 1 / -1; grid-row: 2;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px clamp(18px, 3vw, 40px);
+  margin: 0; padding: 18px 0 0; list-style: none;
+  border-top: 1px solid var(--rule-soft);
+  font-family: var(--font-ui); font-size: 13px; line-height: 1.45; color: var(--ink-3);
+}
+.proof li { display: flex; flex-direction: column; gap: 3px; }
+.proof b {
+  font-family: var(--font-display); font-weight: 600; font-size: 12px;
+  letter-spacing: 0.12em; text-transform: uppercase; color: var(--gilt-1);
+}
+
 @media (max-width: 900px) {
-  .hero { grid-template-columns: 1fr; min-height: auto; padding-top: 48px; padding-bottom: 24px; }
+  .hero { grid-template-columns: 1fr; min-height: auto; padding-top: 48px; padding-bottom: 32px; }
   .heroArt { display: none; }
+  /* One per line: three narrow columns would break every phrase twice. */
+  .proof { grid-template-columns: 1fr; gap: 12px; }
 }
 
 /* big CTA — reuses the seal, sized up */
@@ -96,10 +125,9 @@
 }
 .ctaGhost:hover { border-color: var(--gilt); color: var(--ink); background: var(--hover-tint); }
 
-.scrollCue {
-  position: absolute; left: 50%; bottom: 22px; transform: translateX(-50%);
-  color: var(--ink-faint); font-size: 20px; z-index: 3;
-}
+/* The bouncing ⌄ that used to sit here is gone: the proof rail now ends the
+   fold on a ruled line with content cut by the viewport edge, which says
+   "there is more" without a second animation competing with the instrument. */
 
 /* ── manifesto strip ─────────────────────────────────────────────── */
 .manifesto {
@@ -122,7 +150,7 @@
 }
 .feature:nth-child(even) .featureArt { order: -1; }
 .featureTag {
-  font-family: var(--font-display); font-size: 11.5px; letter-spacing: 0.2em;
+  font-family: var(--font-display); font-size: 11px; letter-spacing: 0.2em;
   text-transform: uppercase; color: var(--gilt-1); font-weight: 600; margin-bottom: 14px;
 }
 .featureTitle {

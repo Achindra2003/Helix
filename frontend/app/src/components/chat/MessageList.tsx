@@ -1,6 +1,7 @@
 import { initialOf } from "@/lib/format";
 import { Markdown } from "@/components/common/Markdown";
 import type { GroundingItem } from "@/lib/types";
+import { ACTION, PLACE, STATE } from "@/lib/glyphs";
 import s from "./chat.module.css";
 
 // One tool call in an agent turn (FR-14): requested → (approval?) → resolved.
@@ -36,12 +37,25 @@ export interface ChatMessage {
   tools?: ToolActivity[];
 }
 
+/** Marks the `@handles` in a note so the person addressed can find their own
+ *  name by scanning. Cosmetic only — the server already decided who was
+ *  actually notified, and a handle nobody matched is left looking like what it
+ *  is: ordinary text that reached no one. */
+function withMentions(text: string) {
+  const parts = text.split(/(@[A-Za-z0-9._%+-]+)/g);
+  return parts.map((p, i) =>
+    p.startsWith("@") && p.length > 1
+      ? <span key={i} className={s.mentionTag}>{p}</span>
+      : p,
+  );
+}
+
 const TOOL_GLYPH: Record<ToolActivity["status"], { glyph: string; color: string; label: string }> = {
-  running: { glyph: "◌", color: "var(--gilt)", label: "running" },
-  pending: { glyph: "⚿", color: "var(--gilt)", label: "awaiting approval" },
-  ok: { glyph: "✓", color: "var(--verde)", label: "done" },
-  error: { glyph: "✕", color: "var(--oxblood)", label: "failed" },
-  denied: { glyph: "⊘", color: "var(--ink-3)", label: "denied" },
+  running: { glyph: STATE.running, color: "var(--gilt)", label: "running" },
+  pending: { glyph: STATE.waiting, color: "var(--gilt)", label: "awaiting approval" },
+  ok: { glyph: ACTION.confirm, color: "var(--verde)", label: "done" },
+  error: { glyph: ACTION.remove, color: "var(--oxblood)", label: "failed" },
+  denied: { glyph: STATE.denied, color: "var(--ink-3)", label: "denied" },
 };
 
 // Delete/edit is only ever offered on the branch's *trailing* turn you wrote
@@ -59,10 +73,11 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
   // bubble at all. It sits in the margin like a hand-written annotation,
   // keeping its place in the thread without pretending to be a turn.
   if (m.role === "note") {
+    // (see withMentions below)
     return (
       <div className={s.note} style={{ borderLeftColor: m.authorColor ?? "var(--ink-faint)" }}>
         <span className={s.noteWho} style={{ color: m.authorColor }}>{m.authorName}</span>
-        <span className={s.noteBody}>{m.body}</span>
+        <span className={s.noteBody}>{withMentions(m.body)}</span>
         <span className={s.noteAside} title="Notes are for your teammates — Helix never reads them">
           to the team
         </span>
@@ -85,10 +100,10 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
             {asst ? "Helix" : m.authorName}
           </span>
           {m.time && <span className={s.msgTime}>{m.time}</span>}
-          {m.forkPoint && <span className={s.forkTag}>⌇ fork point</span>}
+          {m.forkPoint && <span className={s.forkTag}>{ACTION.fork} fork point</span>}
           {m.forkChildren && m.forkChildren.length > 0 && (
             <span className={s.forkMark} title={`branches from here: ${m.forkChildren.join(", ")}`}>
-              ⎇ {m.forkChildren[0]}{m.forkChildren.length > 1 ? ` +${m.forkChildren.length - 1}` : ""}
+              {ACTION.fork} {m.forkChildren[0]}{m.forkChildren.length > 1 ? ` +${m.forkChildren.length - 1}` : ""}
             </span>
           )}
           {onForkHere && !m.typing && (
@@ -117,7 +132,7 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
                 <div key={t.id || t.name} className={s.toolRow}
                   title={t.preview ? `${g.label} — ${t.preview}` : g.label}>
                   <span className={s.toolStatus} style={{ color: g.color }}>{g.glyph}</span>
-                  <span style={{ color: "var(--oxblood)" }}>⚒ {t.name}</span>
+                  <span style={{ color: "var(--oxblood)" }}>{ACTION.agent} {t.name}</span>
                   {t.args && <span className={s.toolArgs}>({t.args})</span>}
                   {t.status === "pending" && <span style={{ color: "var(--gilt)" }}>awaiting approval</span>}
                   {t.status === "denied" && <span style={{ color: "var(--ink-3)" }}>denied</span>}
@@ -145,7 +160,7 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
             {m.grounding.map((g, i) => (
               <span key={`${g.document_id}-${g.chunk_index}-${i}`} className={s.groundChip}
                 title={`relevance ${g.score.toFixed(2)} — “${g.excerpt}”`}>
-                ⌘ {g.filename} §{g.chunk_index + 1}
+                {PLACE.docs} {g.filename} §{g.chunk_index + 1}
               </span>
             ))}
           </div>

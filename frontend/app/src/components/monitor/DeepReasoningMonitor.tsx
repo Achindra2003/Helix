@@ -3,6 +3,7 @@ import { useMonitor, type TraceStep } from "@/store/monitor";
 import { killDeepRun } from "@/lib/api";
 import { Button } from "@/components/common/Button";
 import { RunHistory } from "./RunHistory";
+import { ACTION, STATE } from "@/lib/glyphs";
 import s from "./monitor.module.css";
 
 const KIND_COLOR: Record<string, string> = {
@@ -121,7 +122,15 @@ export function Step({ step }: { step: TraceStep }) {
   );
 }
 
-export function DeepReasoningMonitor({ conversationId, id }: { conversationId?: string | null; id?: string }) {
+export function DeepReasoningMonitor({ conversationId, id, collapsed, onToggle }: {
+  conversationId?: string | null;
+  id?: string;
+  /** Wide layouts only. Below 1100px this pane is a drawer and the drawer bar
+   *  governs it, so the collapsed state is ignored there (see monitor.module
+   *  .css) — otherwise opening the drawer would show a rail with nothing in it. */
+  collapsed?: boolean;
+  onToggle?: () => void;
+}) {
   const { run, clear } = useMonitor();
   const traceRef = useRef<HTMLDivElement>(null);
   // The reasoning archive (P4): past runs of the open conversation.
@@ -147,19 +156,38 @@ export function DeepReasoningMonitor({ conversationId, id }: { conversationId?: 
   }
 
   return (
-    <div className={`${s.pane} ${holding ? s.holding : ""} monitor-pane`} id={id}>
+    <div className={`${s.pane} ${holding ? s.holding : ""} ${collapsed ? s.paneCollapsed : ""} monitor-pane`} id={id}>
+      {/* The folded rail. Kept in the DOM rather than swapped in, so the
+          drawer at narrow widths never has to reason about it. */}
+      <button className={s.rail} onClick={onToggle}
+        aria-expanded={false} aria-controls={id}
+        title="Show Deep Reasoning">
+        <span className={s.railIcon} aria-hidden>⟳</span>
+        <span className={s.railLabel}>Deep Reasoning</span>
+        {run?.status === "live" && <span className={s.railLive} aria-hidden />}
+        <span className={s.railStatus}>{run ? statusLabel(run.status) : "idle"}</span>
+      </button>
+
+      <div className={s.paneBody}>
       <div className={s.head}>
         <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⟳</span>
         <span className="eyebrow" style={{ flex: 1, letterSpacing: "0.14em" }}>Deep Reasoning</span>
         {conversationId && (
           <button className={showRuns ? s.runsBtnOn : s.runsBtn} onClick={() => setShowRuns((v) => !v)}
             title="The team's reasoning archive — every recorded run of this conversation">
-            ☷ runs
+            {STATE.archive} runs
           </button>
         )}
         <span className={`${s.status} ${run?.status === "live" ? s.statusLive : run?.status === "done" ? s.statusDone : holding ? s.statusHold : ""}`}>
           {run ? statusLabel(run.status) : "idle"}
         </span>
+        {onToggle && (
+          <button className={s.fold} onClick={onToggle}
+            aria-expanded aria-controls={id}
+            title="Hide Deep Reasoning — the run keeps going">
+            <span aria-hidden>›</span>
+          </button>
+        )}
       </div>
 
       {showRuns && conversationId ? (
@@ -263,6 +291,7 @@ export function DeepReasoningMonitor({ conversationId, id }: { conversationId?: 
           </div>
         </>
       )}
+      </div>
     </div>
   );
 }
@@ -277,7 +306,15 @@ function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
   }
   return (
     <div className={s.steerBox}>
-      <div className="eyebrow" style={{ color: "var(--violet)", marginBottom: 6 }}>⟂ Steer the reasoning</div>
+      <div className="eyebrow" style={{ color: "var(--violet)", marginBottom: 6 }}>
+        <span aria-hidden>{ACTION.steer}</span> Steer the reasoning
+      </div>
+      {/* Someone arriving here has a textarea and no idea what it does to what.
+          Two sentences: where the run is, and where the words go. */}
+      <p className={s.steerWhy}>
+        The run has stopped between cycles and is waiting for you. What you write
+        here is read by the next cycle, and by every cycle after it.
+      </p>
       <textarea
         className={s.steerInput}
         rows={2}
@@ -289,7 +326,7 @@ function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
       />
       <div style={{ display: "flex", gap: 7, marginTop: 7 }}>
         <Button onClick={() => go(guidance.trim())} style={{ fontSize: 12, padding: "5px 11px", borderColor: "var(--violet)", color: "var(--violet)" }}>
-          ⟂ Steer
+          <span aria-hidden>{ACTION.steer}</span> Steer
         </Button>
         <Button onClick={() => go("")} style={{ fontSize: 12, padding: "5px 11px" }} title="Resume without guidance">
           Continue as-is
@@ -300,5 +337,10 @@ function SteerBox({ onSteer }: { onSteer: (guidance: string) => void }) {
 }
 
 function statusLabel(s: string) {
-  return ({ queued: "⌗ queued", live: "● running", waiting: "⟂ holding for you", done: "converged", killed: "killed", error: "error" } as Record<string, string>)[s] ?? s;
+  return ({
+    queued: "⌗ queued",
+    live: `${STATE.live} running`,
+    waiting: `${ACTION.steer} holding for you`,
+    done: "converged", killed: "killed", error: "error",
+  } as Record<string, string>)[s] ?? s;
 }

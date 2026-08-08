@@ -11,6 +11,7 @@ import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
 import type { Branch, BranchStatus, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
+import { STATE } from "@/lib/glyphs";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
@@ -44,6 +45,9 @@ import s from "@/components/chat/chat.module.css";
 const groundingByNode: Record<string, GroundingItem[]> = {};
 // Same deal for the agent tool ledger (FR-14): which tools each reply used.
 const toolsByNode: Record<string, ToolActivity[]> = {};
+// Whether the Deep Reasoning pane is unfolded. Per browser, not per workspace:
+// it's a preference about how you like the stage laid out.
+const MONITOR_PREF = "helix.monitorOpen";
 
 function nodeToMsg(
   n: Node,
@@ -60,7 +64,10 @@ function nodeToMsg(
     authorColor: n.role === "assistant" ? undefined : colorFor(email ?? n.author_id ?? "?"),
     body: n.content,
     time: "",
-    tokens: n.token_count ? `${n.token_count} tokens` : undefined,
+    // "~" because it is a ~4-chars-per-token estimate, not a tokenizer count —
+    // the same estimator the context budget spends. Stating a measured-looking
+    // number we did not measure is the kind of small lie a record shouldn't tell.
+    tokens: n.token_count ? `~${n.token_count} tokens` : undefined,
     forkPoint: !!forkNodeId && n.id === forkNodeId,
     forkChildren: forkMap?.[n.id],
     grounding: groundingByNode[n.id],
@@ -95,6 +102,30 @@ export function ChatView() {
   // Below 1100px the flanking panes fold out over the stage instead of being
   // hidden; one at a time, since they enter from opposite edges.
   const [drawer, setDrawer] = useState<"left" | "monitor" | null>(null);
+  // Wide layouts: the monitor folds to a spine so the stage takes back its
+  // width. Remembered, because a pane that reopens itself every visit is a pane
+  // you have to dismiss every visit.
+  //
+  // It starts folded. Open was the old default, and it meant a fifth of the
+  // workspace was reserved, permanently, for a pane that reads "The monitor is
+  // quiet" in every session where nobody escalates anything — which is most of
+  // them. Folded it is still a labelled spine carrying the run's status, so the
+  // feature is not hidden, and the effect below opens it the instant a run
+  // starts, which is the only moment the pane has something to say.
+  const [monitorOpen, setMonitorOpen] = useState(() => {
+    try { return localStorage.getItem(MONITOR_PREF) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(MONITOR_PREF, monitorOpen ? "1" : "0"); } catch { /* private mode */ }
+  }, [monitorOpen]);
+  // A run the reader cannot see is the one thing folding must never cause —
+  // including a teammate's run arriving over the room socket, which is exactly
+  // the moment this product exists for.
+  const st = monitor.run?.status;
+  const monitorRunning = st === "queued" || st === "live" || st === "waiting";
+  useEffect(() => {
+    if (monitorRunning) setMonitorOpen(true);
+  }, [monitorRunning]);
   const [linkDlg, setLinkDlg] = useState(false);
   // "Edit last message" hand-off: the removed message's text, waiting in the
   // composer for the author to revise and resend.
@@ -187,7 +218,7 @@ export function ChatView() {
     if (!toolSettings) return undefined;
     const usable = toolSettings.items.filter((t) => t.allowed && t.available);
     if (usable.length === 0) {
-      return "Agent: no tools enabled in this workspace — owners can enable them under TEAM → Agent tools";
+      return "Agent: no tools enabled in this workspace — owners can enable them under SETUP → Agent tools";
     }
     const names = usable.map((t) => t.name).join(", ");
     return `Agent: Helix may use ${names}${usable.some((t) => t.sensitive) ? " — sensitive calls pause for your approval" : ""}`;
@@ -769,7 +800,7 @@ export function ChatView() {
           if (!run.watching && (!cur || cur.status !== "live")) {
             run.watching = true;
             monitor.start({
-              status: "live", question: `👁 watching ${ev.author_id}'s deep run`,
+              status: "live", question: `${STATE.watching} watching ${ev.author_id}'s deep run`,
               depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
               stabilityHistory: [],
               budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
@@ -838,7 +869,8 @@ export function ChatView() {
   /** Same contract as the monitor's Stop: the run lives server-side, so the
    *  local stream being aborted is the fallback, not the mechanism. */
   return (
-    <div className={`${s.grid} folio`} data-drawer={drawer ?? undefined}>
+    <div className={`${s.grid} folio`} data-drawer={drawer ?? undefined}
+      data-monitor={monitorOpen ? undefined : "collapsed"}>
       {/* LEFT */}
       <div className={s.left} id="chat-threads">
         <div className={s.scrollList}>
@@ -964,7 +996,7 @@ export function ChatView() {
                     {approval.calls.length === 0 ? <strong>a sensitive tool</strong> : approval.calls.map((c, i) => (
                       <span key={c.id}>
                         {i > 0 && ", "}
-                        <strong className="mono" style={{ fontSize: 12.5 }}>{c.name}</strong>
+                        <strong className="mono" style={{ fontSize: 12 }}>{c.name}</strong>
                         {c.args && <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>({c.args})</span>}
                       </span>
                     ))}
@@ -979,7 +1011,7 @@ export function ChatView() {
                 <div className={s.remoteBanner} style={{ cursor: "pointer" }}
                   {...activatable(() => nav(`/w/${wid}/members`))}>
                   ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
-                  {" "}<u>Add a key under TEAM → Provider</u> (owners only).
+                  {" "}<u>Add a key under SETUP → Provider</u> (owners only).
                 </div>
               )}
               {/* With the monitor folded away, a live run still has to be
@@ -997,7 +1029,7 @@ export function ChatView() {
                 </div>
               )}
               {canSend ? (
-                <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
+                <Composer provider={provider} busy={busy} wid={wid} onSend={onSend} onDeep={onDeep}
                   onAgent={onAgent} onNote={doNote} agentHint={agentHint}
                   onLibrary={() => nav(`/w/${wid}/library`)}
                   onDraftChange={onDraftChange}
@@ -1005,7 +1037,7 @@ export function ChatView() {
               ) : (
                 <div className={s.readonly}>
                   <span style={{ fontSize: 16 }}>◉</span>
-                  <span style={{ fontSize: 13.5 }}>You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — read-only. You may watch live conversations and runs, but cannot send, fork, or steer.</span>
+                  <span style={{ fontSize: 13 }}>You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — read-only. You may watch live conversations and runs, but cannot send, fork, or steer.</span>
                 </div>
               )}
             </div>
@@ -1014,7 +1046,8 @@ export function ChatView() {
       </div>
 
       {/* RIGHT: monitor */}
-      <DeepReasoningMonitor conversationId={activeConvId} id="chat-monitor" />
+      <DeepReasoningMonitor conversationId={activeConvId} id="chat-monitor"
+        collapsed={!monitorOpen} onToggle={() => setMonitorOpen((v) => !v)} />
 
       {/* dismisses whichever drawer is open; inert above 1100px, where the CSS
           keeps it display:none and both panes are in the grid */}
@@ -1060,7 +1093,7 @@ export function ChatView() {
             <Button variant="ghost" onClick={() => setDeleteDlg(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doDelete}>Delete forever</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             {deleteDlg.kind === "conversation"
               ? "Every branch, message and run record in this conversation is removed for the whole workspace — there is no undo."
               : "The branch and its own messages are removed (inherited context belongs to its ancestors and stays). Refused if anything has forked from it."}

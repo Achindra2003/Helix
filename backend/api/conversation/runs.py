@@ -65,6 +65,9 @@ class RunHandle:
     thread_id: str = ""
     prompt: str = ""
     steerable: bool = False
+    # The reasoning preset this run started under, so a rebuild continues in it
+    # rather than in the instance default. "" = the instance default.
+    mode: str = ""
     kill_requested: bool = False
     ts: float = field(default_factory=time.time)
     _wakeup: asyncio.Event = field(default_factory=asyncio.Event)
@@ -166,6 +169,7 @@ class RunManager:
             await resume.remember(
                 handle, kind=handle.kind, thread_id=handle.thread_id,
                 prompt=handle.prompt, steerable=handle.steerable,
+                mode=handle.mode,
             )
         elif handle.finished:
             await resume.forget(handle.run_id)

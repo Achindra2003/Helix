@@ -79,6 +79,10 @@ a { color: var(--oxblood); }
 @keyframes hx-blink { 0%,49%{opacity:1;}50%,100%{opacity:0;} }
 @keyframes hx-rise { from{opacity:0;transform:translateY(14px);} to{opacity:1;transform:none;} }
 @keyframes hx-draw { to { stroke-dashoffset: 0; } }
+/* One lap of a closed path. `--hx-len` is set inline by the element, because
+   the distance is measured from the geometry — a lit arc offset by a guessed
+   length jumps every time it wraps. */
+@keyframes hx-current { from { stroke-dashoffset: var(--hx-len); } to { stroke-dashoffset: 0; } }
 @keyframes hx-pulse { 0%,100%{box-shadow:0 0 0 0 rgba(154,122,44,0.0);} 50%{box-shadow:0 0 0 4px rgba(154,122,44,0.12);} }
 
 /* texture overlays (fixed) — sit ABOVE the opaque panes (like the design) so the

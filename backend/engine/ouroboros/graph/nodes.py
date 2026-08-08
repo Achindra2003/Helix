@@ -501,9 +501,14 @@ def make_surface(llm: BaseChatModel, config: OuroborosConfig):
                 )
                 if voiced:
                     return {"surfaced_insight": voiced, "insights": [voiced]}
+            # No "[answer] " prefix. It was a marker for reading the graph's own
+            # message log, but this channel is what Helix streams and then
+            # persists as the assistant's turn — so the tag was being written
+            # into the conversation and shown to the reader verbatim
+            # ("[answer] Life is an emergent property…"). Nothing parses it.
             return {
                 "surfaced_insight": answer,
-                "messages": [AIMessage(content=f"[answer] {answer}")],
+                "messages": [AIMessage(content=answer)],
                 "insights": [answer],
             }
 

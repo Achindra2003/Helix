@@ -22,6 +22,7 @@ from __future__ import annotations
 
 from typing import AsyncIterator
 
+from .context import est_tokens
 from .events import AssistantNode, Complete, Done, Event, Token, UserNode, Waiting
 from .producer import Producer
 from .store import ConversationStore
@@ -52,12 +53,13 @@ async def send(
     except Exception as exc:  # provider/engine failure -> clean terminal event
         yield Complete(stop_reason=f"error: {exc}", status="error")
 
+    content = "".join(parts)
     assistant_node = await store.add_node(
         branch_id=branch_id,
         role="assistant",
-        content="".join(parts),
+        content=content,
         author_id=None,
-        token_count=len(parts),
+        token_count=est_tokens(content),
     )
     yield AssistantNode(node=assistant_node)
 
@@ -124,12 +126,13 @@ class ResumableRun:
         if self.paused:
             return  # mid-run; the reply isn't finished, persist nothing yet
 
+        content = "".join(self._parts)
         assistant_node = await self._store.add_node(
             branch_id=self._branch_id,
             role="assistant",
-            content="".join(self._parts),
+            content=content,
             author_id=None,
-            token_count=len(self._parts),
+            token_count=est_tokens(content),
         )
         yield AssistantNode(node=assistant_node)
         yield Done()

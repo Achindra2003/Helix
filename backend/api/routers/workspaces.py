@@ -58,10 +58,13 @@ router = APIRouter(prefix="/api", tags=["workspaces"])
 _search_index = EmbeddingIndex(SessionLocal)
 
 
-def _ws_out(ws: Workspace, role: str) -> WorkspaceOut:
+def _ws_out(
+    ws: Workspace, role: str, *, conversations: int = 0, members: int = 1
+) -> WorkspaceOut:
     return WorkspaceOut(
         id=ws.id, name=ws.name, owner_id=ws.owner_id,
         role=role, created_at=ws.created_at,
+        conversation_count=conversations, member_count=members,
     )
 
 
@@ -78,7 +81,43 @@ async def list_workspaces(
             .order_by(Workspace.created_at)
         )
     ).all()
-    return [_ws_out(ws, role) for ws, role in rows]
+    ids = [ws.id for ws, _ in rows]
+    if not ids:
+        return []
+
+    # Two grouped queries for the whole list, not two per card: the picker is
+    # the first screen after signing in, and a per-workspace count would make
+    # its cost scale with how many workspaces someone belongs to.
+    convs = dict(
+        (
+            await session.execute(
+                select(ConversationRow.workspace_id, func.count())
+                .where(ConversationRow.workspace_id.in_(ids))
+                .where(
+                    (ConversationRow.visibility == "shared")
+                    | (ConversationRow.author_id == user.id)
+                )
+                .group_by(ConversationRow.workspace_id)
+            )
+        ).all()
+    )
+    members = dict(
+        (
+            await session.execute(
+                select(Membership.workspace_id, func.count())
+                .where(Membership.workspace_id.in_(ids))
+                .group_by(Membership.workspace_id)
+            )
+        ).all()
+    )
+    return [
+        _ws_out(
+            ws, role,
+            conversations=convs.get(ws.id, 0),
+            members=members.get(ws.id, 1),
+        )
+        for ws, role in rows
+    ]
 
 
 @router.post("/workspaces", response_model=WorkspaceOut, status_code=201)
@@ -280,9 +319,10 @@ async def get_workspace_usage(
     session: AsyncSession = Depends(get_session),
 ):
     """Lifetime token usage for this workspace's own BYO key. Chat tokens are
-    an approximation — `NodeRow.token_count` is a streamed chunk count, not a
-    real tokenizer count (see `api/conversation/engine.py`). Deep-run tokens
-    are the real, measured number the engine's usage handler reports."""
+    an approximation — `NodeRow.token_count` is the ~4-chars-per-token estimate
+    (`conversation/context.est_tokens`), not a real tokenizer count. It used to
+    be the number of stream chunks, which made this figure meaningless. Deep-run
+    tokens are the real, measured number the engine's usage handler reports."""
     await get_membership(workspace_id, user, session)
     chat_tokens = await session.scalar(
         select(func.coalesce(func.sum(NodeRow.token_count), 0))

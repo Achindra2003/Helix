@@ -8,7 +8,7 @@ from ..db import get_session
 from ..deps import get_current_user
 from ..email import send as send_email
 from ..errors import api_error
-from ..models import Membership, User, Workspace
+from ..models import Invite, Membership, User, Workspace
 from ..onboarding import seed_example_workspace
 from ..schemas import (
     AuthResponse,
@@ -36,6 +36,23 @@ router = APIRouter(prefix="/api", tags=["auth"])
 async def register(
     body: RegisterRequest, session: AsyncSession = Depends(get_session)
 ):
+    if not settings.allow_registration:
+        # Invite-only. The invite is checked but *not* redeemed: the client
+        # accepts it immediately after, through the ordinary /invites/{token}/
+        # accept path, so membership and the use budget stay governed by one
+        # piece of code. Spending a use here would let a failed sign-up (an
+        # email already taken, a rejected password) silently burn the link.
+        invite = (
+            await session.get(Invite, body.invite) if body.invite else None
+        )
+        if invite is None or not invite.is_usable:
+            raise api_error(
+                403,
+                "registration_closed",
+                "This instance is invite-only. Ask a workspace owner for an "
+                "invite link.",
+            )
+
     exists = await session.scalar(select(User).where(User.email == body.email))
     if exists:
         raise api_error(409, "conflict", "Email already registered.")

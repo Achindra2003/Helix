@@ -400,3 +400,37 @@ def build_ouroboros_graph(
         return int(summarize_usage(usage_handler).get("total_tokens", 0))
 
     return graph, graph_config, make_inputs, usage_reader
+
+
+# --- The reasoning modes, as the API exposes them ------------------------------
+# Five presets ship in engine/ouroboros/presets.py, each with its own depth,
+# energy curve, steer interval and four distinct prompts. Until now the API
+# pinned one server-wide `.env` string, so every workspace on an instance got
+# the same one — the largest built-and-unreachable capability in the product.
+#
+# Declared here rather than read from the engine at import time because the
+# engine is a heavy lazy import (LangGraph/LangChain) and this list is needed by
+# a cheap GET and by request validation. `test_reasoning_modes.py` asserts the
+# two stay in step, so drift fails a build rather than a run.
+REASONING_MODES: dict[str, dict[str, str]] = {
+    "explore": {
+        "label": "Explore",
+        "description": "Let the thinking wander. Best for opening up a question you haven't framed yet.",
+    },
+    "analyze": {
+        "label": "Analyze",
+        "description": "Examine from every angle and look for the counterargument. The default.",
+    },
+    "create": {
+        "label": "Create",
+        "description": "Push toward the unexpected. Best when the obvious answers are all bad.",
+    },
+    "solve": {
+        "label": "Solve",
+        "description": "Decompose, test an assumption, refine. Best for a concrete problem with a right answer.",
+    },
+    "philosophize": {
+        "label": "Philosophize",
+        "description": "Question the foundations — including whether this is the real question.",
+    },
+}

@@ -12,6 +12,7 @@
 import type { Branch, Conversation, ConversationRef } from "@/lib/types";
 import { Button } from "@/components/common/Button";
 import { ThreadMenu, type ThreadAction } from "@/components/chat/ThreadMenu";
+import { STATE } from "@/lib/glyphs";
 import s from "@/components/chat/chat.module.css";
 
 export function StageHeader({
@@ -47,7 +48,10 @@ export function StageHeader({
         </div>
         <div className={s.stageMeta}>
           <span className={s.chip} style={{ color: conversation.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)" }}>
-            {conversation.visibility === "private" ? "◍ private" : "⊙ shared"}
+            {/* The word alone. ◍ / ⊙ prefixed it here, in the thread list and
+                on the Map — two circles nobody can tell apart at 11px, in
+                front of the word that already said it. */}
+            {conversation.visibility === "private" ? "private" : "shared"}
           </span>
           <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>
             on <span style={{ color: "var(--oxblood)" }}>{branch?.name ?? "main"}</span>
@@ -106,11 +110,11 @@ export function StageHeader({
             on. */}
         {references.length > 0 && (
           <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
-            <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
+            <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>linked context:</span>
             {references.map((r) => (
               <span key={r.id} className={s.chip} title="Replies here draw on this thread's live context"
                 style={{ color: "var(--ink-2)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                ⛓ {r.title}
+                <span aria-hidden>{STATE.linked}</span> {r.title}
                 {canSend && (
                   <button onClick={() => onUnlinkRef(r.id)} title="Unlink"
                     style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>

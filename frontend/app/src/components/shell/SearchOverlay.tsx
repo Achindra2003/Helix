@@ -42,7 +42,7 @@ export function SearchOverlay({ wid, onClose }: { wid: string; onClose: () => vo
       <div style={{ marginTop: 4, minHeight: 40, maxHeight: 380, overflowY: "auto" }}>
         {searching && <Spinner />}
         {!searching && hits === null && (
-          <div style={{ fontSize: 12.5, color: "var(--ink-3)", padding: "10px 2px" }}>
+          <div style={{ fontSize: 12, color: "var(--ink-3)", padding: "10px 2px" }}>
             Semantic search over the team's shared threads (and your private ones) —
             phrased ideas match, not just exact words.
           </div>
@@ -57,7 +57,7 @@ export function SearchOverlay({ wid, onClose }: { wid: string; onClose: () => vo
             title={`relevance ${h.score.toFixed(2)}`}>
             <div className={s.searchHitHead}>
               <span style={{ color: "var(--oxblood)", fontWeight: 600 }}>{h.conversation_title}</span>
-              <span className="mono" style={{ fontSize: 10.5, color: "var(--ink-3)" }}>
+              <span className="mono" style={{ fontSize: 10, color: "var(--ink-3)" }}>
                 {h.role === "assistant" ? "⟳ helix" : "✎ teammate"} · {h.score.toFixed(2)}
               </span>
             </div>

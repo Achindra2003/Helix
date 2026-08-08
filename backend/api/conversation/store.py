@@ -607,18 +607,73 @@ class DbStore:
             return node
 
     async def get_history(self, branch_id: str) -> list[Node]:
+        """The branch's turns, oldest first, inherited across every fork above it.
+
+        Still a walk up the `parent_id` spine — that walk *is* the inheritance
+        feature, and it crosses branch boundaries for free. What changed is how
+        the rows are fetched. One `session.get` per node meant a 500-turn branch
+        issued 500 queries: invisible on SQLite's page cache, 500 network round
+        trips on Postgres, on the hot path of every single send.
+
+        So the spine is read a branch at a time instead. `create_branch` sets
+        `parent_branch_id` to the branch owning the node it forked from, so when
+        the walk runs off the end of one branch's rows, the node it is reaching
+        for is in the parent branch — fetch that branch's rows and carry on.
+        Queries now scale with the number of forks above this branch (typically
+        one to three), not with the number of turns.
+
+        The per-node fallback is kept for the case the invariant doesn't hold:
+        an older row written before `parent_branch_id` was populated, or a
+        repaired database. Slow, but it still returns the right history rather
+        than a truncated one, and a silently short history is the worst
+        possible failure here — it would quietly change what the model sees.
+        """
+        from sqlalchemy import select
+
         from .models import BranchRow, NodeRow
 
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
             if branch is None:
                 raise KeyError(branch_id)
+
             out: list[Node] = []
             node_id = branch.head_node_id
-            while node_id is not None:  # walk the parent spine across branches
+            seen_branches: set[str] = set()
+
+            while node_id is not None and branch is not None:
+                if branch.id in seen_branches:
+                    break  # cycle in parent_branch_id; fall through to the walk
+                seen_branches.add(branch.id)
+
+                rows = (
+                    await s.execute(
+                        select(NodeRow).where(NodeRow.branch_id == branch.id)
+                    )
+                ).scalars().all()
+                by_id = {r.id: r for r in rows}
+
+                while node_id is not None and node_id in by_id:
+                    row = by_id[node_id]
+                    out.append(self._to_node(row))
+                    node_id = row.parent_id
+
+                if node_id is None:
+                    break
+                branch = (
+                    await s.get(BranchRow, branch.parent_branch_id)
+                    if branch.parent_branch_id
+                    else None
+                )
+
+            # Whatever the segment walk could not account for, one node at a time.
+            while node_id is not None:
                 row = await s.get(NodeRow, node_id)
+                if row is None:
+                    break
                 out.append(self._to_node(row))
                 node_id = row.parent_id
+
             out.reverse()
             return out
 

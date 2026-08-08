@@ -27,9 +27,13 @@ def test_public_config_needs_no_token(client):
 def test_public_config_exposes_only_the_notice(client):
     """A guard against future additions. If someone adds a field here, they
     have to come and change this test — which is the point, because the value
-    they add is world-readable."""
+    they add is world-readable.
+
+    `registration_open` was added deliberately: it is already discoverable by
+    posting to /auth/register once, so publishing it reveals nothing and saves
+    a visitor from filling in a form the instance was going to refuse."""
     body = client.get("/api/public-config").json()
-    assert set(body) == {"notice", "notice_link"}
+    assert set(body) == {"notice", "notice_link", "registration_open"}
 
 
 def test_notice_is_empty_by_default(client):

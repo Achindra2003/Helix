@@ -9,7 +9,7 @@ import {
   type Variants,
 } from "framer-motion";
 import { Logo } from "@/components/brand/Logo";
-import { Frontispiece } from "@/components/brand/Frontispiece";
+import { OuroborosHelix } from "@/components/brand/OuroborosHelix";
 import { ThemeToggle } from "@/components/common/ThemeToggle";
 import { useSession } from "@/store/session";
 import s from "./landing.module.css";
@@ -311,7 +311,7 @@ export function Landing() {
             GitHub ↗
           </a>
           <ThemeToggle />
-          <button className={s.ctaGhost} onClick={enter} style={{ padding: "9px 16px", fontSize: 13.5 }}>
+          <button className={s.ctaGhost} onClick={enter} style={{ padding: "9px 16px", fontSize: 13 }}>
             {user ? "Enter workspace ⟶" : "Sign in ⟶"}
           </button>
         </div>
@@ -345,19 +345,20 @@ export function Landing() {
         </motion.div>
 
         <motion.div className={s.heroArt} style={{ y: artY, opacity: artOpacity }}>
-          <Frontispiece size={520} />
+          <OuroborosHelix size={560} />
         </motion.div>
 
-        {!reduce && (
-          <motion.div
-            className={s.scrollCue}
-            animate={{ y: [0, 7, 0], opacity: [0.4, 0.9, 0.4] }}
-            transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
-            aria-hidden
-          >
-            ⌄
-          </motion.div>
-        )}
+        {/* The fold used to end in ~250px of nothing, because the hero centred
+            two blocks in a full viewport and had no third thing. These are the
+            three facts a stranger needs before they will read any further —
+            what it costs them, where it runs, whose key it spends — and they
+            are checkable, unlike a hero adjective. */}
+        <motion.ul className={s.proof} variants={heroItem} initial="hidden" animate="show" aria-label="What Helix is">
+          <li><b>MIT licensed</b><span>The source is the product.</span></li>
+          <li><b>Self-hosted</b><span>One container, on your own machine.</span></li>
+          <li><b>Your own key</b><span>Groq, a local Ollama, or any OpenAI-compatible endpoint.</span></li>
+        </motion.ul>
+
       </header>
 
       {/* manifesto */}

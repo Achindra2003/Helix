@@ -151,7 +151,7 @@ export function useDeepRun({
     await finishDeepSegment(h.done, cur.branchId);
   }
 
-  async function onDeep(text: string, guided: boolean) {
+  async function onDeep(text: string, guided: boolean, mode?: string) {
     const branchId = await ensureConversation();
     if (!branchId || !activeConvId) return;
     // Deep runs take minutes and survive the tab — ask (once, lazily) to be
@@ -159,7 +159,9 @@ export function useDeepRun({
     if (typeof Notification !== "undefined" && Notification.permission === "default") {
       Notification.requestPermission().catch(() => {});
     }
-    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
+    // `mode` omitted = the instance default, which is what every run got
+    // before the picker existed.
+    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided, mode }, handleDeepEvent);
     monitor.start({
       status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
       stabilityHistory: [],

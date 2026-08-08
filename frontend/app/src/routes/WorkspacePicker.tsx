@@ -111,6 +111,17 @@ export function WorkspacePicker() {
               <div className={s.watermark} aria-hidden><Logo size={120} /></div>
               <div className={s.cardMark}>{w.name.charAt(0).toUpperCase()}</div>
               <div className={s.cardName}>{w.name}</div>
+              {/* What is actually in there. A shelf of plates that differ only
+                  by name makes you open each one to find out which is which —
+                  and the counts are also the fastest read of whether a
+                  workspace is a real room or an empty one you made by accident.
+                  Threads are the ones you can open: another member's private
+                  thread is not yours to know about. */}
+              <div className={`mono ${s.cardStat}`}>
+                <span>{w.conversation_count ?? 0} {w.conversation_count === 1 ? "thread" : "threads"}</span>
+                <span aria-hidden>·</span>
+                <span>{w.member_count ?? 1} {w.member_count === 1 ? "member" : "members"}</span>
+              </div>
               <div className={`mono ${s.cardRole}`}>{ROLE_META[w.role].sigil} {w.role}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className={s.cardGo}>Enter workspace ⟶</span>
@@ -163,7 +174,7 @@ export function WorkspacePicker() {
             <Button variant="ghost" onClick={() => setLeaving(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doLeave} disabled={busy}>Leave workspace</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             You'll lose access to its conversations and prompts until someone invites you back.
             Messages you wrote in shared threads stay part of their conversations.
           </div>

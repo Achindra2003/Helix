@@ -102,10 +102,10 @@ export function AccountView() {
         <div className="serif-d" style={{ fontSize: 22, margin: "38px 0 8px", color: "var(--oxblood)" }}>
           Danger zone
         </div>
-        <div style={{ fontSize: 13.5, color: "var(--ink-2)", marginBottom: 14, maxWidth: 480 }}>
+        <div style={{ fontSize: 13, color: "var(--ink-2)", marginBottom: 14, maxWidth: 480 }}>
           Deleting your account removes you from every workspace and signs you out for good.
           If you still <b>own</b> a workspace, the server will refuse — delete the workspace
-          (TEAM page) or have ownership moved first, so a team's shared space can never
+          (SETUP page) or have ownership moved first, so a team's shared space can never
           disappear with one account.
         </div>
         <Button variant="oxblood" disabled={busy}
@@ -122,7 +122,7 @@ export function AccountView() {
               Delete forever
             </Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             This can't be undone. Your memberships are removed; messages you wrote in shared
             threads remain part of their conversations (attributed to a departed teammate).
           </div>

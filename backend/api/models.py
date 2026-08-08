@@ -133,3 +133,53 @@ class Invite(Base):
     @property
     def is_usable(self) -> bool:
         return not self.is_expired and not self.is_exhausted
+
+
+class Notice(Base):
+    """Something a teammate needs to know, kept until they have seen it.
+
+    The bell already existed, and it was a session store: a run finishing, a
+    thread concluding, all held in the tab's memory. Close the tab and the
+    workspace had never told you anything. For a product whose whole claim is
+    that the record survives, the one surface that reached a *person* was the
+    one surface that forgot.
+
+    It is per-recipient rather than per-event on purpose. Two people mentioned
+    in the same note get two rows, because "have you read this" is a fact about
+    a person, not about the note — and a shared row would need a join table to
+    answer it anyway.
+
+    `excerpt` is denormalised from the node. The node is immutable, so this is
+    not a cache that can go stale; it is here so the bell can render without a
+    read of every conversation the notice points into.
+    """
+
+    __tablename__ = "notices"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    # Who it is for. Indexed because every read is "my unseen notices".
+    user_id: Mapped[str] = mapped_column(ForeignKey("users.id"), index=True)
+    workspace_id: Mapped[str] = mapped_column(
+        ForeignKey("workspaces.id"), index=True
+    )
+    # What kind of thing happened. Today only "mention"; the column exists so
+    # the run-finished and thread-concluded events can move off the session
+    # store later without a migration.
+    kind: Mapped[str] = mapped_column(String, default="mention")
+    # Who caused it, and their email — denormalised for the same reason as
+    # `excerpt`, and because a removed member's name should still read
+    # correctly in a notice they left behind.
+    actor_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    actor_email: Mapped[str] = mapped_column(String, default="")
+    # Where it points. All three are needed to land the reader on the exact
+    # turn rather than on the thread's tail.
+    conversation_id: Mapped[str] = mapped_column(String, default="", index=True)
+    branch_id: Mapped[str] = mapped_column(String, default="")
+    node_id: Mapped[str] = mapped_column(String, default="")
+    excerpt: Mapped[str] = mapped_column(String, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=_now)
+    # Null until seen. A nullable timestamp rather than a boolean because "when
+    # did they see it" is the question that gets asked next.
+    read_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )

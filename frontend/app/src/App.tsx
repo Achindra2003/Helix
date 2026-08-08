@@ -20,6 +20,7 @@ const ChatView = lazy(() => import("@/routes/ChatView").then((m) => ({ default: 
 const LibraryView = lazy(() => import("@/routes/LibraryView").then((m) => ({ default: m.LibraryView })));
 const DocsView = lazy(() => import("@/routes/DocsView").then((m) => ({ default: m.DocsView })));
 const MembersView = lazy(() => import("@/routes/MembersView").then((m) => ({ default: m.MembersView })));
+const SettingsView = lazy(() => import("@/routes/SettingsView").then((m) => ({ default: m.SettingsView })));
 const MapView = lazy(() => import("@/routes/MapView").then((m) => ({ default: m.MapView })));
 
 function ApiHealthBanner() {
@@ -115,6 +116,7 @@ export function App() {
             <Route path="library" element={<LibraryView />} />
             <Route path="docs" element={<DocsView />} />
             <Route path="members" element={<MembersView />} />
+            <Route path="settings" element={<SettingsView />} />
           </Route>
           <Route path="*" element={<Navigate to={user ? "/workspaces" : "/auth"} replace />} />
         </Routes>

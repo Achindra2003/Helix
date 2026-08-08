@@ -42,7 +42,9 @@ from .models import ResumableRunRow
 log = logging.getLogger(__name__)
 
 
-async def remember(handle, *, kind: str, thread_id: str, prompt: str, steerable: bool) -> None:
+async def remember(
+    handle, *, kind: str, thread_id: str, prompt: str, steerable: bool, mode: str = ""
+) -> None:
     """Write (or refresh) the row that lets `handle` be rebuilt later.
 
     Called when a run pauses, which is human-speed — so a whole-log write per
@@ -63,7 +65,7 @@ async def remember(handle, *, kind: str, thread_id: str, prompt: str, steerable:
                         author_id=handle.author_id,
                         shared=handle.shared,
                         thread_id=thread_id, prompt=prompt, steerable=steerable,
-                        answer_parts=parts, events=payload,
+                        mode=mode, answer_parts=parts, events=payload,
                     )
                 )
             else:
@@ -131,7 +133,11 @@ async def rehydrate(run_id: str, runs) -> object | None:
         groq_api_key=deep_llm.api_key,
         groq_model=deep_llm.model,
         base_url=deep_llm.base_url,
-        mode=settings.deep_reasoning_mode,
+        # The mode the run *started* under, not the instance default — resuming
+        # into a different preset would change depth, energy and all four
+        # prompts halfway through. Blank on rows written before the column
+        # existed, which is exactly when the default is the right answer.
+        mode=row.mode or settings.deep_reasoning_mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,
         stability_threshold=settings.deep_reasoning_stability_threshold,

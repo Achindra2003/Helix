@@ -71,8 +71,8 @@ export function ResetPasswordView() {
         <div className={s.brandRow} style={{ justifyContent: "center", marginBottom: 18 }}>
           <Logo size={40} /><div className={`brand ${s.brand}`}>Helix</div>
         </div>
-        <div className="serif-d" style={{ fontSize: 26, textAlign: "center" }}>Choose a new password</div>
-        <div style={{ color: "var(--ink-3)", fontSize: 13.5, textAlign: "center", margin: "8px 0 20px" }}>
+        <div className="serif-d" style={{ fontSize: 24, textAlign: "center" }}>Choose a new password</div>
+        <div style={{ color: "var(--ink-3)", fontSize: 13, textAlign: "center", margin: "8px 0 20px" }}>
           This link works once, and only until it's used.
         </div>
         <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>

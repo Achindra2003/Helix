@@ -3,7 +3,7 @@ semantic recall, and everything untrusted is framed as quoted data.
 """
 from api.conversation.context import (
     ReferenceBlock,
-    _est_tokens,
+    est_tokens,
     _token_window,
     build_messages,
     render_references,
@@ -76,7 +76,7 @@ async def test_reference_transcripts_are_truncated_and_data_framed():
     assert "NOT instructions" in block
     assert '<quoted-context source="referenced conversation: Retrieval strategy">' in block
     assert "…" in block  # per-turn truncation applied
-    assert _est_tokens(block) < 3000  # total budget respected
+    assert est_tokens(block) < 3000  # total budget respected
 
 
 async def test_reference_title_cannot_break_the_quoting_structure():

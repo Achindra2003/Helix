@@ -57,6 +57,24 @@ class Settings(BaseSettings):
     # seeing are the ones that otherwise need a key.
     seed_example_workspace: bool = True
 
+    # --- Who may create an account ----------------------------------------------
+    # True (the default) keeps signup open, which is right for a public demo and
+    # for the first person to stand up a fresh instance — someone has to be able
+    # to get in.
+    #
+    # False makes the instance invite-only: /auth/register refuses unless the
+    # caller presents a usable invite token. It is deliberately *not* a hard
+    # close, because a hard close would break the invite links the product
+    # already issues — a teammate handed `/invite/{token}` must still be able to
+    # make the account that invite attaches to. So the existing invite machinery
+    # (role, expiry, use budget, revocation by an owner) becomes the admission
+    # control, rather than a second mechanism beside it.
+    #
+    # The intended sequence for a private install: leave this open, register the
+    # accounts that belong there, then set it False. Everyone after that arrives
+    # by invitation.
+    allow_registration: bool = True
+
     # --- Public instance notice -------------------------------------------------
     # Text for the banner a hosted demo shows on every page ("data may be wiped
     # with notice; self-host for keeps"). Empty (the default) means no banner,

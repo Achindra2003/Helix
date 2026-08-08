@@ -20,6 +20,7 @@ import type { Branch, MapConversation, MapNode, Node } from "@/lib/types";
 import { colorFor } from "@/lib/format";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import { DecisionLedger } from "@/components/map/DecisionLedger";
+import { ACTION, ORNAMENT } from "@/lib/glyphs";
 import { useToast } from "@/components/common/Toast";
 import s from "./map.module.css";
 
@@ -383,10 +384,10 @@ export function MapView() {
         <div className={s.modes} role="tablist" aria-label="Map view">
           <button role="tab" aria-selected={mode === "stemma"}
             className={`${s.modeBtn} ${mode === "stemma" ? s.modeOn : ""}`}
-            onClick={() => setMode("stemma")}>⎇ structure</button>
+            onClick={() => setMode("stemma")}><span aria-hidden>{ACTION.fork}</span> structure</button>
           <button role="tab" aria-selected={mode === "decisions"}
             className={`${s.modeBtn} ${mode === "decisions" ? s.modeOn : ""}`}
-            onClick={() => setMode("decisions")}>⚖ decisions</button>
+            onClick={() => setMode("decisions")}><span aria-hidden>{ACTION.verdict}</span> decisions</button>
         </div>
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
           {mode === "stemma"
@@ -400,7 +401,7 @@ export function MapView() {
             title="Every decision here, as a document you can hand to someone who wasn't there"
             onClick={() => downloadWorkspaceReport(wid!, "md")
               .catch(() => push("Export failed", "error"))}>
-            ❧ export decisions
+            <span aria-hidden>{ORNAMENT.bud}</span> export decisions
           </button>
         )}
         {mode === "stemma" && (
@@ -449,14 +450,32 @@ export function MapView() {
 
               {layout.convs.map(({ conv, x, w }) => (
                 <g key={conv.id} transform={`translate(${x} 0)`}>
+                  {/* The cartouche is the Map's way in — one per thread, and
+                      the only control here that has to be reachable without a
+                      mouse. (The nodes stay pointer-only on purpose: a tab stop
+                      per turn would be hundreds of stops to cross one map, and
+                      every thread is already reachable through its cartouche.)
+                      The ◍ / ⊙ pair that used to prefix the title is gone: two
+                      circles nobody can tell apart at 11px, explained in no
+                      legend on this page. Visibility now rides the label. */}
                   <g
                     className={s.cartouche}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${conv.title}${conv.visibility === "private" ? " (private)" : ""}`}
                     onClick={() => openBranch(conv.id, conv.default_branch_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openBranch(conv.id, conv.default_branch_id);
+                      }
+                    }}
                   >
+                    <title>{conv.visibility === "private" ? "Private to you" : "Shared with the workspace"}</title>
                     <rect className={s.cartoucheBox} x={-10} y={-2} width={w + 20} height={30} rx={7} />
-                    <text className={s.cartoucheText} x={w / 2} y={17} textAnchor="middle">
-                      {conv.visibility === "private" ? "◍ " : "⊙ "}
-                      {conv.title.length > 24 ? conv.title.slice(0, 23) + "…" : conv.title}
+                    <text className={s.cartoucheText} x={w / 2} y={17} textAnchor="middle"
+                      opacity={conv.visibility === "private" ? 0.72 : undefined}>
+                      {conv.title.length > 26 ? conv.title.slice(0, 25) + "…" : conv.title}
                     </text>
                   </g>
                 </g>
@@ -501,7 +520,9 @@ export function MapView() {
                       opacity={b.status === "abandoned" ? 0.45 : undefined}
                       style={b.status === "abandoned" ? { textDecoration: "line-through" } : undefined}
                     >
-                      {b.status === "adopted" ? "✓ " : b.status === "abandoned" ? "✕ " : "⎇ "}
+                      {b.status === "adopted" ? `${ACTION.confirm} `
+                        : b.status === "abandoned" ? `${ACTION.remove} `
+                        : `${ACTION.fork} `}
                       {b.name}
                     </text>
                   </g>
@@ -540,9 +561,12 @@ export function MapView() {
           </svg>
 
           <div className={s.zoomCtl}>
-            <button onClick={() => zoomCenter(1.3)} title="Zoom in">＋</button>
-            <button onClick={() => zoomCenter(1 / 1.3)} title="Zoom out">−</button>
-            <button onClick={fit} title="Fit the whole map">◱</button>
+            {/* aria-label on each: the button's text is a glyph, and text
+                content wins the accessible-name computation over title — so
+                these announced as "＋", "−" and "◱". */}
+            <button onClick={() => zoomCenter(1.3)} title="Zoom in" aria-label="Zoom in">＋</button>
+            <button onClick={() => zoomCenter(1 / 1.3)} title="Zoom out" aria-label="Zoom out">−</button>
+            <button onClick={fit} title="Fit the whole map" aria-label="Fit the whole map">◱</button>
           </div>
 
           {hover && (

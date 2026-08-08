@@ -6,6 +6,7 @@ import type { DocumentSearchHit, WorkspaceDocument } from "@/lib/types";
 import { can } from "@/lib/rbac";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { formatBytes } from "@/lib/format";
+import { PLACE } from "@/lib/glyphs";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
@@ -16,7 +17,7 @@ import s from "./docs.module.css";
 // you can scan. Falls back to the knowledge-base mark for odd names.
 function extOf(filename: string): string {
   const ext = filename.includes(".") ? filename.split(".").pop()! : "";
-  return ext && ext.length <= 4 ? ext : "⌘";
+  return ext && ext.length <= 4 ? ext : PLACE.docs;
 }
 
 /** The workspace knowledge base (AI-LANE-CONTRACTS §2.3). Documents uploaded
@@ -94,9 +95,9 @@ export function DocsView() {
         <div className={s.headRow}>
           <div>
             <div className="serif-d" style={{ fontSize: 32 }}>Knowledge Base</div>
-            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13.5 }}>
+            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13 }}>
               The workspace's source documents. When a question touches one, the reply grounds
-              itself on it — cited, with ⌘ chips. Unrelated questions leave the shelf alone.
+              itself on it — cited, with page chips. Unrelated questions leave the shelf alone.
             </div>
           </div>
           {canWrite && (
@@ -123,7 +124,7 @@ export function DocsView() {
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files); }}
             >
-              <span className={s.dropGlyph} aria-hidden>⌘</span>
+              <span className={s.dropGlyph} aria-hidden>{PLACE.docs}</span>
               <span style={{ fontSize: 14 }}>Drop a document here, or click to browse</span>
               <span className={s.dropHint}>txt · md · code · pdf — up to 8 MB each</span>
             </button>
@@ -159,8 +160,8 @@ export function DocsView() {
             ) : hits.map((h, i) => (
               <div key={`${h.document_id}-${h.chunk_index}-${i}`} className={s.hit}>
                 <div className={s.hitHead}>
-                  <span className="mono" style={{ fontSize: 12.5, color: "var(--oxblood)" }}>
-                    ⌘ {h.filename} §{h.chunk_index + 1}
+                  <span className="mono" style={{ fontSize: 12, color: "var(--oxblood)" }}>
+                    {PLACE.docs} {h.filename} §{h.chunk_index + 1}
                   </span>
                   <span className={s.hitScoreBar} title={`relevance ${h.score.toFixed(2)}`}>
                     <span className={s.hitScoreFill} style={{ display: "block", width: `${Math.min(100, Math.round(h.score * 100))}%` }} />
@@ -218,8 +219,8 @@ export function DocsView() {
             <Button variant="ghost" onClick={() => setConfirmDoc(null)}>Cancel</Button>
             <Button variant="primary" onClick={() => { doDelete(confirmDoc); setConfirmDoc(null); }}>Delete</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)", lineHeight: 1.55 }}>
-            <span className="mono" style={{ color: "var(--oxblood)" }}>⌘ {confirmDoc.filename}</span> and its
+          <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.55 }}>
+            <span className="mono" style={{ color: "var(--oxblood)" }}>{PLACE.docs} {confirmDoc.filename}</span> and its
             chunks are removed for the whole workspace. Replies stop citing it on the next send.
           </div>
         </Dialog>

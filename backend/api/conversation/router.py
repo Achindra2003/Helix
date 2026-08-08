@@ -29,7 +29,7 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
-from .. import realtime
+from .. import mentions, realtime
 from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
 from ..models import WorkspaceSettings
@@ -40,7 +40,7 @@ from ..tools.agent import AgentProducer, build_agent_graph
 from ..tools.builtin import make_tools
 from . import engine
 from .context import ReferenceBlock
-from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
+from .deep_reasoning import REASONING_MODES, DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
 from . import reports, resume
 from ..documents.service import DocumentIndex
@@ -110,6 +110,16 @@ class DeepRequest(BaseModel):
     # cycles; the client resumes it (with optional guidance) via
     # POST /conversations/deep/runs/{run_id}/steer.
     steerable: bool = False
+    # Which of the five reasoning modes to run: explore | analyze | create |
+    # solve | philosophize. Each carries its own depth, energy curve, steer
+    # interval and four prompts (engine/ouroboros/presets.py).
+    #
+    # Per *run*, not per workspace or per server. Explore-vs-Solve is a property
+    # of the question, and it changes within one team within one afternoon —
+    # "survey what's out there" and "decompose this failure" are different jobs
+    # asked in the same thread. None falls back to the instance default, which
+    # is what every run used to get.
+    mode: str | None = None
 
 
 class SteerRequest(BaseModel):
@@ -683,6 +693,44 @@ async def post_note(
     node = await _store.add_node(
         branch_id=branch_id, role="note", content=text, author_id=user.id
     )
+
+    # `@name` addresses a person. Only in notes, because a note is already the
+    # channel for talking to people rather than to the model — putting mentions
+    # in ordinary messages would mean the model reads a name meant for a human
+    # and answers as if it were part of the question.
+    #
+    # A private conversation still notifies: the recipient is a member of the
+    # workspace but not of that thread, and a notice naming a thread they
+    # cannot open would be a dead end. So mentions resolve against the people
+    # who can actually follow the link.
+    mentioned = []
+    if conv.visibility == "shared":
+        mentioned = await mentions.resolve(
+            session, conv.workspace_id, text, exclude_user_id=user.id
+        )
+        rows = await mentions.notify(
+            session,
+            recipients=mentioned,
+            workspace_id=conv.workspace_id,
+            actor=user,
+            conversation_id=conv.id,
+            branch_id=branch_id,
+            node_id=node.id,
+            text=text,
+        )
+        if rows:
+            await session.commit()
+            for r in rows:
+                await realtime.broadcast(
+                    conv.workspace_id,
+                    {
+                        "kind": "notice.created",
+                        "workspace_id": conv.workspace_id,
+                        "for_user_id": r.user_id,
+                        "notice": mentions.to_dict(r),
+                    },
+                )
+
     if conv.visibility == "shared":
         await realtime.broadcast(
             conv.workspace_id,
@@ -1138,6 +1186,23 @@ async def _require_run(
     return handle
 
 
+@router.get("/deep/modes")
+async def list_reasoning_modes():
+    """The reasoning presets a run may be started in, and which one an
+    unspecified run gets.
+
+    Unauthenticated and static: it describes the build, not any workspace. The
+    UI needs it to label the picker beside the escalate button, and a client
+    hard-coding the list would drift from the engine's presets.
+    """
+    return {
+        "default": settings.deep_reasoning_mode,
+        "modes": [
+            {"id": key, **value} for key, value in REASONING_MODES.items()
+        ],
+    }
+
+
 @router.post("/{branch_id}/deep")
 async def escalate_deep_reasoning(
     branch_id: str,
@@ -1163,6 +1228,23 @@ async def escalate_deep_reasoning(
     {run_id}/steer — as many times as it pauses.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+
+    # Checked before the provider, because a malformed request is malformed
+    # whether or not the workspace happens to have a key today — answering 503
+    # to a typo'd mode would send the caller to fix the wrong thing.
+    #
+    # Rejected here rather than inside the engine, which silently substitutes
+    # ANALYZE for anything it doesn't recognise (deep_reasoning.py). A typo
+    # would otherwise run a different kind of reasoning than the one asked for
+    # and say nothing about it.
+    mode = body.mode or settings.deep_reasoning_mode
+    if mode not in REASONING_MODES:
+        raise api_error(
+            400, "bad_request",
+            f"Unknown reasoning mode '{mode}'. "
+            f"Expected one of: {', '.join(REASONING_MODES)}.",
+        )
+
     # Deep Reasoning follows the workspace's own provider — Groq, a local
     # Ollama, or any OpenAI-compatible endpoint. Only key-requiring providers
     # can be unavailable, and that is a clear 503 rather than a failed run.
@@ -1192,7 +1274,7 @@ async def escalate_deep_reasoning(
         groq_api_key=deep_llm.api_key,
         groq_model=deep_llm.model,
         base_url=deep_llm.base_url,
-        mode=settings.deep_reasoning_mode,
+        mode=mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,
         stability_threshold=settings.deep_reasoning_stability_threshold,
@@ -1231,7 +1313,7 @@ async def escalate_deep_reasoning(
         session_factory=SessionLocal,
         model=resolved.resolved_deep_model,
         provenance={
-            "mode": settings.deep_reasoning_mode,
+            "mode": mode,
             "adaptive": settings.deep_reasoning_adaptive,
             "steerable": body.steerable,
             "compute_budget": settings.deep_reasoning_compute_budget,
@@ -1262,6 +1344,7 @@ async def escalate_deep_reasoning(
         thread_id=thread_id,
         prompt=body.prompt,
         steerable=body.steerable,
+        mode=mode,
     )
     handle_box.append(handle)
     handle.events.append(DeepRunRegistered(run_id=run_id))

@@ -174,6 +174,12 @@ class ResumableRunRow(Base):
     thread_id: Mapped[str] = mapped_column(String)
     prompt: Mapped[str] = mapped_column(Text, default="")
     steerable: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Which reasoning preset the run started under. Rebuilt runs used to take
+    # the instance default, so a paused Explore run came back as Analyze — a
+    # different depth, energy curve and set of four prompts, silently, halfway
+    # through. Empty means "whatever the instance default is", which is what
+    # every row written before this column existed meant.
+    mode: Mapped[str] = mapped_column(String, default="")
     # Token text streamed before the pause. The final assistant node is built
     # from every segment's tokens joined, so dropping this would silently
     # publish a reply missing its first half.

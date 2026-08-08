@@ -11,6 +11,7 @@ import type { Branch, BranchStatus, Conversation } from "@/lib/types";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { Input, Field } from "@/components/common/Input";
+import { ACTION } from "@/lib/glyphs";
 import s from "@/components/chat/chat.module.css";
 
 export function ForkDialog({ onClose, onConfirm }: {
@@ -74,7 +75,7 @@ export function ConcludeDialog({ conv, onClose, onSave }: {
       footer={<>
         <Button variant="ghost" onClick={onClose}>Cancel</Button>
         <Button onClick={draft} disabled={drafting}>
-          {drafting ? "Reading the branches…" : "⌘ Draft from the branches"}
+          {drafting ? "Reading the branches…" : `${ACTION.verdict} Draft from the branches`}
         </Button>
         <Button variant="primary" onClick={() => onSave(text.trim())}>
           {text.trim() ? "Record it" : "Clear the conclusion"}
@@ -93,7 +94,7 @@ export function ConcludeDialog({ conv, onClose, onSave }: {
         autoFocus
       />
       {failed && (
-        <div style={{ fontSize: 12.5, color: "var(--oxblood)" }}>
+        <div style={{ fontSize: 12, color: "var(--oxblood)" }}>
           Could not draft: {failed}. Write it yourself — the record matters more
           than the draft.
         </div>
@@ -139,7 +140,7 @@ export function ResolveDialog({ branch, onClose, onConfirm }: {
             <input type="radio" name="verdict" checked={status === c.key}
               onChange={() => setStatus(c.key)} style={{ accentColor: "var(--oxblood)" }} />
             <span>{c.label}</span>
-            <span style={{ fontSize: 12.5, color: "var(--ink-3)" }}>{c.hint}</span>
+            <span style={{ fontSize: 12, color: "var(--ink-3)" }}>{c.hint}</span>
           </label>
         ))}
       </div>
@@ -150,7 +151,7 @@ export function ResolveDialog({ branch, onClose, onConfirm }: {
             onKeyDown={(e) => { if (e.key === "Enter" && ready) onConfirm(status, resolution.trim()); }} />
         </Field>
       )}
-      <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
+      <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
         Nothing is deleted. An abandoned branch stays readable — it is half of why
         the adopted one holds up.
       </div>
@@ -178,7 +179,7 @@ export function LinkContextDialog(
             <button key={c.id} onClick={() => onPick(c.id)}
               style={{
                 textAlign: "left", padding: "9px 11px", borderRadius: 8, cursor: "pointer",
-                border: "1px solid var(--rule-soft)", background: "transparent", color: "var(--ink-2)", fontSize: 13.5,
+                border: "1px solid var(--rule-soft)", background: "transparent", color: "var(--ink-2)", fontSize: 13,
               }}>
               <span style={{ color: "var(--oxblood)" }}>⊙</span> {c.title}
             </button>

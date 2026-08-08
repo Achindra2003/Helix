@@ -12,9 +12,25 @@
 .cardHead { display: flex; align-items: flex-start; gap: 10px; }
 .sigil { color: var(--gilt); font-size: 16px; margin-top: 1px; }
 .cardTitle { font-size: 16px; font-weight: 600; color: var(--ink); flex: 1; line-height: 1.2; font-family: var(--font-display); }
-.cardBody { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
+.cardBody { font-size: 13px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
 .cardFoot { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
-.tag { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); border: 1px solid var(--rule-soft); border-radius: 5px; padding: 2px 8px; }
+/* A filter, so it behaves like one: pointer, hover, and a pressed state while
+   it is the active search. Chip-shaped, so it keeps its size and clears SC
+   2.5.8 on the spacing exception rather than growing to 24px. */
+.tag {
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-3);
+  border: 1px solid var(--rule-soft); border-radius: 5px; padding: 2px 8px;
+  background: transparent; cursor: pointer;
+  transition: color var(--dur-1), border-color var(--dur-1), background var(--dur-1);
+}
+.tag:hover { color: var(--ink); border-color: var(--gilt); }
+.tag[aria-pressed="true"] { color: var(--oxblood); border-color: var(--oxblood); background: var(--accent-tint); }
+/* A verb inside a sentence: underlined so it reads as the action it is. */
+.linkAct {
+  background: none; border: 0; padding: 0; cursor: pointer;
+  font: inherit; color: var(--oxblood); text-decoration: underline;
+  text-underline-offset: 2px;
+}
 .author { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 /* Pairs with the global .icon-act, which owns the 24×24 hit area. */
 .cardAct { color: var(--ink-3); font-size: 13px; }

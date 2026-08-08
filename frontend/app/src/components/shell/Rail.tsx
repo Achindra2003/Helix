@@ -3,6 +3,7 @@ import { motion, useReducedMotion } from "framer-motion";
 import { Logo } from "@/components/brand/Logo";
 import { useSession } from "@/store/session";
 import { initialOf } from "@/lib/format";
+import { PLACE } from "@/lib/glyphs";
 import s from "./shell.module.css";
 
 // Labels say what is behind the door, not what we call it in the codebase.
@@ -10,11 +11,12 @@ import s from "./shell.module.css";
 // find out it holds saved prompts, which is exactly the tax a horizontal
 // product cannot charge.
 const NAV = [
-  { key: "", glyph: "⌇", label: "CHAT" },
-  { key: "map", glyph: "⎇", label: "MAP" },
-  { key: "library", glyph: "▦", label: "PROMPTS" },
-  { key: "docs", glyph: "⌘", label: "DOCS" },
-  { key: "members", glyph: "♔", label: "TEAM" },
+  { key: "", glyph: PLACE.chat, label: "CHAT" },
+  { key: "map", glyph: PLACE.map, label: "MAP" },
+  { key: "library", glyph: PLACE.prompts, label: "PROMPTS" },
+  { key: "docs", glyph: PLACE.docs, label: "DOCS" },
+  { key: "members", glyph: PLACE.team, label: "TEAM" },
+  { key: "settings", glyph: PLACE.setup, label: "SETUP" },
 ];
 
 export function Rail({ active, onSearch }: { active: string; onSearch: () => void }) {
@@ -40,7 +42,7 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
                 transition={reduce ? { duration: 0 } : { type: "spring", stiffness: 460, damping: 36 }} />
             )}
             {/* The glyph is ornament — hidden so the accessible name is the
-                label alone ("TEAM", not "♔ TEAM"). Same treatment the avatar's
+                label alone ("TEAM", not the mark plus "TEAM"). Same treatment the avatar's
                 initial already gets. */}
             <span className={s.navGlyph} aria-hidden>{n.glyph}</span>
             <span className={s.navLabel}>{n.label}</span>
@@ -48,7 +50,7 @@ export function Rail({ active, onSearch }: { active: string; onSearch: () => voi
         );
       })}
       <button className={s.navBtn} title="Search every conversation (Ctrl+K)" onClick={onSearch}>
-        <span className={s.navGlyph}>⌕</span>
+        <span className={s.navGlyph} aria-hidden>{PLACE.find}</span>
         <span className={s.navLabel}>FIND</span>
       </button>
       <div className={s.spacer} />

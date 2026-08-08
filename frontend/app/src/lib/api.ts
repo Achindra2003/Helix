@@ -5,7 +5,8 @@ import { useSession } from "@/store/session";
 import type {
   AuthResponse, Conversation, ConversationRef, Branch, BranchStatus, Node, Prompt, Workspace, Member, Invite, Health, User,
   MapConversation, WorkspaceDocument, DocumentSearchHit, DeepRunSummary, DeepRunRecord,
-  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings, Decision,
+  WorkspaceSearchHit, WorkspaceUsage, InviteSummary, ToolSettings, Decision, PublicConfig,
+  ReasoningMode, ServerNotice,
 } from "@/lib/types";
 
 export const API_BASE = import.meta.env.VITE_API_BASE ?? "http://127.0.0.1:8000";
@@ -69,14 +70,20 @@ async function request<T>(path: string, opts: RequestInit = {}): Promise<T> {
 
 // --- health ---
 export const getHealth = () => request<Health>("/health");
+// Unauthenticated, and the only call the sign-in screen can make before there
+// is a session: it says whether this instance still lets strangers sign up.
+export const getPublicConfig = () => request<PublicConfig>("/api/public-config");
 
 // NOTE on prefixes: auth + workspaces/members/invites live under `/api`
 // (routers/auth.py, routers/workspaces.py use prefix="/api"); conversations and
 // prompts are mounted at the root. Keep these exactly in sync with the backend.
 
 // --- auth (contract §4) ---
-export const register = (email: string, password: string) =>
-  request<AuthResponse>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password }) });
+// `invite` is only consulted by an invite-only instance, where it is what
+// admits the caller. Sent whenever we're holding one, so the same call works
+// either way.
+export const register = (email: string, password: string, invite?: string | null) =>
+  request<AuthResponse>("/api/auth/register", { method: "POST", body: JSON.stringify({ email, password, invite }) });
 export const login = (email: string, password: string) =>
   request<AuthResponse>("/api/auth/login", { method: "POST", body: JSON.stringify({ email, password }) });
 export const me = () => request<User>("/api/me");
@@ -126,6 +133,13 @@ export const searchWorkspace = (wid: string, query: string, k = 10) =>
 export const getWorkspaceUsage = (wid: string) =>
   request<WorkspaceUsage>(`/api/workspaces/${wid}/usage`);
 export const listMembers = (wid: string) => request<Member[]>(`/api/workspaces/${wid}/members`);
+
+// --- notices: the bell, server-side so it outlives the tab ---
+// Not scoped to a workspace on purpose — being asked something is not less
+// urgent because you happen to be looking at a different workspace.
+export const listNotices = () => request<{ notices: ServerNotice[] }>("/api/notices");
+export const markNoticesRead = () =>
+  request<{ ok: boolean }>("/api/notices/read", { method: "POST" });
 export const setMemberRole = (wid: string, uid: string, role: string) =>
   request<Member>(`/api/workspaces/${wid}/members/${uid}`, { method: "PATCH", body: JSON.stringify({ role }) });
 // Kick (owner-only) — the counterpart of voluntary leave.
@@ -279,6 +293,11 @@ export const downloadReport = (cid: string, format: "md" | "json") =>
 /** Every decision in the workspace, gathered — the ledger as a document. */
 export const downloadWorkspaceReport = (wid: string, format: "md" | "json") =>
   downloadFile(`/workspaces/${wid}/export?format=${format}`, `decisions.${format}`);
+
+// The five reasoning presets and which one an unspecified run gets. Describes
+// the build, not a workspace, so it's fetched once and shared.
+export const getReasoningModes = () =>
+  request<{ default: string; modes: ReasoningMode[] }>("/conversations/deep/modes");
 
 // --- deep-run control (AI-LANE-CONTRACTS §2.2): the run outlives the tab ---
 export type DeepRunStatus = {

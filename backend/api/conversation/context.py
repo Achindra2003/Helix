@@ -77,8 +77,16 @@ REFERENCE_TOKEN_BUDGET = 2500
 _ROLE_MAP = {"user": "user", "assistant": "assistant", "system": "system"}
 
 
-def _est_tokens(text: str) -> int:
-    """Cheap token estimate (~4 chars/token for English); provider-agnostic."""
+def est_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars/token for English); provider-agnostic.
+
+    Public because the send path stamps it onto each assistant turn as well
+    (`engine.py`). It used to store `len(parts)` there — the number of *stream
+    chunks*, which the UI then displayed as "23 tokens" and the workspace usage
+    endpoint summed into a spend figure. A deep run that surfaced in one chunk
+    read as "1 token" for a 900-character answer. Same estimator everywhere now,
+    so the number a reader sees is the same one the context budget spends.
+    """
     return max(1, (len(text) + 3) // 4)
 
 
@@ -95,7 +103,7 @@ def _token_window(
     kept: list[Node] = []
     used = 0
     for node in reversed(history):
-        cost = _est_tokens(node.content)
+        cost = est_tokens(node.content)
         if kept and (
             (max_turns and len(kept) >= max_turns)
             or (token_budget and used + cost > token_budget)
@@ -198,15 +206,15 @@ def render_references(references: list[ReferenceBlock], *, max_turns: int = 20) 
         transcript = render_transcript(
             ref.history, max_turns=max_turns, max_chars_per_turn=REFERENCE_TURN_CHARS
         )
-        cost = _est_tokens(transcript)
+        cost = est_tokens(transcript)
         if cost > budget:
             # Keep the most recent lines that fit (a transcript truncates cleanly
             # at line boundaries, newest last).
             lines = transcript.splitlines()
-            while lines and _est_tokens("\n".join(lines)) > budget:
+            while lines and est_tokens("\n".join(lines)) > budget:
                 lines.pop(0)
             transcript = "\n".join(lines)
-            cost = _est_tokens(transcript)
+            cost = est_tokens(transcript)
         if not transcript:
             continue
         budget -= cost

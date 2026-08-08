@@ -30,12 +30,15 @@ export function ConversationList({
             aria-current={c.id === activeId ? "true" : undefined}
             className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`}
             {...activatable(() => onSelect(c.id))}>
-            <span style={{ fontSize: 13, color: c.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)", marginTop: 1 }}>
-              {c.visibility === "private" ? "◍" : "⊙"}
-            </span>
+            {/* The visibility was a glyph *and* the word directly beneath it —
+                and the glyph pair was ◍ / ⊙, two circles no one can tell apart
+                at 13px. The word alone says it, tinted the way the mark was. */}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className={s.convTitle} style={{ fontWeight: c.id === activeId ? 600 : 400 }}>{c.title}</div>
-              <div className={s.convMeta}>{c.visibility}</div>
+              <div className={s.convMeta}
+                style={{ color: c.visibility === "private" ? undefined : "var(--oxblood)" }}>
+                {c.visibility}
+              </div>
             </div>
             {unread?.[c.id] && c.id !== activeId && (
               <span className={s.rowDot} style={{ background: "var(--oxblood)" }}

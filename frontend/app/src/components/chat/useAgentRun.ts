@@ -15,6 +15,7 @@ import { useRef, useState } from "react";
 import { streamSSE } from "@/lib/sse";
 import type { RunEvent } from "@/lib/types";
 import type { ChatMessage, ToolActivity } from "@/components/chat/MessageList";
+import { ACTION } from "@/lib/glyphs";
 
 /** One line of "what the model asked the tool for" — enough to judge a call. */
 export function compactArgs(args: Record<string, unknown>): string {
@@ -90,7 +91,7 @@ export function useAgentRun({
     } else if (ev.kind === "assistant_node") {
       run.asst.id = ev.node.id;
       run.asst.typing = false;
-      run.asst.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ⚒ agent` : undefined;
+      run.asst.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ${ACTION.agent} agent` : undefined;
       if (run.asst.grounding) groundingByNode[ev.node.id] = run.asst.grounding;
       if (run.asst.tools?.length) toolsByNode[ev.node.id] = run.asst.tools;
       setMessages((m) => [...m]);

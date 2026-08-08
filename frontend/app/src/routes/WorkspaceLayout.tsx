@@ -76,8 +76,8 @@ export function WorkspaceLayout() {
   }, []);
 
   const tail = loc.pathname.split("/").slice(3).join("/"); // after /w/:wid
-  const active = tail.startsWith("library") ? "library" : tail.startsWith("docs") ? "docs" : tail.startsWith("members") ? "members" : tail.startsWith("map") ? "map" : "";
-  const viewLabel = active === "library" ? "prompt library" : active === "docs" ? "knowledge base" : active === "members" ? "members & roles" : active === "map" ? "the map" : "conversations";
+  const active = tail.startsWith("library") ? "library" : tail.startsWith("docs") ? "docs" : tail.startsWith("members") ? "members" : tail.startsWith("settings") ? "settings" : tail.startsWith("map") ? "map" : "";
+  const viewLabel = active === "library" ? "prompt library" : active === "docs" ? "knowledge base" : active === "members" ? "members & roles" : active === "settings" ? "workspace settings" : active === "map" ? "the map" : "conversations";
 
   return (
     <div className={s.shell}>

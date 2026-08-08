@@ -23,3 +23,23 @@
   .headRow { flex-direction: column; align-items: flex-start; gap: 12px; }
   .row { flex-wrap: wrap; }
 }
+
+/* Provider status as a labelled table. It was one wrapping row of six
+   unlabelled values, which is the same information with nothing to say which
+   value was which. Label column sized to its content so the values align. */
+.statusGrid {
+  display: grid; grid-template-columns: auto 1fr; gap: 6px 16px;
+  margin: 0; align-items: baseline;
+}
+.statusGrid dd {
+  margin: 0; font-size: 13px; color: var(--ink-2);
+  /* a model id like llama-3.3-70b-versatile has no space to break at, so on a
+     narrow card it ran past the edge instead of wrapping */
+  overflow-wrap: anywhere; min-width: 0;
+}
+/* What choosing this provider means for where the workspace's text goes. */
+.posture {
+  margin: 0; font-size: 13px; line-height: 1.55; color: var(--ink-2);
+  padding: 10px 13px; border-left: 2px solid var(--gilt);
+  background: var(--paper-3); border-radius: 0 8px 8px 0;
+}

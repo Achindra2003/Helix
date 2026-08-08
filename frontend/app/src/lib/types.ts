@@ -20,6 +20,26 @@ export interface Workspace {
   owner_id: string;
   role: Role;
   created_at?: string;
+  /** What is in it, from the list endpoint — threads this caller may open, and
+   *  how many people are in the room. Absent on responses from create/rename. */
+  conversation_count?: number;
+  member_count?: number;
+}
+
+/** Something a teammate needs to know, kept server-side until they have seen
+ *  it. Today only `mention`; the kind exists so run-finished and
+ *  thread-concluded can move off the session store without a schema change. */
+export interface ServerNotice {
+  id: string;
+  kind: "mention" | string;
+  workspace_id: string;
+  conversation_id: string;
+  branch_id: string;
+  node_id: string;
+  actor_email: string;
+  excerpt: string;
+  created_at: string | null;
+  read: boolean;
 }
 
 export interface Member {
@@ -258,6 +278,22 @@ export interface Health {
   status: string;
   db_time: string;
   provider: string;
+}
+
+/** One of the engine's five reasoning presets, as offered at escalation. */
+export interface ReasoningMode {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/** The few settings the sign-in screen needs before anyone has a token. */
+export interface PublicConfig {
+  notice: string;
+  notice_link: string;
+  /** False on an invite-only instance: only someone holding a usable invite
+   *  link may create an account. */
+  registration_open: boolean;
 }
 
 // --- SSE event frames (the engine's run contract; `kind` tags the type) ---
