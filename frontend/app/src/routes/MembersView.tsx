@@ -202,6 +202,15 @@ export function MembersView() {
             </div>
           ))}
         </div>
+        {/* The one row where Observer is a ✓, explained where a reader meets
+            it. Without this the exception looks like a mistake in the table. */}
+        <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 10, lineHeight: 1.55, maxWidth: 620 }}>
+          An Observer's single write is the note. Notes never reach the model, so
+          an Observer cannot change a reply, spend the workspace's key, or alter a
+          thread's lineage — they can address the people in the room without being
+          able to address Helix. The person you invite to observe is usually the
+          reviewer who most needs to say “that citation is wrong”.
+        </div>
       </div>
 
       {confirmKick && (

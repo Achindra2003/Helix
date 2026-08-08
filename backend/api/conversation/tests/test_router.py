@@ -1313,7 +1313,7 @@ def test_note_lands_in_the_thread_but_never_reaches_the_model(make_workspace):
         assert "try the other chunker" not in reply
 
 
-def test_note_needs_content_and_collaborator(make_workspace, join_workspace):
+def test_note_needs_content(make_workspace):
     with TestClient(app) as client:
         owner_headers, _, wid = make_workspace(client)
         branch_id = _create_conv(client, owner_headers, wid)["branch_id"]
@@ -1323,12 +1323,71 @@ def test_note_needs_content_and_collaborator(make_workspace, join_workspace):
         )
         assert blank.status_code == 422
 
-        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
-        assert client.post(
+
+def test_an_observer_may_leave_a_note(make_workspace, join_workspace):
+    """The Observer's one write, and the reason the role is not decorative.
+
+    This used to be a 403. The person you invite to observe is usually the
+    supervisor or reviewer who most needs to say "that citation is wrong", and
+    a role that cannot say it is an audience rather than a member. Safe by
+    construction rather than by policy: notes never enter the model's context,
+    so an Observer still cannot change a reply, spend the budget, or alter the
+    thread's lineage.
+    """
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, owner_headers, wid)["branch_id"]
+        obs_headers, obs_id = join_workspace(client, owner_headers, wid, role="observer")
+
+        resp = client.post(
             f"/conversations/{branch_id}/notes",
-            json={"content": "just watching"},
+            json={"content": "that citation doesn't support the claim"},
+            headers=obs_headers,
+        )
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["role"] == "note"
+        assert resp.json()["author_id"] == obs_id
+
+
+def test_an_observer_still_cannot_address_the_model(make_workspace, join_workspace):
+    """The other half of the decision. Writing notes must not have widened into
+    a general write — everything that reaches the model stays shut."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        created = _create_conv(client, owner_headers, wid)
+        cid, branch_id = created["conversation_id"], created["branch_id"]
+        obs_headers, _ = join_workspace(client, owner_headers, wid, role="observer")
+
+        assert client.post(
+            f"/conversations/{branch_id}/messages",
+            json={"prompt": "answer me"},
             headers=obs_headers,
         ).status_code == 403
+        assert client.post(
+            f"/conversations/{branch_id}/deep",
+            json={"prompt": "think hard"},
+            headers=obs_headers,
+        ).status_code == 403
+        assert client.post(
+            f"/conversations/{cid}/fork",
+            json={"from_node_id": "whatever", "name": "mine"},
+            headers=obs_headers,
+        ).status_code == 403
+
+
+def test_a_non_member_still_cannot_leave_a_note(make_workspace, make_user):
+    """Membership is the gate that remains. 404, not 403 — an outsider must not
+    be able to probe which branches exist."""
+    with TestClient(app) as client:
+        owner_headers, _, wid = make_workspace(client)
+        branch_id = _create_conv(client, owner_headers, wid)["branch_id"]
+        outsider = make_user(client)[0]
+
+        assert client.post(
+            f"/conversations/{branch_id}/notes",
+            json={"content": "hello"},
+            headers=outsider,
+        ).status_code == 404
 
 
 def test_notes_do_not_leak_into_a_deep_run_seed(make_workspace):

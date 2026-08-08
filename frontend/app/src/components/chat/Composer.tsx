@@ -8,6 +8,7 @@ import s from "./chat.module.css";
 
 export function Composer({
   provider, busy, onSend, onDeep, onAgent, onNote, agentHint, onLibrary, onDraftChange, draft, onDraftConsumed, wid,
+  noteOnly = false,
 }: {
   provider: string;
   /** The workspace whose members `@` resolves against. */
@@ -32,6 +33,12 @@ export function Composer({
   // the author to revise and resend (edit = delete + resend, by design).
   draft?: string | null;
   onDraftConsumed?: () => void;
+  // An Observer's composer: the same box with one addressee. Everything that
+  // reaches the model — send, Deep Reasoning, Agent, the prompt library — is
+  // gone, and Enter posts a note rather than asking Helix. One component
+  // rather than a second, smaller one, so the `@` picker, the draft hand-off
+  // and the textarea behaviour cannot drift between the two roles.
+  noteOnly?: boolean;
 }) {
   const [text, setText] = useState("");
   const reduce = useReducedMotion();
@@ -109,25 +116,36 @@ export function Composer({
         ref={taRef}
         className={s.ta}
         rows={2}
-        placeholder="Continue the thread, or escalate to Deep Reasoning… @ a teammate to ask them"
+        placeholder={noteOnly
+          ? "Leave a note for the team — Helix never reads it. @ a teammate to address them"
+          : "Continue the thread, or escalate to Deep Reasoning… @ a teammate to ask them"}
         value={text}
         onChange={(e) => { update(e.target.value); setCaret(e.target.selectionStart ?? 0); setDismissed(false); }}
         onSelect={(e) => setCaret((e.target as HTMLTextAreaElement).selectionStart ?? 0)}
-        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }}
+        onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); if (noteOnly) note(); else send(); } }}
       />
       <div className={s.composerRow}>
         <div className={s.composerActions}>
-        <Button onClick={onLibrary} style={{ padding: "6px 11px", fontSize: 12 }} title="Insert from prompt library">
-          <span style={{ color: "var(--oxblood)" }} aria-hidden>{PLACE.prompts}</span> Library
-        </Button>
-        <DeepButton busy={busy} guided={guided} onGuidedChange={setGuided} onRun={deep} />
-        <Button onClick={agent} disabled={busy} style={{ padding: "6px 11px", fontSize: 12 }}
-          title={agentHint ?? "Agent: Helix answers with tools — searching before it speaks"}>
-          <span style={{ color: "var(--oxblood)" }} aria-hidden>{ACTION.agent}</span> Agent
-        </Button>
-        <Button onClick={note} disabled={!text.trim()} style={{ padding: "6px 11px", fontSize: 12 }}
+        {/* Everything addressed to the model is absent in note-only mode, not
+            disabled: a row of greyed-out buttons tells an Observer four times
+            over what they cannot do, when the one thing they *can* do is the
+            point. */}
+        {!noteOnly && (
+          <>
+            <Button onClick={onLibrary} style={{ padding: "6px 11px", fontSize: 12 }} title="Insert from prompt library">
+              <span style={{ color: "var(--oxblood)" }} aria-hidden>{PLACE.prompts}</span> Library
+            </Button>
+            <DeepButton busy={busy} guided={guided} onGuidedChange={setGuided} onRun={deep} />
+            <Button onClick={agent} disabled={busy} style={{ padding: "6px 11px", fontSize: 12 }}
+              title={agentHint ?? "Agent: Helix answers with tools — searching before it speaks"}>
+              <span style={{ color: "var(--oxblood)" }} aria-hidden>{ACTION.agent}</span> Agent
+            </Button>
+          </>
+        )}
+        <Button variant={noteOnly ? "primary" : undefined}
+          onClick={note} disabled={!text.trim()} style={{ padding: "6px 11px", fontSize: 12 }}
           title="Say this to your teammates instead of to Helix — it stays in the thread, and the model never reads it">
-          <span style={{ color: "var(--verde)" }} aria-hidden>{ACTION.note}</span> Team
+          <span style={{ color: noteOnly ? undefined : "var(--verde)" }} aria-hidden>{ACTION.note}</span> Team
         </Button>
         </div>
         <div className={s.composerSend}>
@@ -136,13 +154,17 @@ export function Composer({
           <span className={`mono ${s.composerHint} ${text.trim() ? s.composerHintOn : ""}`}
             aria-hidden={!text.trim()}
             style={{ fontSize: 10, color: "var(--ink-3)", letterSpacing: "0.04em" }}>
-            ↵ ask Helix · ⇧↵ new line
+            {noteOnly ? "↵ post to the team · ⇧↵ new line" : "↵ ask Helix · ⇧↵ new line"}
           </span>
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{provider}</span>
-          <motion.button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)"
-            whileHover={reduce || busy ? undefined : { scale: 1.08, y: -1 }}
-            whileTap={{ scale: 0.9 }}
-            transition={{ type: "spring", stiffness: 500, damping: 20 }}>↑</motion.button>
+          {!noteOnly && (
+            <>
+              <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{provider}</span>
+              <motion.button className={s.sendBtn} onClick={send} disabled={busy} title="Send (Enter)"
+                whileHover={reduce || busy ? undefined : { scale: 1.08, y: -1 }}
+                whileTap={{ scale: 0.9 }}
+                transition={{ type: "spring", stiffness: 500, damping: 20 }}>↑</motion.button>
+            </>
+          )}
         </div>
       </div>
     </div>

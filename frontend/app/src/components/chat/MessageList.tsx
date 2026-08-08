@@ -157,10 +157,14 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
         {m.grounding && m.grounding.length > 0 && (
           <div className={s.groundRow}>
             <span className={s.groundLabel}>grounded on</span>
+            {/* The catalogued reference where the document has one — "Smith et
+                al. (2019) §4" rather than "smith-et-al-final-v3.pdf §4", which
+                named a file on somebody's laptop rather than a work. The
+                filename stays in the tooltip: it is still what you open. */}
             {m.grounding.map((g, i) => (
               <span key={`${g.document_id}-${g.chunk_index}-${i}`} className={s.groundChip}
-                title={`relevance ${g.score.toFixed(2)} — “${g.excerpt}”`}>
-                {PLACE.docs} {g.filename} §{g.chunk_index + 1}
+                title={`${g.cite_as && g.cite_as !== g.filename ? `${g.filename} · ` : ""}relevance ${g.score.toFixed(2)} — “${g.excerpt}”`}>
+                {PLACE.docs} {g.cite_as || g.filename} §{g.chunk_index + 1}
               </span>
             ))}
           </div>

@@ -63,6 +63,16 @@
 }
 .delete:hover { border-color: var(--oxblood); color: var(--oxblood); }
 
+/* Cataloguing a source. Sits beside delete and matches its proportions, but
+   reaches for gilt rather than oxblood on hover: describing a document is the
+   constructive act on this row, and the destructive one already owns the red. */
+.catalogue {
+  background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 5px;
+  font-family: var(--font-mono); font-size: 11px; padding: 3px 9px;
+  cursor: pointer; flex: 0 0 auto; white-space: nowrap;
+}
+.catalogue:hover { border-color: var(--gilt); color: var(--gilt-1); }
+
 @media (max-width: 760px) {
   .scroll { padding: 20px 16px 40px; }
   .docMeta { gap: 7px; }

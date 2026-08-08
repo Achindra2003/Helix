@@ -392,6 +392,18 @@ export const getDocument = (wid: string, id: string) =>
   request<WorkspaceDocument>(`/api/workspaces/${wid}/documents/${id}`);
 export const deleteDocument = (wid: string, id: string) =>
   request<{ ok: boolean }>(`/api/workspaces/${wid}/documents/${id}`, { method: "DELETE" });
+// Give a source its bibliographic identity, so a citation reads "Smith et al.
+// (2019)" rather than naming a file on somebody's laptop. Any collaborator —
+// cataloguing is work a second person does well.
+export const updateDocumentMetadata = (
+  wid: string,
+  id: string,
+  body: { doc_title?: string; authors?: string; year?: string; identifier?: string },
+) =>
+  request<WorkspaceDocument>(`/api/workspaces/${wid}/documents/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
 export const searchDocuments = (wid: string, query: string, k = 6) =>
   request<{ items: DocumentSearchHit[] }>(`/api/workspaces/${wid}/documents/search`, {
     method: "POST",

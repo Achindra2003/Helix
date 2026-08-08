@@ -207,6 +207,9 @@ class NodeCitationRow(Base):
     node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
     document_id: Mapped[str] = mapped_column(String, index=True)
     filename: Mapped[str] = mapped_column(String, default="")
+    # How the source is named in the chip and the export: "Smith et al. (2019)"
+    # once someone has catalogued the document, the filename until then.
+    cite_as: Mapped[str] = mapped_column(String, default="")
     chunk_index: Mapped[int] = mapped_column(Integer, default=0)
     score: Mapped[float] = mapped_column(Float, default=0.0)
     excerpt: Mapped[str] = mapped_column(Text, default="")

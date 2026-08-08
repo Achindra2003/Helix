@@ -29,7 +29,17 @@ def _uuid() -> str:
 # whatever its ranker produced; this narrows it to the five fields the product
 # renders and exports, so a change in a retriever cannot silently widen what
 # gets persisted on every reply.
-_CITATION_FIELDS = ("document_id", "filename", "chunk_index", "score", "excerpt")
+_CITATION_FIELDS = (
+    "document_id",
+    "filename",
+    # How the source should be named — "Smith et al. (2019)" once catalogued.
+    # Frozen at write time with everything else here: renaming a document must
+    # not retroactively change what an old answer said it was citing.
+    "cite_as",
+    "chunk_index",
+    "score",
+    "excerpt",
+)
 
 # Excerpts are the citation's evidence, not the document. Long enough to show
 # the sentence a claim rests on, short enough that a 6-source reply doesn't
@@ -47,6 +57,9 @@ def _clean_citations(items: list[dict] | None) -> list[dict]:
         cite["chunk_index"] = int(cite.get("chunk_index") or 0)
         cite["score"] = float(cite.get("score") or 0.0)
         cite["filename"] = str(cite.get("filename") or "")
+        # Falls back to the filename so a citation always has a visible name,
+        # including for replies written before cataloguing existed.
+        cite["cite_as"] = str(cite.get("cite_as") or cite["filename"])
         cite["excerpt"] = str(cite.get("excerpt") or "")[:_EXCERPT_CHARS]
         out.append(cite)
     return out
@@ -721,6 +734,7 @@ class DbStore:
                         node_id=row.id,
                         document_id=cite["document_id"],
                         filename=cite["filename"],
+                        cite_as=cite["cite_as"],
                         chunk_index=cite["chunk_index"],
                         score=cite["score"],
                         excerpt=cite["excerpt"],
@@ -839,6 +853,7 @@ class DbStore:
                 {
                     "document_id": r.document_id,
                     "filename": r.filename,
+                    "cite_as": r.cite_as or r.filename,
                     "chunk_index": r.chunk_index,
                     "score": r.score,
                     "excerpt": r.excerpt,

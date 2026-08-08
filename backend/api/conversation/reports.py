@@ -119,6 +119,9 @@ async def _turns(nodes: list[Node], names: Names) -> list[dict[str, Any]]:
                 "sources": [
                     {
                         "filename": c.get("filename") or "",
+                        # How the source is named in the report — the catalogued
+                        # reference where one exists, the filename otherwise.
+                        "cite_as": c.get("cite_as") or c.get("filename") or "",
                         "document_id": c.get("document_id") or "",
                         "part": int(c.get("chunk_index") or 0) + 1,
                         "excerpt": c.get("excerpt") or "",
@@ -254,7 +257,7 @@ def render_conversation_markdown(report: dict[str, Any]) -> str:
             if t.get("sources"):
                 lines += ["*Grounded on:*"]
                 lines += [
-                    f"- {s['filename'] or 'a document'} §{s['part']}"
+                    f"- {s.get('cite_as') or s['filename'] or 'a document'} §{s['part']}"
                     for s in t["sources"]
                 ]
                 lines += [""]

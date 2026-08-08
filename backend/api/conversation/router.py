@@ -544,7 +544,8 @@ async def export_conversation(
         if n.citations:
             lines.append("*Grounded on:*")
             for c in n.citations:
-                where = f"{c.get('filename') or 'a document'} §{int(c.get('chunk_index') or 0) + 1}"
+                name = c.get("cite_as") or c.get("filename") or "a document"
+                where = f"{name} §{int(c.get('chunk_index') or 0) + 1}"
                 lines.append(f"- {where}")
             lines.append("")
     lines += [
@@ -692,14 +693,27 @@ async def post_note(
     side remark is coordination, not a prompt, and letting it in would make a
     thread's answers depend on who happened to be arguing in it.
 
-    Collaborator+, the same bar as sending — an Observer reads. Whether
-    commentary should be an Observer's one write is a real product question,
-    and not one to settle by accident here.
+    **This is the one write an Observer has**, and the decision is deliberate.
+
+    An Observer who can only read is a decorative role: the person you invite
+    to observe is usually a supervisor, a reviewer, or a domain expert — which
+    is to say exactly the person who should be able to leave a margin note. A
+    role that cannot say "this citation is wrong" is not really in the room.
+
+    Letting them write *notes and nothing else* is the smallest change that
+    fixes that. It is also safe by construction rather than by policy: a note
+    is excluded from the model's context, so an Observer cannot influence what
+    any reply says, cannot spend the workspace's budget, and cannot alter the
+    thread's lineage. They can address the humans; they still cannot address
+    the model. The considered alternative — a fourth "reviewer" role — would
+    have added a row to every permission matrix, test, and explanation to buy
+    the same capability.
     """
     text = body.content.strip()
     if not text:
         raise api_error(422, "invalid", "a note needs something in it")
-    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    # Membership, not Collaborator: the gate above is the whole permission.
+    branch, conv = await _require_branch(branch_id, user, session)
     node = await _store.add_node(
         branch_id=branch_id, role="note", content=text, author_id=user.id
     )

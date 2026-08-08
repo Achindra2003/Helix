@@ -6,6 +6,7 @@ import { ROLE_SIGIL } from "@/lib/glyphs";
 export type Action =
   | "conversation.read"
   | "message.send"
+  | "note.write" // say it to the room, not to the model — the Observer's one write
   | "branch.fork"
   | "prompt.write"
   | "document.write" // upload / delete-own (owner deletes any)
@@ -18,6 +19,12 @@ export type Action =
 const MATRIX: Record<Action, Record<Role, boolean>> = {
   "conversation.read": { owner: true, collaborator: true, observer: true },
   "message.send": { owner: true, collaborator: true, observer: false },
+  // The one row where an Observer is true. A note never reaches the model, so
+  // it cannot change a reply, spend the budget, or alter the thread's lineage —
+  // it only addresses the humans. An Observer who cannot say "that citation is
+  // wrong" is a decorative role, and this is the smallest fix that isn't a
+  // fourth role.
+  "note.write": { owner: true, collaborator: true, observer: true },
   "branch.fork": { owner: true, collaborator: true, observer: false },
   "prompt.write": { owner: true, collaborator: true, observer: false },
   "document.write": { owner: true, collaborator: true, observer: false },
@@ -39,6 +46,7 @@ export function can(role: Role, action: Action): boolean {
 export const PERMISSION_ROWS: { key: string; action: Action }[] = [
   { key: "conversation.read / replay", action: "conversation.read" },
   { key: "message.send", action: "message.send" },
+  { key: "note.write (to the team)", action: "note.write" },
   { key: "branch.fork", action: "branch.fork" },
   { key: "prompt.write", action: "prompt.write" },
   { key: "document.upload / delete", action: "document.write" },

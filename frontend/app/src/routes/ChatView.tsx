@@ -92,6 +92,9 @@ export function ChatView() {
 
   const canSend = can(role, "message.send");
   const canFork = can(role, "branch.fork");
+  // The one write an Observer has. True for everyone, so it never gates the
+  // full composer — it only decides whether the read-only view gets one too.
+  const canNote = can(role, "note.write");
 
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -1078,10 +1081,28 @@ export function ChatView() {
                   onDraftChange={onDraftChange}
                   draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
               ) : (
-                <div className={s.readonly}>
-                  <span style={{ fontSize: 16 }}>◉</span>
-                  <span style={{ fontSize: 13 }}>You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — read-only. You may watch live conversations and runs, but cannot send, fork, or steer.</span>
-                </div>
+                <>
+                  {/* An Observer is not mute. They cannot address the model —
+                      no sending, forking, escalating or steering — but they can
+                      address the people, because the person you invite to
+                      observe is usually the reviewer or supervisor who most
+                      needs to say "that citation is wrong". */}
+                  <div className={s.readonly}>
+                    <span style={{ fontSize: 16 }} aria-hidden>{STATE.watching}</span>
+                    <span style={{ fontSize: 13 }}>
+                      You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — you
+                      may watch live conversations and runs, and leave notes for the team,
+                      but cannot send to Helix, fork, or steer.
+                    </span>
+                  </div>
+                  {canNote && (
+                    <Composer provider={provider} busy={busy} wid={wid} noteOnly
+                      onSend={onSend} onDeep={onDeep} onAgent={onAgent} onNote={doNote}
+                      onLibrary={() => nav(`/w/${wid}/library`)}
+                      onDraftChange={onDraftChange}
+                      draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
+                  )}
+                </>
               )}
             </div>
           </>

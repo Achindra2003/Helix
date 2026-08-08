@@ -168,6 +168,14 @@ export interface WorkspaceDocument {
   chunk_count: number;
   author_id: string;
   created_at: string;
+  // Bibliographic identity, all optional and none of it inferred from the file.
+  // `cite_as` is the server's own rendering of these — the single string the
+  // chip, the export and the model's context all use, so they cannot drift.
+  doc_title?: string;
+  authors?: string;
+  year?: string;
+  identifier?: string;
+  cite_as?: string;
 }
 
 // One grounded source behind a reply. Arrives twice, on purpose: as a
@@ -177,6 +185,9 @@ export interface WorkspaceDocument {
 export interface GroundingItem {
   document_id: string;
   filename: string;
+  /** How the source is named: "Smith et al. (2019)" once the document has been
+   *  catalogued, the filename until then. Never empty. */
+  cite_as?: string;
   chunk_index: number;
   score: number;
   excerpt: string;

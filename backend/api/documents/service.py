@@ -25,7 +25,7 @@ from array import array
 from sqlalchemy import delete, select
 
 from ..config import settings
-from .models import DocumentChunkRow, DocumentRow
+from .models import DocumentChunkRow, DocumentRow, cite_as
 
 # --- extraction ---------------------------------------------------------------
 
@@ -293,18 +293,31 @@ class DocumentIndex:
                 span.set_attribute("retrieval.top_score", round(float(picked[0][0]), 4))
         if not picked:
             return []
-        # Filenames for citations, one read.
+        # Identities for citations, one read.
         async with self._sf() as session:
             result = await session.execute(
                 select(DocumentRow).where(
                     DocumentRow.id.in_({c.document_id for _, c in picked})
                 )
             )
-            names = {d.id: d.filename for d in result.scalars()}
+            docs = {d.id: d for d in result.scalars()}
         return [
             {
                 "document_id": c.document_id,
-                "filename": names.get(c.document_id, "document"),
+                "filename": (
+                    docs[c.document_id].filename
+                    if c.document_id in docs
+                    else "document"
+                ),
+                # How this source should be *named*: "Smith et al. (2019)" once
+                # someone has catalogued it, the filename until then. Carried
+                # alongside the filename rather than replacing it, because the
+                # file is still what a reader opens.
+                "cite_as": (
+                    cite_as(docs[c.document_id])
+                    if c.document_id in docs
+                    else "document"
+                ),
                 "chunk_index": c.idx,
                 "score": round(float(s), 4),
                 "content": c.content,
@@ -333,7 +346,13 @@ class DocumentIndex:
         sections = [_DATA_NOT_INSTRUCTIONS]
         citations = []
         for hit in hits:
-            label = _sanitize_title(f"{hit['filename']} (part {hit['chunk_index'] + 1})")
+            # The model is shown the citable name, not the filename: when it
+            # says "according to the spec" in its reply, it should be able to
+            # say "according to Smith et al. (2019)" instead — which is the
+            # whole reason a research team catalogues anything.
+            label = _sanitize_title(
+                f"{hit.get('cite_as') or hit['filename']} (part {hit['chunk_index'] + 1})"
+            )
             excerpt = hit["content"][: settings.grounding_chunk_chars]
             sections.append(
                 f'<quoted-context source="document: {label}">\n'
@@ -343,6 +362,7 @@ class DocumentIndex:
                 {
                     "document_id": hit["document_id"],
                     "filename": hit["filename"],
+                    "cite_as": hit.get("cite_as") or hit["filename"],
                     "chunk_index": hit["chunk_index"],
                     "score": hit["score"],
                     "excerpt": excerpt[:200],
