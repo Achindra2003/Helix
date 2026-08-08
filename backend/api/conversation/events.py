@@ -27,6 +27,11 @@ class Node:
     content: str
     author_id: str | None = None
     token_count: int = 0
+    # Document chunks this reply was grounded on, in relevance order. Empty for
+    # user nodes and for ungrounded replies. Carried on the node itself so the
+    # evidence travels with the claim through `asdict` — into the history
+    # response, the SSE `assistant_node` frame, and both exports alike.
+    citations: list[dict] = field(default_factory=list)
 
 
 # --- Core chat events (emitted by every run) ---

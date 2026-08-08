@@ -13,7 +13,7 @@ it is the most heavily tested.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 from uuid import uuid4
@@ -23,6 +23,33 @@ from .events import Node
 
 def _uuid() -> str:
     return uuid4().hex
+
+
+# One citation's shape, and the only place it is defined. Retrieval hands back
+# whatever its ranker produced; this narrows it to the five fields the product
+# renders and exports, so a change in a retriever cannot silently widen what
+# gets persisted on every reply.
+_CITATION_FIELDS = ("document_id", "filename", "chunk_index", "score", "excerpt")
+
+# Excerpts are the citation's evidence, not the document. Long enough to show
+# the sentence a claim rests on, short enough that a 6-source reply doesn't
+# double the size of the history response.
+_EXCERPT_CHARS = 600
+
+
+def _clean_citations(items: list[dict] | None) -> list[dict]:
+    """Narrow raw retrieval hits to the persisted citation shape."""
+    out: list[dict] = []
+    for item in items or []:
+        cite = {k: item.get(k) for k in _CITATION_FIELDS if item.get(k) is not None}
+        if not cite.get("document_id"):
+            continue  # a citation that can't be traced back is not a citation
+        cite["chunk_index"] = int(cite.get("chunk_index") or 0)
+        cite["score"] = float(cite.get("score") or 0.0)
+        cite["filename"] = str(cite.get("filename") or "")
+        cite["excerpt"] = str(cite.get("excerpt") or "")[:_EXCERPT_CHARS]
+        out.append(cite)
+    return out
 
 
 @dataclass
@@ -54,6 +81,10 @@ class Branch:
     resolution: str = ""
     resolved_by: str | None = None
     resolved_at: datetime | None = None
+    # Members who have said they'd back this exploration. Ids, not a count, so
+    # the UI can show *you* whether you already voted without a second request
+    # — and so a tally can name its backers when a verdict is being written.
+    votes: list[str] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -90,14 +121,20 @@ class ConversationStore(Protocol):
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
         """Append an immutable node to a branch, stamping a monotonic `seq` and
-        chaining `parent_id` to the branch's current head; advances the head."""
+        chaining `parent_id` to the branch's current head; advances the head.
+
+        `citations` are the document chunks a grounded reply drew on. Written
+        in the same call as the content they justify, so a reply and its
+        evidence can never be persisted apart.
+        """
         ...
 
     async def get_history(self, branch_id: str) -> list[Node]:
         """Nodes root -> head for a branch, walking `parent_id` across branch
-        boundaries (the fork read path)."""
+        boundaries (the fork read path). Nodes come back with their citations."""
         ...
 
     async def create_branch(
@@ -119,6 +156,14 @@ class ConversationStore(Protocol):
 
         Never deletes: an abandoned branch stays readable forever, because the
         alternative you rejected is half of why the decision is defensible.
+        """
+        ...
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        """Back this exploration, or withdraw backing. Returns the new state.
+
+        Idempotent per member: clicking twice leaves no trace, which is what
+        makes a vote safe to cast on a hunch.
         """
         ...
 
@@ -242,6 +287,7 @@ class InMemoryStore:
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
         branch = self.branches[branch_id]
         seq = self._next_seq[branch_id]
@@ -255,6 +301,7 @@ class InMemoryStore:
             content=content,
             author_id=author_id,
             token_count=token_count,
+            citations=_clean_citations(citations),
         )
         self.nodes[node.id] = node
         branch.head_node_id = node.id
@@ -391,6 +438,16 @@ class InMemoryStore:
             branch.resolved_by = resolved_by
             branch.resolved_at = datetime.now(timezone.utc)
         return branch
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            raise KeyError(branch_id)
+        if user_id in branch.votes:
+            branch.votes.remove(user_id)
+            return False
+        branch.votes.append(user_id)
+        return True
 
     async def delete_branch(self, branch_id: str) -> list[str]:
         branch = self.branches.get(branch_id)
@@ -551,7 +608,11 @@ class DbStore:
 
         async with self._sf() as s:
             row = await s.get(BranchRow, branch_id)
-            return self._to_branch(row) if row else None
+            if row is None:
+                return None
+            branch = self._to_branch(row)
+            await self._attach_votes(s, [branch])
+            return branch
 
     async def list_branches(self, conversation_id: str) -> list[Branch]:
         from sqlalchemy import select
@@ -566,7 +627,58 @@ class DbStore:
                     .order_by(BranchRow.created_at)
                 )
             ).scalars().all()
-            return [self._to_branch(r) for r in rows]
+            branches = [self._to_branch(r) for r in rows]
+            await self._attach_votes(s, branches)
+            return branches
+
+    @staticmethod
+    async def _attach_votes(s, branches: list[Branch]) -> None:
+        """Hydrate who is backing each branch, in one query for the whole tree."""
+        from sqlalchemy import select
+
+        from .models import BranchVoteRow
+
+        ids = [b.id for b in branches]
+        if not ids:
+            return
+        rows = (
+            await s.execute(
+                select(BranchVoteRow)
+                .where(BranchVoteRow.branch_id.in_(ids))
+                .order_by(BranchVoteRow.created_at)
+            )
+        ).scalars().all()
+        if not rows:
+            return
+        by_branch: dict[str, list[str]] = {}
+        for r in rows:
+            by_branch.setdefault(r.branch_id, []).append(r.user_id)
+        for branch in branches:
+            branch.votes = by_branch.get(branch.id, [])
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        from sqlalchemy import delete, select
+
+        from .models import BranchVoteRow
+
+        async with self._sf() as s:
+            existing = (
+                await s.execute(
+                    select(BranchVoteRow).where(
+                        BranchVoteRow.branch_id == branch_id,
+                        BranchVoteRow.user_id == user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                await s.execute(
+                    delete(BranchVoteRow).where(BranchVoteRow.id == existing.id)
+                )
+                await s.commit()
+                return False
+            s.add(BranchVoteRow(branch_id=branch_id, user_id=user_id))
+            await s.commit()
+            return True
 
     async def add_node(
         self,
@@ -576,9 +688,11 @@ class DbStore:
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
-        from .models import BranchRow, NodeRow
+        from .models import BranchRow, NodeCitationRow, NodeRow
 
+        cites = _clean_citations(citations)
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
             if branch is None:
@@ -599,9 +713,24 @@ class DbStore:
                 token_count=token_count,
             )
             s.add(row)
+            # Same transaction as the content: a reply that survives without
+            # its sources is exactly the failure this table exists to end.
+            for ordinal, cite in enumerate(cites):
+                s.add(
+                    NodeCitationRow(
+                        node_id=row.id,
+                        document_id=cite["document_id"],
+                        filename=cite["filename"],
+                        chunk_index=cite["chunk_index"],
+                        score=cite["score"],
+                        excerpt=cite["excerpt"],
+                        ordinal=ordinal,
+                    )
+                )
             branch.head_node_id = row.id
             await s.commit()
             node = self._to_node(row)
+            node.citations = cites
             if self._on_node is not None:
                 self._on_node(node)
             return node
@@ -675,7 +804,49 @@ class DbStore:
                 node_id = row.parent_id
 
             out.reverse()
+            await self._attach_citations(s, out)
             return out
+
+    @staticmethod
+    async def _attach_citations(s, nodes: list[Node]) -> None:
+        """Hydrate every node's sources in one query.
+
+        One query for the whole history, not one per node: the walk above was
+        already rewritten to stop issuing a query per turn, and re-introducing
+        that pattern for citations would undo it. Assistant nodes only — a user
+        message has no sources by definition, and on a long thread that halves
+        the id list.
+        """
+        from sqlalchemy import select
+
+        from .models import NodeCitationRow
+
+        ids = [n.id for n in nodes if n.role == "assistant"]
+        if not ids:
+            return
+        rows = (
+            await s.execute(
+                select(NodeCitationRow)
+                .where(NodeCitationRow.node_id.in_(ids))
+                .order_by(NodeCitationRow.node_id, NodeCitationRow.ordinal)
+            )
+        ).scalars().all()
+        if not rows:
+            return
+        by_node: dict[str, list[dict]] = {}
+        for r in rows:
+            by_node.setdefault(r.node_id, []).append(
+                {
+                    "document_id": r.document_id,
+                    "filename": r.filename,
+                    "chunk_index": r.chunk_index,
+                    "score": r.score,
+                    "excerpt": r.excerpt,
+                }
+            )
+        for node in nodes:
+            if node.id in by_node:
+                node.citations = by_node[node.id]
 
     async def create_branch(
         self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""

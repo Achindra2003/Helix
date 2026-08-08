@@ -36,7 +36,7 @@ import logging
 from sqlalchemy import delete as sa_delete
 
 from ..db import SessionLocal
-from .events import from_dict, to_dict
+from .events import Grounding, from_dict, to_dict
 from .models import ResumableRunRow
 
 log = logging.getLogger(__name__)
@@ -176,10 +176,15 @@ async def rehydrate(run_id: str, runs) -> object | None:
         provenance={"resumed_after_restart": True, "steerable": row.steerable},
     )
 
-    run = engine.ResumableRun(store=_store, producer=producer, branch_id=row.branch_id)
-    run.restore(parts=json.loads(row.answer_parts or "[]"))
-
     events = [from_dict(d) for d in json.loads(row.events or "[]")]
+
+    run = engine.ResumableRun(store=_store, producer=producer, branch_id=row.branch_id)
+    # Grounding is announced once, in the run's first segment — which for a run
+    # rebuilt after a restart is always *before* the pause, so it exists only in
+    # the persisted log. Recovering it from there is what stops a restart from
+    # publishing a grounded answer with its sources stripped off.
+    cites = [e.items for e in events if isinstance(e, Grounding)]
+    run.restore(parts=json.loads(row.answer_parts or "[]"), citations=cites[-1] if cites else None)
     # Replaying the log through the recorder rebuilds the trace, so the row
     # this run eventually writes covers the whole run rather than only the
     # part that happened after the restart.

@@ -23,7 +23,16 @@ from __future__ import annotations
 from typing import AsyncIterator
 
 from .context import est_tokens
-from .events import AssistantNode, Complete, Done, Event, Token, UserNode, Waiting
+from .events import (
+    AssistantNode,
+    Complete,
+    Done,
+    Event,
+    Grounding,
+    Token,
+    UserNode,
+    Waiting,
+)
 from .producer import Producer
 from .store import ConversationStore
 
@@ -45,10 +54,17 @@ async def send(
     history = await store.get_history(branch_id)
 
     parts: list[str] = []
+    # The producer announces its sources *before* the first token (so the UI can
+    # show them while the reply streams). Holding them here is what lets the
+    # same list be written onto the node below — the client frame and the
+    # durable record now come from one place instead of only the former.
+    cites: list[dict] = []
     try:
         async for event in producer.run(history):
             if isinstance(event, Token):
                 parts.append(event.text)
+            elif isinstance(event, Grounding):
+                cites = event.items
             yield event
     except Exception as exc:  # provider/engine failure -> clean terminal event
         yield Complete(stop_reason=f"error: {exc}", status="error")
@@ -60,6 +76,7 @@ async def send(
         content=content,
         author_id=None,
         token_count=est_tokens(content),
+        citations=cites,
     )
     yield AssistantNode(node=assistant_node)
 
@@ -84,17 +101,24 @@ class ResumableRun:
         self._producer = producer
         self._branch_id = branch_id
         self._parts: list[str] = []
+        # Grounding is announced once, in the first segment, before any pause.
+        # It has to outlive the pause to reach the node written after it.
+        self._cites: list[dict] = []
         self.paused = False
 
-    def restore(self, *, parts: list[str]) -> None:
+    def restore(self, *, parts: list[str], citations: list[dict] | None = None) -> None:
         """Re-enter the paused state after the run was rebuilt from storage.
 
         The token text accumulated before the pause has to come back with it:
         the assistant node is persisted once, from every segment's tokens
         joined, so a run resumed with an empty `_parts` would publish a reply
-        missing everything said before the restart.
+        missing everything said before the restart. `citations` restore for the
+        same reason — they were announced before the pause, and the node is
+        written after it.
         """
         self._parts = list(parts)
+        if citations:
+            self._cites = list(citations)
         self.paused = True
 
     async def start(self, *, prompt: str, author_id: str) -> AsyncIterator[Event]:
@@ -117,6 +141,8 @@ class ResumableRun:
             async for event in gen:
                 if isinstance(event, Token):
                     self._parts.append(event.text)
+                elif isinstance(event, Grounding):
+                    self._cites = event.items
                 if isinstance(event, Waiting):
                     self.paused = True
                 yield event
@@ -133,6 +159,7 @@ class ResumableRun:
             content=content,
             author_id=None,
             token_count=est_tokens(content),
+            citations=self._cites,
         )
         yield AssistantNode(node=assistant_node)
         yield Done()

@@ -9,7 +9,15 @@ identical semantics to `InMemoryStore`, just durable.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -137,6 +145,74 @@ class NodeRow(Base):
     content: Mapped[str] = mapped_column(Text)
     author_id: Mapped[str | None] = mapped_column(String, nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class BranchVoteRow(Base):
+    """One member saying "I'd back this exploration".
+
+    Branching is the product's signature move and it had no counter-move: a
+    team could fork four ways and then had nothing but prose to narrow it
+    again. `resolve_branch` recorded the verdict, but a verdict is the *end* of
+    converging — one person writing down a decision the room never got to
+    express an opinion on.
+
+    Approval voting, deliberately: a member may back any number of branches,
+    and backing one says nothing about the others. Single-choice would force a
+    false precision ("rank these four") when the useful signal is usually
+    "either of these two works, the other two don't" — and it would make the
+    write a read-modify-write across sibling rows instead of one insert.
+
+    A vote is not a verdict and does not resolve anything. It is the reading
+    someone takes *before* deciding, which is why the tally is shown in the
+    adopt dialog rather than driving it.
+    """
+
+    __tablename__ = "branch_votes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    __table_args__ = (
+        # One member, one voice per branch. Enforced here rather than by a
+        # read-then-write, which races two clicks from two tabs.
+        UniqueConstraint("branch_id", "user_id", name="uq_branch_votes_branch_user"),
+    )
+
+
+class NodeCitationRow(Base):
+    """One document chunk an assistant node was grounded on.
+
+    A table rather than a JSON column on `NodeRow`, because the question the
+    research room actually asks is "which answers cited this paper?" — that is
+    a query over `document_id`, not a field to render. A blob would answer the
+    render and refuse the query.
+
+    Until this existed, citations lived *only* in the browser: the `grounding`
+    SSE frame reached the client, was held in a module-level record in
+    ChatView, and was gone on the next reload. The reply survived; the evidence
+    for it did not, which is the one thing a grounded answer cannot afford.
+
+    Denormalised on purpose. `filename` and the document's own metadata are
+    copied in at write time so a citation still reads correctly after the
+    document is renamed or deleted — the claim was made against *that* text on
+    *that* day, and a dangling join would quietly rewrite history.
+    """
+
+    __tablename__ = "node_citations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
+    document_id: Mapped[str] = mapped_column(String, index=True)
+    filename: Mapped[str] = mapped_column(String, default="")
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    excerpt: Mapped[str] = mapped_column(Text, default="")
+    # Position in the citation list as the retriever ranked it, so the chips
+    # render in relevance order without re-sorting on a float.
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
 

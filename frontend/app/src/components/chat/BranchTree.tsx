@@ -21,10 +21,13 @@ const MARK: Record<Branch["status"], { glyph: string; color: string; label: stri
 };
 
 export function BranchTree({
-  branches, activeId, onSelect, onRename, onDelete, onResolve,
+  branches, activeId, meId, onSelect, onRename, onDelete, onResolve, onVote,
 }: {
   branches: Branch[];
   activeId: string | null;
+  // Who "you" are, so the tally can show whether you have already backed a
+  // branch. Without it the count is a number you cannot locate yourself in.
+  meId?: string;
   onSelect: (id: string) => void;
   // Fork-branch housekeeping (Collaborator+). Main never shows these; the
   // server additionally refuses deleting anything something forked from.
@@ -33,8 +36,14 @@ export function BranchTree({
   // Recording what came of an exploration — offered on every branch including
   // main, because the spine can be the thing you adopted.
   onResolve?: (b: Branch) => void;
+  // Backing an exploration: the cheap signal that precedes the verdict.
+  onVote?: (b: Branch) => void;
 }) {
   const byId = new Map(branches.map((b) => [b.id, b]));
+  // A tally only means something against alternatives. On a thread that never
+  // forked there is nothing to converge, so the control would be an instruction
+  // to weigh one option against itself.
+  const converging = branches.length > 1;
   return (
     <>
       <div className={s.divider} />
@@ -48,6 +57,9 @@ export function BranchTree({
         const fork = b.parent_branch_id !== null;
         const mark = MARK[b.status];
         const resolved = b.status !== "open";
+        const votes = b.votes ?? [];
+        const tally = votes.length;
+        const backing = !!meId && votes.includes(meId);
         // The intent is what this exploration set out to try; the resolution is
         // what came of it. Together they're the whole record, so the title
         // attribute carries both for the row.
@@ -96,6 +108,33 @@ export function BranchTree({
                 without these these announce as "⚖", "✎", "✕". Now that the
                 row beside them is reachable by keyboard, arriving at three
                 unnamed buttons would be a half-fix of the same journey. */}
+            {/* Outside `.branchActs`, which is hover-only. Backing is a
+                standing fact about the branch, not an action you go looking
+                for: a tally you can only see by hovering each row in turn
+                cannot be scanned, and scanning is the entire use — "which of
+                these four does the team actually want". So a backed branch
+                always shows its count, and an unbacked one offers the verb on
+                hover.
+
+                Words, not a mark: the inventory has no glyph for "I'd back
+                this", and inventing one would put an unreadable symbol at 11px
+                beside three established ones. `aria-pressed` because this is a
+                toggle — a screen reader should say whether you are in. */}
+            {converging && onVote && (
+              <button
+                className={`${s.branchVote} ${backing ? s.branchVoteOn : ""} ${tally ? s.branchVoteShown : ""}`}
+                aria-pressed={backing}
+                title={
+                  backing
+                    ? "You're backing this — click to withdraw"
+                    : "Back this exploration"
+                }
+                aria-label={`${backing ? "Withdraw backing from" : "Back"} ${b.name}`}
+                onClick={(e) => { e.stopPropagation(); onVote(b); }}
+              >
+                {backing ? "backing" : "back"}{tally ? ` · ${tally}` : ""}
+              </button>
+            )}
             <span className={s.branchActs}>
               {onResolve && (
                 <button className={`icon-act ${s.branchAct}`}

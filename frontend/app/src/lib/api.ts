@@ -256,6 +256,13 @@ export const resolveBranch = (bid: string, status: BranchStatus, resolution: str
     method: "POST",
     body: JSON.stringify({ status, resolution }),
   });
+// Back an exploration, or withdraw backing — toggles, and returns the tally.
+// Approval voting: backing one branch says nothing about its siblings.
+export const voteBranch = (bid: string) =>
+  request<{ branch_id: string; backing: boolean; votes: string[] }>(
+    `/conversations/branches/${bid}/vote`,
+    { method: "POST" },
+  );
 // Export is auth-gated, so a plain <a href> can't carry the JWT: fetch with the
 // token and hand the payload to the browser as a blob download. The server
 // names the file (Content-Disposition); the fallback only covers a proxy that

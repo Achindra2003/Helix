@@ -537,6 +537,16 @@ async def export_conversation(
         lines.append("")
         lines.append(n.content)
         lines.append("")
+        # The sources the reply was grounded on, under the claim they support.
+        # A grounded answer whose export drops its citations is an unsourced
+        # assertion wearing the authority of a cited one — which is worse than
+        # never having cited at all.
+        if n.citations:
+            lines.append("*Grounded on:*")
+            for c in n.citations:
+                where = f"{c.get('filename') or 'a document'} §{int(c.get('chunk_index') or 0) + 1}"
+                lines.append(f"- {where}")
+            lines.append("")
     lines += [
         "---",
         "",
@@ -927,6 +937,49 @@ async def resolve_branch(
             exclude_user=user.id,
         )
     return asdict(updated)
+
+
+@router.post("/branches/{branch_id}/vote")
+async def vote_branch(
+    branch_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Back this exploration, or withdraw backing. Toggles; returns the tally.
+
+    The move the product was missing. Forking was cheap and converging was not:
+    a team could open four branches in a minute and then had only prose to
+    narrow them again, so threads accumulated live alternatives nobody had
+    ruled out. `resolve` records the verdict, but a verdict is the *end* of
+    converging — this is the reading taken before it.
+
+    Approval voting: back as many as you'd accept, and backing one says nothing
+    about the others. The useful signal in a design argument is usually "either
+    of these two works" rather than a ranking, and forcing a ranking would
+    manufacture a precision the room does not have.
+
+    A vote decides nothing on its own. Adopting still requires a member to
+    write down why — the tally is evidence for that reason, never a substitute.
+    Collaborator+, the same bar as forking: whoever may explore may weigh in.
+    """
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    backing = await _store.toggle_branch_vote(branch_id=branch_id, user_id=user.id)
+    updated = await _store.get_branch(branch_id)
+    votes = updated.votes if updated else []
+
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.voted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "votes": votes,
+            },
+            exclude_user=user.id,
+        )
+    return {"branch_id": branch_id, "backing": backing, "votes": votes}
 
 
 async def _reference_summaries(conversation_id: str) -> list[dict]:

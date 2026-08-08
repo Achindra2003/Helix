@@ -75,6 +75,29 @@
 .branchOn:hover .branchActs { background: linear-gradient(90deg, transparent, var(--paper-2) 22%); }
 .branchAct { color: var(--ink-3); font-size: 11px; flex: 0 0 auto; }
 .branchAct:hover { color: var(--oxblood); }
+
+/* Backing a branch. Quiet by default and hidden until the row is hovered, so
+   an unbacked lineage stays a clean list of names; once anyone has backed a
+   branch the count is permanent, because "which one does the team want" has to
+   be answerable by looking rather than by hovering four rows in turn. */
+.branchVote {
+  flex: 0 0 auto; margin-right: 4px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+  color: var(--ink-3); background: transparent;
+  border: 1px solid var(--rule-soft); border-radius: 5px; padding: 2px 7px;
+  opacity: 0; transition: opacity .15s, color .15s, border-color .15s, background .15s;
+}
+.branchRow:hover .branchVote,
+.branchVote:focus-visible,
+.branchVoteShown { opacity: 1; }
+.branchVote:hover { color: var(--oxblood); border-color: var(--oxblood); }
+/* Your own backing reads as a filled mark rather than a louder one: the gilt
+   is the workspace's "yes", and it must stay distinguishable from the oxblood
+   the adopted verdict uses — a vote is not a decision. */
+.branchVoteOn {
+  color: var(--gilt-1); border-color: var(--gilt);
+  background: var(--accent-tint);
+}
 .leftFoot { padding: 11px 16px; border-top: 1px solid var(--rule-soft); font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
 .liveDot { width: 6px; height: 6px; border-radius: 50%; background: var(--verde); }
 

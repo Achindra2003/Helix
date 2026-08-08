@@ -5,7 +5,7 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, downloadReport,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, resolveBranch, concludeConversation, postNote,
+  searchWorkspace, resolveBranch, voteBranch, concludeConversation, postNote,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
@@ -39,9 +39,14 @@ import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog } from "@/
 import { useDeepRun, pickText } from "@/components/chat/useDeepRun";
 import s from "@/components/chat/chat.module.css";
 
-// Grounding citations live only in the stream (nodes don't persist them), but
-// history reloads happen after every turn — remember which sources each
-// assistant node cited so the chips survive the round-trip for this session.
+// Citations are persisted on the node now and arrive with the history, so the
+// server is the source of truth. This map survives as a *live overlay only*:
+// during a run the sources are announced before the assistant node exists, so
+// there is a window with chips on screen and no node to hang them on. Once the
+// node arrives its own `citations` win.
+//
+// It used to be the only place citations existed anywhere — which meant a
+// reload silently dropped the evidence for every grounded answer in the thread.
 const groundingByNode: Record<string, GroundingItem[]> = {};
 // Same deal for the agent tool ledger (FR-14): which tools each reply used.
 const toolsByNode: Record<string, ToolActivity[]> = {};
@@ -70,7 +75,7 @@ function nodeToMsg(
     tokens: n.token_count ? `~${n.token_count} tokens` : undefined,
     forkPoint: !!forkNodeId && n.id === forkNodeId,
     forkChildren: forkMap?.[n.id],
-    grounding: groundingByNode[n.id],
+    grounding: n.citations?.length ? n.citations : groundingByNode[n.id],
     tools: toolsByNode[n.id],
   };
 }
@@ -424,7 +429,7 @@ export function ChatView() {
       await qc.invalidateQueries({ queryKey: ["conversations", wid] });
       setActiveConvId(r.conversation_id);
       setActiveBranchId(r.branch_id);
-      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null }]);
+      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null, votes: [] }]);
       setMessages([]);
     } catch (e: any) { push(e?.message ?? "Create failed", "error"); }
   }
@@ -436,7 +441,7 @@ export function ChatView() {
     await qc.invalidateQueries({ queryKey: ["conversations", wid] });
     setActiveConvId(r.conversation_id);
     setActiveBranchId(r.branch_id);
-    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null }]);
+    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null, votes: [] }]);
     return r.branch_id;
   }
 
@@ -626,6 +631,29 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Could not record that", "error"); }
   }
 
+  async function doVote(branchId: string) {
+    // Optimistic: backing a branch is a one-click opinion, and a chip that
+    // waits for a round trip before filling reads as an unregistered click.
+    // The server's tally replaces this either way, so a failed request
+    // self-corrects on the refetch below.
+    const me = user?.id;
+    if (me) {
+      setBranches((bs) => bs.map((b) => b.id !== branchId ? b : {
+        ...b,
+        votes: b.votes?.includes(me)
+          ? b.votes.filter((v) => v !== me)
+          : [...(b.votes ?? []), me],
+      }));
+    }
+    try {
+      await voteBranch(branchId);
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+    } catch (e: any) {
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+      push(e?.message ?? "Could not record that", "error");
+    }
+  }
+
   async function doRename() {
     if (!renameDlg) return;
     const name = renameDlg.name.trim();
@@ -720,6 +748,14 @@ export function ChatView() {
           if (ev.branch_id === activeBranchId && ev.status !== "open") {
             push(`“${ev.name}” was ${ev.status} — ${ev.resolution}`);
           }
+        }
+      } else if (ev.kind === "branch.voted") {
+        // No toast. A vote is a small, frequent signal — announcing each one
+        // would make converging noisier than the forking it exists to settle.
+        // The tally updating in place is the whole notification.
+        if (ev.conversation_id === activeConvId) {
+          setBranches((bs) => bs.map((b) =>
+            b.id === ev.branch_id ? { ...b, votes: ev.votes ?? [] } : b));
         }
       } else if (ev.kind === "branch.deleted") {
         if (ev.conversation_id === activeConvId) {
@@ -884,11 +920,12 @@ export function ChatView() {
             unread={unreadIds}
           />
           {activeConv && branches.length > 0 && (
-            <BranchTree branches={branches} activeId={activeBranchId}
+            <BranchTree branches={branches} activeId={activeBranchId} meId={user?.id}
               onSelect={(id) => { setActiveBranchId(id); setDrawer(null); }}
               onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
               onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
-              onResolve={canFork ? (b) => setResolveDlg(b) : undefined} />
+              onResolve={canFork ? (b) => setResolveDlg(b) : undefined}
+              onVote={canFork ? (b) => doVote(b.id) : undefined} />
           )}
         </div>
         <div className={s.leftFoot}><span className={s.liveDot} /> live · server-ordered log</div>
@@ -1070,7 +1107,9 @@ export function ChatView() {
           onSave={(t) => { doConclude(t); setConcludeDlg(false); }} />
       )}
       {resolveDlg && (
-        <ResolveDialog branch={resolveDlg} onClose={() => setResolveDlg(null)}
+        <ResolveDialog branch={resolveDlg}
+          siblings={branches.filter((b) => b.id !== resolveDlg.id)}
+          onClose={() => setResolveDlg(null)}
           onConfirm={(status, resolution) => { doResolve(resolveDlg.id, status, resolution); setResolveDlg(null); }} />
       )}
       {linkDlg && activeConv && (

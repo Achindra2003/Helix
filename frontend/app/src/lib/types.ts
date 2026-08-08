@@ -104,6 +104,10 @@ export interface Branch {
   resolution: string;
   resolved_by: string | null;
   resolved_at: string | null;
+  // Members backing this exploration. Ids rather than a count, so the rail can
+  // show whether *you* already voted without a second request, and so a verdict
+  // being written can name who backed what.
+  votes: string[];
 }
 
 export interface Node {
@@ -115,6 +119,10 @@ export interface Node {
   content: string;
   author_id: string | null;
   token_count: number;
+  /** Document chunks this reply was grounded on, in relevance order. Persisted
+   *  server-side, so the chips survive a reload — they used to live only in
+   *  this tab's memory. Absent on user turns and ungrounded replies. */
+  citations?: GroundingItem[];
 }
 
 export interface Prompt {
@@ -162,8 +170,10 @@ export interface WorkspaceDocument {
   created_at: string;
 }
 
-// One grounded source behind a reply — arrives as a `grounding` frame before
-// the reply's tokens (SSE and the WS run_event relay alike).
+// One grounded source behind a reply. Arrives twice, on purpose: as a
+// `grounding` frame before the reply's tokens (so the sources are on screen
+// while it streams), and again on the assistant node itself, which is the
+// durable copy the thread renders from after a reload.
 export interface GroundingItem {
   document_id: string;
   filename: string;

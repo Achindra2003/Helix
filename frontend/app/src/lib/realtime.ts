@@ -52,6 +52,7 @@ export type RoomEvent =
   // and because a teammate still exploring an abandoned branch should find
   // that out without a refresh.
   | { kind: "branch.resolved"; workspace_id: string; conversation_id: string; branch_id: string; status: string; resolution: string; name: string }
+  | { kind: "branch.voted"; workspace_id: string; conversation_id: string; branch_id: string; votes: string[] }
   | { kind: "messages.deleted"; workspace_id: string; conversation_id: string; branch_id: string; node_ids: string[] }
   | { kind: "references.updated"; workspace_id: string; conversation_id: string }
   | { kind: "prompt.saved"; workspace_id: string; prompt: Record<string, any> }

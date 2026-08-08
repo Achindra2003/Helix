@@ -106,8 +106,12 @@ export function ConcludeDialog({ conv, onClose, onSave }: {
 // Recording what came of an exploration. The reason is required for a verdict
 // and refused server-side if blank: "we chose this" without a why is exactly
 // the thing this product exists to stop happening.
-export function ResolveDialog({ branch, onClose, onConfirm }: {
+export function ResolveDialog({ branch, siblings = [], onClose, onConfirm }: {
   branch: Branch;
+  // The other explorations under the same question, so the tally can be read
+  // as a comparison. A count on its own ("3 backing") says nothing; "3 of 5,
+  // against 1 elsewhere" is the thing a verdict is actually weighing.
+  siblings?: Branch[];
   onClose: () => void;
   onConfirm: (status: BranchStatus, resolution: string) => void;
 }) {
@@ -134,6 +138,28 @@ export function ResolveDialog({ branch, onClose, onConfirm }: {
           It set out to: <span style={{ color: "var(--ink-2)" }}>{branch.intent}</span>
         </div>
       )}
+      {/* The room's reading, shown while the verdict is being written — the
+          point at which it is actually useful. Deliberately presented as
+          evidence and never as a result: the Record button does not care what
+          the tally says, because a decision the team can defend is one someone
+          took responsibility for, not one a count made for them. */}
+      {(branch.votes?.length || siblings.some((b) => b.votes?.length)) ? (
+        <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.5 }}>
+          <span style={{ color: "var(--gilt-1)" }}>
+            {branch.votes?.length ?? 0} backing this
+          </span>
+          {siblings.filter((b) => b.votes?.length).length > 0 && (
+            <>
+              {" · "}
+              {siblings
+                .filter((b) => b.votes?.length)
+                .map((b) => `${b.votes.length} on “${b.name}”`)
+                .join(" · ")}
+            </>
+          )}
+          <div style={{ marginTop: 2 }}>A reading of the room, not the decision.</div>
+        </div>
+      ) : null}
       <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
         {CHOICES.map((c) => (
           <label key={c.key} style={{ display: "flex", alignItems: "baseline", gap: 9, cursor: "pointer", fontSize: 14 }}>

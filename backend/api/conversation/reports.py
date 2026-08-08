@@ -112,6 +112,19 @@ async def _turns(nodes: list[Node], names: Names) -> list[dict[str, Any]]:
                 "author": "Helix" if n.role == "assistant" else await names.of(n.author_id),
                 "content": n.content,
                 "sent_to_model": n.role != "note",
+                # The documents this turn rested on. Part of the report, not a
+                # UI nicety: a decision report that states a conclusion without
+                # the evidence under it is asking to be taken on trust, which
+                # is the opposite of what it is for.
+                "sources": [
+                    {
+                        "filename": c.get("filename") or "",
+                        "document_id": c.get("document_id") or "",
+                        "part": int(c.get("chunk_index") or 0) + 1,
+                        "excerpt": c.get("excerpt") or "",
+                    }
+                    for c in (n.citations or [])
+                ],
             }
         )
     return out
@@ -238,6 +251,13 @@ def render_conversation_markdown(report: dict[str, Any]) -> str:
                 lines += [""]
                 continue
             lines += [f"**{t['author'] or 'Unknown'}**", "", t["content"], ""]
+            if t.get("sources"):
+                lines += ["*Grounded on:*"]
+                lines += [
+                    f"- {s['filename'] or 'a document'} §{s['part']}"
+                    for s in t["sources"]
+                ]
+                lines += [""]
 
     runs = report["reasoning_runs"]
     if runs:
