@@ -62,6 +62,18 @@ typography:
     fontWeight: 400
     lineHeight: 1.62
     letterSpacing: "normal"
+  lede:
+    fontFamily: "IM Fell English, Georgia, serif"
+    fontSize: "15px"
+    fontWeight: 400
+    lineHeight: 1.6
+    letterSpacing: "normal"
+  body-ui:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "14px"
+    fontWeight: 400
+    lineHeight: 1.45
+    letterSpacing: "normal"
   instrument:
     fontFamily: "Inter, system-ui, sans-serif"
     fontSize: "13px"
@@ -74,6 +86,18 @@ typography:
     fontWeight: 600
     lineHeight: 1
     letterSpacing: "0.16em"
+  small:
+    fontFamily: "Inter, system-ui, sans-serif"
+    fontSize: "12px"
+    fontWeight: 500
+    lineHeight: 1.35
+    letterSpacing: "normal"
+  micro:
+    fontFamily: "JetBrains Mono, ui-monospace, monospace"
+    fontSize: "10px"
+    fontWeight: 500
+    lineHeight: 1.2
+    letterSpacing: "0.04em"
   mono:
     fontFamily: "JetBrains Mono, ui-monospace, monospace"
     fontSize: "11px"
@@ -335,6 +359,18 @@ rest, which is what turned the markdown headings into a clean 16 / 18 / 20.
 
 **Take a step from the ramp.** If no step fits, that is a design question worth
 raising, not something to settle with a half-pixel.
+
+### The Radius Scale Has The Same Problem, Unfixed
+
+Recorded here rather than quietly corrected, because naming drift is cheap and
+snapping it is a pass of its own. `tokens.css` declares two radii — `--radius`
+9px and `--radius-lg` 13px — and the stylesheets use **thirteen**, from 2px to
+14px. The two declared tokens account for 10 of 85 literal uses; the two
+commonest values, 8px (19) and 7px (13), are not declared at all. This is the
+type scale's defect exactly: a stated rule that contradicts the product, so
+obedience makes the drift worse. It is a known finding, not a decision, and it
+should be reconciled the same way — snap to the values already rendering, then
+declare those.
 
 ### Named Rules
 

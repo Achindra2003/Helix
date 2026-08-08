@@ -1,5 +1,6 @@
 import type { WorkspaceSearchHit } from "@/lib/types";
 import { colorFor } from "@/lib/format";
+import { PLACE } from "@/lib/glyphs";
 import s from "./chat.module.css";
 
 export interface RoomDraft {
@@ -92,7 +93,7 @@ export function TeamStrip({
               title={`${whoOf(h)}: “${h.excerpt}”`}
               onClick={() => onOpen(h.conversation_id, h.branch_id)}
               style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 260 }}>
-              <span style={{ color: "var(--oxblood)" }}>⊙</span>
+              <span style={{ color: "var(--oxblood)" }} aria-hidden>{PLACE.chat}</span>
               <span className={s.teamClip}>{h.conversation_title}</span>
               <span style={{ color: "var(--ink-3)", flex: "0 0 auto" }}>· {whoOf(h)}</span>
             </button>

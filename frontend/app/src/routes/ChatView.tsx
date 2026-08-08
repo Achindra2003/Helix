@@ -461,7 +461,7 @@ export function ChatView() {
           acc += ev.text; asstMsg.body = acc; setMessages((m) => [...m]); scrollDown();
         } else if (ev.kind === "assistant_node") {
           asstMsg.id = ev.node.id; asstMsg.typing = false;
-          asstMsg.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ☁ ${provider}` : undefined;
+          asstMsg.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ${provider}` : undefined;
           if (asstMsg.grounding) groundingByNode[ev.node.id] = asstMsg.grounding;
         }
       });
@@ -592,7 +592,7 @@ export function ChatView() {
     }
     if (canSend) {
       out.push({
-        key: "link", glyph: "⛓", label: "Link another thread's context",
+        key: "link", glyph: STATE.linked, label: "Link another thread's context",
         onPick: () => setLinkDlg(true),
       });
     }
@@ -836,7 +836,7 @@ export function ChatView() {
           run.asst.id = e.node.id;
           run.asst.typing = false;
           run.asst.body = e.node.content || run.acc;
-          run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ☁ ${provider}` : undefined;
+          run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ${provider}` : undefined;
           if (run.asst.grounding) groundingByNode[e.node.id] = run.asst.grounding;
           if (run.asst.tools?.length) toolsByNode[e.node.id] = run.asst.tools;
           setMessages((m) => [...m]);
@@ -1124,7 +1124,7 @@ export function ChatView() {
                   background: draftVis === v ? "var(--paper-3)" : "transparent",
                   color: draftVis === v ? "var(--oxblood)" : "var(--ink-3)",
                 }}>
-                {v === "shared" ? "⊙ Shared — whole workspace" : "◍ Private — only you"}
+                {v === "shared" ? "Shared — whole workspace" : "Private — only you"}
               </button>
             ))}
           </div>

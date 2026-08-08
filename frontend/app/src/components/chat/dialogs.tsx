@@ -11,7 +11,7 @@ import type { Branch, BranchStatus, Conversation } from "@/lib/types";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { Input, Field } from "@/components/common/Input";
-import { ACTION } from "@/lib/glyphs";
+import { ACTION, PLACE } from "@/lib/glyphs";
 import s from "@/components/chat/chat.module.css";
 
 export function ForkDialog({ onClose, onConfirm }: {
@@ -181,7 +181,7 @@ export function LinkContextDialog(
                 textAlign: "left", padding: "9px 11px", borderRadius: 8, cursor: "pointer",
                 border: "1px solid var(--rule-soft)", background: "transparent", color: "var(--ink-2)", fontSize: 13,
               }}>
-              <span style={{ color: "var(--oxblood)" }}>⊙</span> {c.title}
+              <span style={{ color: "var(--oxblood)" }} aria-hidden>{PLACE.chat}</span> {c.title}
             </button>
           ))}
         </div>

@@ -62,7 +62,7 @@ export function DecisionLedger({ wid }: { wid: string }) {
             <span className={s.ledgerWhere}>
               {d.conversation_title}
               {d.branch_name && <> → {d.branch_name}</>}
-              {d.visibility === "private" && <span className={s.ledgerPrivate}> ◍ private</span>}
+              {d.visibility === "private" && <span className={s.ledgerPrivate}> · private</span>}
               {d.resolved_by_email && <> · {d.resolved_by_email}</>}
               {d.resolved_at && <> · {d.resolved_at.slice(0, 10)}</>}
             </span>
