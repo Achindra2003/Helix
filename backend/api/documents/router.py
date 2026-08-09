@@ -18,7 +18,7 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
-from .models import DocumentChunkRow, DocumentRow, cite_as
+from .models import DocumentChunkRow, DocumentRow, bump_corpus_revision, cite_as
 from .service import DocumentIndex
 
 _READ_CHUNK = 1024 * 1024  # one MB per read; the cap is checked after each
@@ -204,6 +204,10 @@ async def delete_document(
     await session.execute(
         delete(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
     )
+    # A deleted document must stop grounding answers immediately. Without this
+    # every reader keeps serving the removed chunks from its cached index until
+    # something else happens to change the corpus.
+    await bump_corpus_revision(session, workspace_id)
     await session.delete(doc)
     await session.commit()
     return {"ok": True}

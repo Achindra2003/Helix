@@ -42,10 +42,8 @@ where it stands after Stages 0–4 of `PLAN-V1.md` (9 August). Arrows are change
 **Then:** five breaks, four of them outside the research room — the honest shape
 of a product whose only evidenced audience so far was research.
 
-**Now:** one break, and it is a scale limit rather than a missing feature —
-retrieval is exact cosine in process, comfortable to roughly 5k chunks, and a
-serious literature review is tens of thousands. It is documented, deliberate,
-and precisely this room's working size. See *What is still open*, at the end.
+**Now:** no breaks. The last one was the research room's retrieval ceiling, and
+it turned out to be an implementation, not a limit — see below.
 
 Two entries deliberately did **not** move. Fork-and-branch still bends for
 brainstorming: voting gave the room a way to *converge*, but a fork is still a
@@ -388,12 +386,29 @@ that did not exist when this section was written.
 Everything above that has not moved, in one place, so this document can be read
 as a description of the product rather than a history of it.
 
-**One break.** *Retrieval has a ceiling exactly where the research room starts.*
-Exact cosine in process: comfortable to roughly 5k chunks, and a serious
-literature review is 50–500 papers. Nothing about this changed, and it is the
-one finding here that is a scale decision rather than a missing feature — an
-approximate index (HNSW/FAISS) or an external vector store is the fix, and both
-are deliberate deferrals recorded in `PRODUCT.md`.
+**The retrieval ceiling — closed, and it was never a scale limit.**
+This was recorded as a break: exact cosine in process, "comfortable to roughly
+5k chunks", with an approximate index or an external vector store as the fix.
+
+Measured, the truth was less interesting and much easier to fix. Both arms were
+being rebuilt from scratch on *every query* — the dense arm decoded every stored
+vector into a Python list and scored it with a generator expression, and BM25
+re-tokenised the whole corpus to answer one question. One grounded send at
+10,000 chunks cost **1.28 s**, and it was paid per message.
+
+Nothing about that was inherent. The workspace's vectors are now one float32
+matrix scored with a single matrix product, BM25 keeps postings so it only
+visits documents that actually contain a query term, and both are built once and
+reused until the corpus changes. Same query, same machine: **2 ms at 10,000
+chunks** on that benchmark; on a harder corpus with a realistic Zipfian
+vocabulary, 19 ms at 10,000 and 55 ms at 50,000 — past a 500-paper literature
+review, in process, with no vector server.
+
+Keeping a cache correct is the part that can rot, so the invariant has its own
+tests (`api/documents/tests/test_corpus_revision.py`): a document is searchable
+the moment it lands, stops grounding the moment it is deleted, and never leaks
+into another workspace. An approximate index (pgvector/FAISS) remains the next
+step up and is now genuinely a scale decision rather than a workaround.
 
 **Three bends, all one idea.** The general room's are the same missing thing
 seen from three angles: **cheap parallel exploration.**

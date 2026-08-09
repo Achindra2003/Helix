@@ -59,7 +59,11 @@ async def build_index(documents: list[dict], *, memory=None):
     from sqlalchemy.pool import StaticPool
 
     from api.db import Base
-    from api.documents.models import DocumentChunkRow, DocumentRow
+    from api.documents.models import (
+        DocumentChunkRow,
+        DocumentRow,
+        bump_corpus_revision,
+    )
     from api.documents.service import DocumentIndex, chunk_text
 
     engine = create_async_engine(
@@ -87,6 +91,10 @@ async def build_index(documents: list[dict], *, memory=None):
                         content=chunk, embedder_version="", vector=b"",
                     )
                 )
+        # Retrieval reads a corpus revision to decide whether its cached index
+        # is stale; a corpus loaded behind `ingest()` still has to say it
+        # exists, or every arm scores zero against an empty workspace.
+        await bump_corpus_revision(session, "golden")
         await session.commit()
 
     index = DocumentIndex(sf, memory=memory)

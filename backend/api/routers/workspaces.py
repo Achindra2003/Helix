@@ -17,7 +17,7 @@ from ..conversation.models import (
 )
 from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership, require_role
-from ..documents.models import DocumentChunkRow, DocumentRow
+from ..documents.models import CorpusRevisionRow, DocumentChunkRow, DocumentRow
 from ..errors import api_error
 from ..models import (
     ROLE_COLLABORATOR,
@@ -291,6 +291,8 @@ async def delete_workspace(
     await session.execute(delete(DeepRunRow).where(DeepRunRow.workspace_id == workspace_id))
     await session.execute(delete(DocumentChunkRow).where(DocumentChunkRow.workspace_id == workspace_id))
     await session.execute(delete(DocumentRow).where(DocumentRow.workspace_id == workspace_id))
+    # The corpus is gone with the workspace; its revision row goes too.
+    await session.execute(delete(CorpusRevisionRow).where(CorpusRevisionRow.workspace_id == workspace_id))
     await session.execute(delete(Invite).where(Invite.workspace_id == workspace_id))
     await session.execute(delete(WorkspaceSettings).where(WorkspaceSettings.workspace_id == workspace_id))
     await session.delete(ws)  # ORM-cascades this workspace's Membership rows
