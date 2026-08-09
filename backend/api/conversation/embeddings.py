@@ -19,7 +19,7 @@ from __future__ import annotations
 import asyncio
 from array import array
 
-from sqlalchemy import LargeBinary, String, select
+from sqlalchemy import ForeignKey, LargeBinary, String, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,7 +35,22 @@ class NodeEmbeddingRow(Base):
 
     __tablename__ = "node_embeddings"
 
-    node_id: Mapped[str] = mapped_column(String, primary_key=True)
+    # The only table pointing at `nodes` without saying so. It was a bare
+    # string, so nothing stopped an embedding outliving the node it describes —
+    # and the cleanup that should have prevented that runs in the *router*,
+    # after the store has already deleted the nodes, which a plain foreign key
+    # would turn into a constraint violation.
+    #
+    # ON DELETE CASCADE rather than a delete in the store, because unlike a
+    # citation or a vote this row is not a record of anything: it is a cache of
+    # the node's text under one embedder version, meaningless the moment the
+    # text is gone. `EmbeddingIndex.drop` stays as it is — now belt and braces
+    # rather than the only guarantee.
+    node_id: Mapped[str] = mapped_column(
+        ForeignKey("nodes.id", ondelete="CASCADE"), primary_key=True
+    )
+    # Three hops from the workspace otherwise. See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     version: Mapped[str] = mapped_column(String)  # embedder name, e.g. MiniLM
     vector: Mapped[bytes] = mapped_column(LargeBinary)
     created_at: Mapped[datetime] = mapped_column(default=_now)
@@ -115,13 +130,34 @@ class EmbeddingIndex:
                 ]
                 if not missing:
                     return
+                # `Node` is the engine's shape and deliberately knows nothing
+                # about workspaces (see events.Node) — so the tenancy key is
+                # read from the rows rather than threaded through the domain
+                # object. One query for the batch, and a node that has since
+                # been deleted simply drops out of it.
+                from .models import NodeRow
+
+                owners = dict(
+                    (
+                        await session.execute(
+                            select(NodeRow.id, NodeRow.workspace_id).where(
+                                NodeRow.id.in_([n.id for n in missing])
+                            )
+                        )
+                    ).all()
+                )
                 vectors = await self._embed([n.content[:4000] for n in missing])
                 for node, vec in zip(missing, vectors):
                     row = rows.get(node.id)
                     if row is None:
+                        if node.id not in owners:
+                            continue  # deleted while we were embedding it
                         session.add(
                             NodeEmbeddingRow(
-                                node_id=node.id, version=version, vector=_pack(vec)
+                                node_id=node.id,
+                                workspace_id=owners[node.id],
+                                version=version,
+                                vector=_pack(vec),
                             )
                         )
                     else:  # embedder upgraded: overwrite in place

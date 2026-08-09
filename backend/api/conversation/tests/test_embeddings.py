@@ -8,6 +8,7 @@ from sqlalchemy import select
 
 from api.db import Base
 from api.conversation.embeddings import EmbeddingIndex, NodeEmbeddingRow, _pack
+from api.conversation.models import BranchRow, ConversationRow, NodeRow
 from api.conversation.events import Node, Token
 from api.conversation.context import build_messages
 from api.conversation.producer import ChatProducer
@@ -57,7 +58,29 @@ async def sf(tmp_path):
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/emb.db")
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
-    yield async_sessionmaker(engine, expire_on_commit=False)
+    factory = async_sessionmaker(engine, expire_on_commit=False)
+
+    # The nodes these embeddings belong to. They were never created here,
+    # because nothing required them: `node_embeddings.node_id` was a bare
+    # string, so a vector could describe a message that did not exist. It is a
+    # real foreign key now (ON DELETE CASCADE), and it carries the workspace
+    # the embedding is scoped to — both of which have to come from somewhere,
+    # and in production that somewhere is always a row written first.
+    #
+    # Seeded here rather than per test so `_node(i, ...)` keeps working
+    # unchanged: the tests are about embedding behaviour, not about setup.
+    async with factory() as s:
+        s.add(ConversationRow(id="c1", workspace_id="w1", author_id="alice",
+                              title="t", default_branch_id="b1"))
+        await s.flush()
+        s.add(BranchRow(id="b1", conversation_id="c1", workspace_id="w1"))
+        await s.flush()
+        for i in range(0, 10):  # `_node(0, ...)` is used too
+            s.add(NodeRow(id=f"n{i}", branch_id="b1", workspace_id="w1", seq=i,
+                          role="user", content=""))
+        await s.commit()
+
+    yield factory
     await engine.dispose()
 
 
@@ -97,7 +120,8 @@ async def test_version_mismatch_re_embeds_in_place(sf):
     # A row from an older embedder version…
     async with sf() as session:
         session.add(
-            NodeEmbeddingRow(node_id="n1", version="old-embedder", vector=_pack([9.0]))
+            NodeEmbeddingRow(node_id="n1", workspace_id="w1",
+                             version="old-embedder", vector=_pack([9.0]))
         )
         await session.commit()
 

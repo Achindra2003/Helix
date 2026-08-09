@@ -39,6 +39,7 @@ async def _cite(node_id: str, workspace_id: str) -> None:
         s.add(
             NodeCitationRow(
                 node_id=node_id,
+                workspace_id=workspace_id,
                 document_id="doc-1",
                 filename="grounding.txt",
                 cite_as="Lewis et al. (2020)",

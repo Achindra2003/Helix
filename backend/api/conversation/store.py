@@ -595,6 +595,7 @@ class DbStore:
                 BranchRow(
                     id=branch_id,
                     conversation_id=conv_id,
+                    workspace_id=workspace_id,
                     name="main",
                     parent_branch_id=None,
                     fork_node_id=None,
@@ -690,7 +691,7 @@ class DbStore:
     async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
         from sqlalchemy import delete, select
 
-        from .models import BranchVoteRow
+        from .models import BranchRow, BranchVoteRow
 
         async with self._sf() as s:
             existing = (
@@ -707,7 +708,18 @@ class DbStore:
                 )
                 await s.commit()
                 return False
-            s.add(BranchVoteRow(branch_id=branch_id, user_id=user_id))
+            # Only reached when casting a vote, so the extra read costs nothing
+            # on the withdraw path above, and the branch has to exist anyway.
+            branch = await s.get(BranchRow, branch_id)
+            if branch is None:
+                raise KeyError(branch_id)
+            s.add(
+                BranchVoteRow(
+                    branch_id=branch_id,
+                    workspace_id=branch.workspace_id,
+                    user_id=user_id,
+                )
+            )
             await s.commit()
             return True
 
@@ -736,6 +748,9 @@ class DbStore:
             row = NodeRow(
                 id=_uuid(),
                 branch_id=branch_id,
+                # From the branch we already loaded — the reason branches carry
+                # it too, rather than each table joining up to the conversation.
+                workspace_id=branch.workspace_id,
                 parent_id=branch.head_node_id,
                 seq=seq,
                 role=role,
@@ -744,12 +759,27 @@ class DbStore:
                 token_count=token_count,
             )
             s.add(row)
+            if cites:
+                # The node has to reach the database before the rows that point
+                # at it. Nothing about `s.add` order guarantees that: the unit
+                # of work sorts a flush by mapper *relationships*, and there is
+                # none declared here — only a bare `ForeignKey` column, which
+                # it does not use for ordering. What is left is table-name
+                # order, and `node_citations` sorts before `nodes`.
+                #
+                # So every grounded answer inserted its citations first. SQLite
+                # accepted it while foreign keys went unenforced; Postgres would
+                # have refused, which is FR-15 — the whole research room —
+                # failing to save a reply. Same fix, same reason, as the flush
+                # in `create_conversation` above.
+                await s.flush()
             # Same transaction as the content: a reply that survives without
             # its sources is exactly the failure this table exists to end.
             for ordinal, cite in enumerate(cites):
                 s.add(
                     NodeCitationRow(
                         node_id=row.id,
+                        workspace_id=row.workspace_id,
                         document_id=cite["document_id"],
                         filename=cite["filename"],
                         cite_as=cite["cite_as"],
@@ -893,6 +923,8 @@ class DbStore:
             row = BranchRow(
                 id=_uuid(),
                 conversation_id=conversation_id,
+                # The fork point is already in this workspace, by definition.
+                workspace_id=from_node.workspace_id,
                 name=name,
                 parent_branch_id=from_node.branch_id,
                 fork_node_id=from_node_id,
@@ -908,7 +940,7 @@ class DbStore:
     ) -> None:
         from sqlalchemy import select
 
-        from .models import ConversationReferenceRow
+        from .models import ConversationReferenceRow, ConversationRow
 
         async with self._sf() as s:
             existing = (
@@ -921,10 +953,14 @@ class DbStore:
                 )
             ).scalar_one_or_none()
             if existing is None:
+                conv = await s.get(ConversationRow, conversation_id)
+                if conv is None:
+                    raise KeyError(conversation_id)
                 s.add(
                     ConversationReferenceRow(
                         id=_uuid(),
                         conversation_id=conversation_id,
+                        workspace_id=conv.workspace_id,
                         referenced_conversation_id=referenced_conversation_id,
                     )
                 )

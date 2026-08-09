@@ -63,6 +63,23 @@ class BranchRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id"), index=True
     )
+    # Denormalised from the parent conversation, and the one place to explain
+    # why (the five other tables carrying it point here).
+    #
+    # Row-Level Security needs a tenancy predicate per table. Fourteen tables
+    # already carry `workspace_id` and take a one-line policy; this one and the
+    # branch/node subtree did not, and reached it only by joining — `nodes` at
+    # two hops, `node_citations` at three. `nodes` is the hottest table in the
+    # product, one row per message, so a policy that subqueries three levels up
+    # would run on every read of every thread. Uniform, indexable predicates are
+    # also the ones that stay correct, which matters more than the speed.
+    #
+    # It is redundant by construction, so it is only safe if it cannot drift:
+    # NOT NULL (a write site that forgets fails loudly at commit rather than
+    # writing a row no policy will ever match), and
+    # `test_workspace_id_denormalisation.py` checks every row against its
+    # parent. See `docs/DEPLOY-V1.md` §A5.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String, default="main")
     parent_branch_id: Mapped[str | None] = mapped_column(String, nullable=True)
     fork_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
@@ -100,6 +117,10 @@ class ConversationReferenceRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id"), index=True
     )
+    # From the linking conversation, not the referenced one — a reference is a
+    # row *of* the thread that points, and both are in the same workspace
+    # anyway (the route requires it). See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     referenced_conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id")
     )
@@ -147,6 +168,9 @@ class NodeRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), index=True)
+    # Two hops from the workspace without this, and this is the table that
+    # would have paid for it — one row per message. See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     parent_id: Mapped[str | None] = mapped_column(String, nullable=True)
     seq: Mapped[int] = mapped_column(Integer)
     role: Mapped[str] = mapped_column(String)  # user|assistant|system
@@ -180,6 +204,8 @@ class BranchVoteRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), index=True)
+    # See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     user_id: Mapped[str] = mapped_column(String, index=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
@@ -213,6 +239,10 @@ class NodeCitationRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
+    # Three hops from the workspace without this — the deepest in the schema.
+    # This table is already denormalised on purpose (see the docstring); the
+    # tenancy key is the same bargain. See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     document_id: Mapped[str] = mapped_column(String, index=True)
     filename: Mapped[str] = mapped_column(String, default="")
     # How the source is named in the chip and the export: "Smith et al. (2019)"

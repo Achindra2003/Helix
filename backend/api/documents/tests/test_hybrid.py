@@ -110,6 +110,13 @@ async def index(tmp_path):
     async with sf() as session:
         session.add(DocumentRow(id="d1", workspace_id="w1", author_id="u",
                                 filename="hw.md", status="ready"))
+        # The document has to land before the chunks that point at it. Adding
+        # them to one session does not order them: the unit of work sorts by
+        # mapper relationships, there are none here, and what is left is table
+        # name — where `document_chunks` comes before `documents`. Real ingest
+        # is safe because the row is committed by the upload route first
+        # (api/documents/router.py); only fixtures build both at once.
+        await session.flush()
         for i, content in enumerate(_CHUNKS):
             session.add(DocumentChunkRow(
                 document_id="d1", workspace_id="w1", idx=i, content=content,

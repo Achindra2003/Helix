@@ -1,7 +1,8 @@
 from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, text
+from sqlalchemy import DateTime, event, text
+from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 from sqlalchemy.ext.asyncio import (
     AsyncSession,
@@ -44,27 +45,39 @@ def _engine_kwargs() -> dict:
 engine = create_async_engine(settings.database_url, **_engine_kwargs())
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
-if settings.database_url.startswith("sqlite"):
-    from sqlalchemy import event
+@event.listens_for(Engine, "connect")
+def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
+    """Make SQLite behave like the database this ships against.
 
-    @event.listens_for(engine.sync_engine, "connect")
-    def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
-        """Make SQLite behave like the database this ships against.
+    SQLite ignores every foreign key unless the connection asks it not to, so
+    the schema's constraints were decoration in dev and real in production. A
+    delete that leaves an orphan is silently fine here and a
+    `ForeignKeyViolation` there — the same shape of defect as a naive timestamp
+    column, and invisible for the same reason: the suite only ever ran on the
+    permissive dialect.
 
-        SQLite ignores every foreign key unless the connection asks it not to,
-        which means the schema's constraints were decoration in dev and real in
-        production. A delete that leaves an orphan behind is silently fine here
-        and a `ForeignKeyViolation` there — the same shape of defect as a naive
-        timestamp column, and invisible for the same reason: the suite only
-        ever ran on the permissive dialect.
+    Registered against `Engine` itself rather than against the engine below,
+    because the engine below is not the only one. Several test fixtures build
+    their own throwaway SQLite engine, and those are exactly the tests that
+    exercise the store directly — `test_citations.py` has a `"db"` case that
+    should have caught a grounded reply inserting its citations before the node
+    they hang off, and could not, because its engine was never asked to check.
+    A rule that applies to the app's connections and not the test's is a rule
+    that proves nothing.
 
-        On rather than off, even though it makes the local suite stricter than
-        it was. A constraint that only exists in production is not a constraint,
-        it is a deployment surprise.
-        """
-        cursor = dbapi_connection.cursor()
-        cursor.execute("PRAGMA foreign_keys=ON")
-        cursor.close()
+    On rather than off, even though it makes the local suite stricter than it
+    was: a constraint that only exists in production is not a constraint, it is
+    a deployment surprise.
+    """
+    # Applies to every engine in the process, so the dialect has to be
+    # established from the connection rather than assumed. SQLAlchemy's adapter
+    # classes live under the dialect's own module (…dialects.sqlite.aiosqlite),
+    # which is the cheapest honest way to ask without a live inspection.
+    if "sqlite" not in type(dbapi_connection).__module__.lower():
+        return
+    cursor = dbapi_connection.cursor()
+    cursor.execute("PRAGMA foreign_keys=ON")
+    cursor.close()
 
 
 class Base(DeclarativeBase):

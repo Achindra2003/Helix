@@ -84,6 +84,9 @@ async def build_index(documents: list[dict], *, memory=None):
                     filename=doc["filename"], status="ready",
                 )
             )
+            # The document before its chunks. One session does not order them
+            # by itself — see the note in api/documents/tests/test_hybrid.py.
+            await session.flush()
             for idx, chunk in enumerate(chunk_text(doc["text"])):
                 session.add(
                     DocumentChunkRow(

@@ -137,6 +137,8 @@ async def test_document_grounding_attack_stays_quoted(attack, tmp_path):
     async with sf() as session:
         session.add(DocumentRow(id="d1", workspace_id="w1", author_id="u",
                                 filename='evil"> doc.md', status="ready"))
+        # Parent before child — see the note in api/documents/tests/test_hybrid.py.
+        await session.flush()
         session.add(DocumentChunkRow(document_id="d1", workspace_id="w1", idx=0,
                                      content=f"Spec text. {attack}",
                                      embedder_version="test", vector=_pack([1.0])))
