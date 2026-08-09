@@ -21,7 +21,7 @@ const MARK: Record<Branch["status"], { glyph: string; color: string; label: stri
 };
 
 export function BranchTree({
-  branches, activeId, meId, onSelect, onRename, onDelete, onResolve, onVote,
+  branches, activeId, meId, onSelect, onRename, onDelete, onResolve, onVote, onCompare,
 }: {
   branches: Branch[];
   activeId: string | null;
@@ -38,6 +38,9 @@ export function BranchTree({
   onResolve?: (b: Branch) => void;
   // Backing an exploration: the cheap signal that precedes the verdict.
   onVote?: (b: Branch) => void;
+  // Read the explorations against each other. Offered only once there are
+  // alternatives to read — comparing one branch with itself is not a view.
+  onCompare?: () => void;
 }) {
   const byId = new Map(branches.map((b) => [b.id, b]));
   // A tally only means something against alternatives. On a thread that never
@@ -50,6 +53,16 @@ export function BranchTree({
       <div className={s.lineHead}>
         <span style={{ color: "var(--oxblood)", fontSize: 14 }} aria-hidden>{ACTION.fork}</span>
         <span className="eyebrow">Branch lineage</span>
+        {/* The comparison is not only a thing that happens once, at the moment
+            of diverging: "which of these did we like?" is asked again days
+            later, and clicking between four branches to answer it is the work
+            this view removes. */}
+        {converging && onCompare && (
+          <button className={s.compareLink} style={{ marginLeft: "auto" }}
+            title="Read these explorations side by side" onClick={onCompare}>
+            compare
+          </button>
+        )}
       </div>
       {branches.map((b) => {
         const on = b.id === activeId;

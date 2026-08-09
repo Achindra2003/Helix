@@ -600,3 +600,67 @@
   font-family: var(--font-display); font-size: 10px; letter-spacing: 0.14em;
   text-transform: uppercase; color: var(--oxblood); font-weight: 600; flex: 0 0 auto;
 }
+
+/* ── comparing explorations side by side ─────────────────────────────────────
+   Helix's signature move is branching, and until this you could only read one
+   branch at a time — fine for "continue this", useless for "which of these is
+   best?", which is the question a brainstorm actually asks.
+
+   It takes the whole stage rather than opening as a dialog: the columns *are*
+   the content, and a modal wide enough to hold four of them is a stage with a
+   border around it. */
+.compareWrap {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column;
+  background: var(--paper);
+  animation: hx-rise 0.2s var(--ease-quill) both;
+}
+.compareHead {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 16px 26px 12px; border-bottom: 1px solid var(--rule-soft);
+}
+.compareTitle { font-family: var(--font-display); font-size: var(--t-title); color: var(--ink); }
+.compareSub { font-size: var(--t-small); color: var(--ink-3); margin-top: 3px; }
+
+/* Equal columns, and they scroll independently: one long answer must not set
+   the height of the row, or three short answers sit in a sea of whitespace
+   while the fourth needs a scrollbar nobody can see. */
+.compareCols {
+  flex: 1; min-height: 0; display: grid; gap: 14px;
+  grid-auto-flow: column; grid-auto-columns: minmax(260px, 1fr);
+  overflow-x: auto; padding: 16px 26px 20px;
+}
+.compareCol {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper-0); overflow: hidden;
+}
+.compareColHead {
+  padding: 11px 13px; border-bottom: 1px solid var(--rule-soft); background: var(--paper);
+}
+/* The angle, not the slug: the sentence is what you are judging. */
+.compareAngle {
+  font-family: var(--font-read); font-size: var(--t-body); color: var(--ink); line-height: 1.4;
+}
+.compareName { font-size: var(--t-micro); color: var(--ink-3); margin-top: 4px; }
+.compareBody {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 13px;
+  font-size: var(--t-body); line-height: 1.6; color: var(--ink-2);
+}
+.compareWaiting { font-style: italic; color: var(--ink-3); font-size: var(--t-small); }
+.compareActs {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-top: 1px solid var(--rule-soft); background: var(--paper);
+}
+.compareLink {
+  border: none; background: transparent; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-3);
+}
+.compareLink:hover { color: var(--oxblood); }
+
+/* Below this the columns stop being a comparison and start being a queue, so
+   they stack and the row scrolls vertically like everything else. */
+@media (max-width: 760px) {
+  .compareCols { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: hidden; overflow-y: auto; }
+  .compareCol { min-height: 220px; }
+}

@@ -70,8 +70,10 @@ export interface LastTurnActions {
   onEdit: () => void;
 }
 
-function Bubble({ m, dropCap, onForkHere, lastTurn }: {
-  m: ChatMessage; dropCap?: boolean; onForkHere?: (id: string) => void; lastTurn?: LastTurnActions;
+function Bubble({ m, dropCap, onForkHere, onExploreHere, lastTurn }: {
+  m: ChatMessage; dropCap?: boolean;
+  onForkHere?: (id: string) => void; onExploreHere?: (id: string) => void;
+  lastTurn?: LastTurnActions;
 }) {
   // A note is one person talking to the room, not to Helix — so it is not a
   // bubble at all. It sits in the margin like a hand-written annotation,
@@ -112,7 +114,16 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
           )}
           {onForkHere && !m.typing && (
             <button className={s.forkHere} title="Fork a new branch from here" onClick={() => onForkHere(m.id)}>
-              ⌇ fork here
+              {ACTION.fork} fork here
+            </button>
+          )}
+          {/* The other half of what a branch is for. One fork is a commitment
+              worth naming; four are a brainstorm, and naming each one is the
+              ceremony that made divergence expensive. */}
+          {onExploreHere && !m.typing && (
+            <button className={s.forkHere} title="Explore several angles from here, side by side"
+              onClick={() => onExploreHere(m.id)}>
+              {ACTION.fork} explore ways
             </button>
           )}
           {mine && !m.typing && (
@@ -184,8 +195,10 @@ function Bubble({ m, dropCap, onForkHere, lastTurn }: {
   );
 }
 
-export function MessageList({ messages, onForkHere, lastTurn }: {
-  messages: ChatMessage[]; onForkHere?: (id: string) => void; lastTurn?: LastTurnActions;
+export function MessageList({ messages, onForkHere, onExploreHere, lastTurn }: {
+  messages: ChatMessage[];
+  onForkHere?: (id: string) => void; onExploreHere?: (id: string) => void;
+  lastTurn?: LastTurnActions;
 }) {
   // The thread's first assistant reply opens with a drop cap, like the first
   // page of a chapter.
@@ -193,7 +206,8 @@ export function MessageList({ messages, onForkHere, lastTurn }: {
   return (
     <>
       {messages.map((m, i) => (
-        <Bubble key={m.id} m={m} dropCap={i === firstAsst} onForkHere={onForkHere} lastTurn={lastTurn} />
+        <Bubble key={m.id} m={m} dropCap={i === firstAsst} onForkHere={onForkHere}
+          onExploreHere={onExploreHere} lastTurn={lastTurn} />
       ))}
     </>
   );

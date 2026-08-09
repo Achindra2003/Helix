@@ -5,7 +5,7 @@ import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
   listReferences, addReference, removeReference, listMembers, getProviderSettings, downloadReport,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace, resolveBranch, voteBranch, concludeConversation, setConversationSubject, postNote,
+  searchWorkspace, resolveBranch, voteBranch, exploreWays, concludeConversation, setConversationSubject, postNote,
 } from "@/lib/api";
 import { streamSSE } from "@/lib/sse";
 import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
@@ -35,7 +35,8 @@ import { TeamStrip } from "@/components/chat/TeamStrip";
 import { type ThreadAction } from "@/components/chat/ThreadMenu";
 import { StageHeader } from "@/components/chat/StageHeader";
 import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
-import { ForkDialog, ConcludeDialog, ResolveDialog, LinkContextDialog, SubjectDialog } from "@/components/chat/dialogs";
+import { ForkDialog, ExploreDialog, ConcludeDialog, ResolveDialog, LinkContextDialog, SubjectDialog } from "@/components/chat/dialogs";
+import { ExploreCompare } from "@/components/chat/ExploreCompare";
 import { useDeepRun, pickText } from "@/components/chat/useDeepRun";
 import s from "@/components/chat/chat.module.css";
 
@@ -103,6 +104,11 @@ export function ChatView() {
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState("groq");
   const [forkDlg, setForkDlg] = useState<{ nodeId: string } | null>(null);
+  // Diverging: the dialog that collects angles, then the side-by-side view of
+  // what came back. `ask` distinguishes a fresh fan-out (send each branch its
+  // angle) from re-opening the comparison later (read what is already there).
+  const [exploreDlg, setExploreDlg] = useState<{ nodeId: string } | null>(null);
+  const [compare, setCompare] = useState<{ branchIds: string[]; ask: boolean } | null>(null);
   const [newDlg, setNewDlg] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftVis, setDraftVis] = useState<"shared" | "private">("shared");
@@ -556,6 +562,18 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
   }
 
+  async function doExplore(nodeId: string, angles: string[]) {
+    if (!activeConvId) return;
+    try {
+      const r = await exploreWays(activeConvId, nodeId, angles);
+      // Refetch rather than append: the tree carries fork points and tallies
+      // the compare view reads, and the server is the one that assigned them.
+      const tree = await listBranches(activeConvId);
+      setBranches(tree.items);
+      setCompare({ branchIds: r.items.map((b: { branch_id: string }) => b.branch_id), ask: true });
+    } catch (e: any) { push(e?.message ?? "Could not explore", "error"); }
+  }
+
   async function doNote(text: string) {
     const branchId = await ensureConversation();
     if (!branchId) return;
@@ -745,6 +763,14 @@ export function ChatView() {
           // The thread I was reading is gone — fall back to the list.
           setActiveConvId(null);
           setActiveBranchId(null);
+        }
+      } else if (ev.kind === "branches.explored") {
+        // No toast per branch, and no view change: someone else diverging is
+        // information, not an interruption. The lineage grows; if they want
+        // you to look, that is what a mention is for.
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+          push(`${ev.branches.length} new explorations`);
         }
       } else if (ev.kind === "branch.created" || ev.kind === "branch.updated") {
         if (ev.conversation_id === activeConvId) {
@@ -943,7 +969,14 @@ export function ChatView() {
               onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
               onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
               onResolve={canFork ? (b) => setResolveDlg(b) : undefined}
-              onVote={canFork ? (b) => doVote(b.id) : undefined} />
+              onVote={canFork ? (b) => doVote(b.id) : undefined}
+              onCompare={() => setCompare({
+                // The forks, not main: main is the thread these diverged
+                // from, so putting it in the comparison would ask you to
+                // weigh the question against its own answers.
+                branchIds: branches.filter((b) => b.parent_branch_id).map((b) => b.id),
+                ask: false,
+              })} />
           )}
         </div>
         <div className={s.leftFoot}><span className={s.liveDot} /> live · server-ordered log</div>
@@ -952,6 +985,24 @@ export function ChatView() {
       {/* STAGE */}
       <div className={s.stage}>
         <div className={s.stageGeo}><Frontispiece size={560} animate={false} /></div>
+
+        {/* Diverging takes the whole stage while it is happening: the columns
+            *are* the content, and a modal wide enough for four of them is a
+            stage with a border round it. It sits inside the stage rather than
+            over the app so the rail and the lineage stay reachable. */}
+        {compare && (
+          <ExploreCompare
+            branches={branches.filter((b) => compare.branchIds.includes(b.id))}
+            ask={compare.ask}
+            meId={user?.id}
+            canWrite={canFork}
+            onClose={() => setCompare(null)}
+            onOpen={(id) => { setActiveBranchId(id); setCompare(null); }}
+            onResolve={(b) => { setResolveDlg(b); setCompare(null); }}
+            onVoted={(id, votes) =>
+              setBranches((bs) => bs.map((b) => (b.id === id ? { ...b, votes } : b)))}
+          />
+        )}
 
         {/* The only route to the two panes below 1100px, so it sits outside the
             "a conversation is open" branch — otherwise the empty state would
@@ -1020,6 +1071,7 @@ export function ChatView() {
               ) : (
                 <MessageList messages={shownMessages}
                   onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined}
+                  onExploreHere={canFork ? (id) => setExploreDlg({ nodeId: id }) : undefined}
                   lastTurn={lastTurn ? { userMsgId: lastTurn.id, onDelete: onDeleteLast, onEdit: onEditLast } : undefined} />
               )}
             </div>
@@ -1134,6 +1186,10 @@ export function ChatView() {
         <button className={s.drawerScrim} aria-label="Close panel" onClick={() => setDrawer(null)} />
       )}
 
+      {exploreDlg && (
+        <ExploreDialog onClose={() => setExploreDlg(null)}
+          onConfirm={(angles) => { doExplore(exploreDlg.nodeId, angles); setExploreDlg(null); }} />
+      )}
       {forkDlg && (
         <ForkDialog onClose={() => setForkDlg(null)}
           onConfirm={(name, intent) => { doFork(forkDlg.nodeId, name, intent); setForkDlg(null); }} />

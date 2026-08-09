@@ -14,6 +14,70 @@ import { Input, Field } from "@/components/common/Input";
 import { ACTION, PLACE } from "@/lib/glyphs";
 import s from "@/components/chat/chat.module.css";
 
+/**
+ * Several explorations off one message, in one action.
+ *
+ * The fork dialog above is right for "we are choosing between two
+ * architectures" — it asks what you are trying and what to call it, because a
+ * branch that will end in a verdict deserves both. It is wrong for "throw four
+ * ideas at this and see", which is the other half of what a branch is for, and
+ * which a brainstorm is mostly made of.
+ *
+ * So this asks for one thing and asks for it repeatedly: the angle. No labels
+ * (derived), no confirmation per branch, and a row appears as you fill the last
+ * one so the list grows under your hands instead of behind a button.
+ */
+export function ExploreDialog({ onClose, onConfirm }: {
+  onClose: () => void;
+  onConfirm: (angles: string[]) => void;
+}) {
+  const [angles, setAngles] = useState<string[]>(["", ""]);
+  const filled = angles.map((a) => a.trim()).filter(Boolean);
+  const ready = filled.length >= 2;
+
+  function update(i: number, value: string) {
+    setAngles((prev) => {
+      const next = [...prev];
+      next[i] = value;
+      // Grow on demand, up to the server's cap of six. Typing in the last box
+      // is the only signal needed that another one is wanted.
+      if (i === next.length - 1 && value.trim() && next.length < 6) next.push("");
+      return next;
+    });
+  }
+
+  return (
+    <Dialog title="Explore several ways at once" onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={!ready} onClick={() => onConfirm(filled)}>
+          {ready ? `Explore ${filled.length} ways` : "Explore"}
+        </Button>
+      </>}>
+      <div style={{ fontSize: 13, color: "var(--ink-3)", lineHeight: 1.5 }}>
+        Each angle becomes its own branch off this message, asked in parallel.
+        Back the ones worth keeping, adopt one with a reason — the rest can be
+        abandoned without ceremony.
+      </div>
+      {angles.map((angle, i) => (
+        <Field key={i} label={i === 0 ? "Angles" : ""}>
+          <Input
+            autoFocus={i === 0}
+            value={angle}
+            onChange={(e) => update(i, e.target.value)}
+            placeholder={
+              i === 0 ? "e.g. the cheapest version that could work"
+                : i === 1 ? "e.g. the version we'd build with twice the budget"
+                : "another angle (optional)"
+            }
+            onKeyDown={(e) => { if (e.key === "Enter" && ready) onConfirm(filled); }}
+          />
+        </Field>
+      ))}
+    </Dialog>
+  );
+}
+
 export function ForkDialog({ onClose, onConfirm }: {
   onClose: () => void;
   onConfirm: (name: string, intent: string) => void;

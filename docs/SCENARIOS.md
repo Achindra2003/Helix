@@ -27,7 +27,7 @@ where it stands after Stages 0–4 of `PLAN-V1.md` (9 August). Arrows are change
 | RBAC + role preview (FR-3) | holds | holds | bends → **holds** |
 | Conversations + streaming (FR-4) | holds | holds | holds |
 | Presence + live fan-out (FR-5) | holds | holds | holds |
-| Fork & branch lineage (FR-6) | **bends** | holds | holds |
+| Fork & branch lineage (FR-6) | **bends** → **holds** | holds | holds |
 | Notes + mentions | holds | holds | holds |
 | Prompt library (FR-7) | holds | holds | holds |
 | Provider / BYO key (FR-8/16) | holds | holds | holds |
@@ -45,12 +45,11 @@ of a product whose only evidenced audience so far was research.
 **Now:** no breaks. The last one was the research room's retrieval ceiling, and
 it turned out to be an implementation, not a limit — see below.
 
-Two entries deliberately did **not** move. Fork-and-branch still bends for
-brainstorming: voting gave the room a way to *converge*, but a fork is still a
-dialog and a naming decision, so cheap disposable divergence is as expensive as
-it was. And Deep Reasoning still bends there for the same reason it did on 7
-August — you can run one question in one mode at a time, and the brainstorm move
-is running two modes side by side.
+One entry deliberately did **not** move. Deep Reasoning still bends for
+brainstorming: you can run one question in one mode at a time, and the brainstorm
+move is running two modes side by side. That is now the only thing on this page
+that the general room asked for and did not get — and it is a cost decision
+rather than a missing affordance. See *What is still open*.
 
 ### Verified end to end, not by reading
 
@@ -410,22 +409,38 @@ the moment it lands, stops grounding the moment it is deleted, and never leaks
 into another workspace. An approximate index (pgvector/FAISS) remains the next
 step up and is now genuinely a scale decision rather than a workaround.
 
-**Three bends, all one idea.** The general room's are the same missing thing
-seen from three angles: **cheap parallel exploration.**
+**Cheap parallel exploration — closed.** The general room's three complaints
+were one missing thing seen from three angles, and Stage 1's voting had only
+solved half of it: a team could *converge* but not *diverge* cheaply. Forking
+cost a dialog, an intent and a label per branch, which is right when choosing
+between two architectures and wrong when someone says "throw four ideas at this
+and see" — and a brainstorm is mostly the second thing.
 
-1. *A fork costs a dialog and a name.* Right for "we are choosing between two
-   architectures", heavy for "throw five ideas at this". Brainstorming wants
-   three disposable branches off one message, most abandoned without ceremony.
-2. *One question runs in one mode at a time.* The brainstorm move is running
-   Explore and Solve on the same question and reading them side by side. The
-   engine could do it; there is no affordance and the Map has nowhere to show it.
-3. *A brainstorm is an event; Helix only has threads.* No session, board, or
-   "this afternoon's workshop" container, so a workspace running weekly
-   brainstorms accumulates an undifferentiated list.
+**Explore ways** now sits beside *fork here* on every answer. One dialog takes
+angles instead of names — a row appears as you fill the last one, so the list
+grows under your hands — and each angle becomes a branch, asked in parallel,
+shown as a column beside the others. Nothing new was invented to hold them: a
+column *is* a branch, with its lineage, its backing tally and its verdict, so
+the converge machinery that already existed picks up exactly where this leaves
+off. Back the ones worth keeping, adopt one with a reason, and the export names
+the winner and the three that lost.
 
-Voting closed the *converge* half of this room's problem in Stage 1. The
-*diverge* half is untouched, and it is a single feature — parallel forks with a
-comparison view — rather than three.
+The comparison is re-openable from the lineage, because "which of these did we
+like?" is asked again days later and clicking between four branches to answer it
+is the work this view removes.
+
+Two details worth recording. Each branch is asked its *angle*, not a restated
+question — a fork already inherits the thread up to its fork point, so the angle
+is the whole of what is new. And branches are named from their angles rather
+than by asking: a label nobody chose beats a dialog nobody wanted, and the angle
+survives as the branch's `intent`, so a disposable exploration can still carry a
+meaningful verdict if it turns out to be the good one.
+
+*Still open from this room, and deliberately:* running the same question in two
+**reasoning modes** side by side. The columns and the fan-out would carry it, but
+a mode is a Deep Reasoning preset — three concurrent 70B recursive runs is the
+opposite of cheap, disposable divergence. Escalating one column to Deep, in
+whatever mode, already works.
 
 **One bend that is now a shape, not a gap.** *Documents cannot ingest a repo*,
 and after MCP they no longer need to: a dev team's repository context arrives as

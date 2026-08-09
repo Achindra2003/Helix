@@ -42,6 +42,9 @@ export type RoomEvent =
   | { kind: "conversation.updated"; workspace_id: string; conversation_id: string; title: string }
   | { kind: "conversation.deleted"; workspace_id: string; conversation_id: string }
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
+  // A fan-out is one act, so it is one event: four separate branch.created
+  // frames would land in a teammate's lineage as four separate surprises.
+  | { kind: "branches.explored"; workspace_id: string; conversation_id: string; branches: { branch_id: string; name: string; intent: string }[] }
   | { kind: "branch.updated"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.deleted"; workspace_id: string; conversation_id: string; branch_id: string }
   // One human talking to the room rather than to Helix. Relayed live because

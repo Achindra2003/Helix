@@ -279,6 +279,15 @@ export const forkBranch = (cid: string, fromNodeId: string, name: string, intent
     method: "POST",
     body: JSON.stringify({ from_node_id: fromNodeId, name, intent }),
   });
+// Diverge cheaply: several explorations off one message, in one action, none
+// of them named by hand. The counter-move to `resolveBranch` — a team could
+// already converge, but forking cost a dialog per branch, so "try four things"
+// was priced like "commit to one".
+export const exploreWays = (cid: string, fromNodeId: string, angles: string[]) =>
+  request<{ items: { branch_id: string; fork_node_id: string; name: string; intent: string }[] }>(
+    `/conversations/${cid}/explore`,
+    { method: "POST", body: JSON.stringify({ from_node_id: fromNodeId, angles }) },
+  );
 // Record what came of an exploration. `status: "open"` reopens it and clears
 // the verdict. The server requires a reason for adopted/abandoned — a verdict
 // without one is not a record.

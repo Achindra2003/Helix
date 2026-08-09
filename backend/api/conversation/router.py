@@ -13,6 +13,7 @@ reported as 404 so tenants can't probe for each other's resources.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from datetime import date
 
@@ -135,6 +136,27 @@ class ForkBranch(BaseModel):
     # working, but the UI asks for it — a branch whose purpose was never
     # written down cannot carry a meaningful verdict later.
     intent: str = ""
+
+
+class ExploreWays(BaseModel):
+    """Several explorations off one message, in one action.
+
+    Forking is the product's signature move and it was priced for decisions:
+    a dialog, an intent, a label, one branch. Right when a team is choosing
+    between two architectures; wrong when someone says "throw four ideas at
+    this and see", which is the other half of what a branch is for. Most of
+    those four get abandoned without ceremony, and ceremony was the whole
+    cost.
+
+    Each angle becomes one branch's `intent` — so a disposable exploration
+    still records what it was trying, and can still carry a verdict if it
+    turns out to be the good one.
+    """
+
+    from_node_id: str
+    # 2..6. One is just a fork; past six nobody reads the comparison, and the
+    # cap keeps a stray client from forking a hundred branches in one call.
+    angles: list[str]
 
 
 class ResolveBranch(BaseModel):
@@ -683,6 +705,87 @@ async def fork_branch(
         "name": branch.name,
         "intent": branch.intent,
     }
+
+
+@router.post("/{conversation_id}/explore")
+async def explore_ways(
+    conversation_id: str,
+    body: ExploreWays,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Fork several explorations off one message at once.
+
+    The counter-move to `resolve`. A team could already converge — back a
+    branch, adopt one with a written reason — but diverging cost a dialog and
+    a naming decision *per branch*, so "let's try four things" was priced like
+    "let's commit to one". This makes the cheap half cheap.
+
+    Branches are created here and left empty; the client sends the turn on
+    each. That is deliberate: a turn is already a streamed, cancellable,
+    budget-accounted thing over `POST /conversations/{branch_id}/messages`,
+    and reproducing it server-side for the fan-out would mean a second
+    implementation of the one path in this product that must never diverge.
+
+    Named from the angle, never asked for separately. A label nobody chose is
+    better than a dialog nobody wanted, and the angle is the honest name.
+    """
+    conv = await _require_conversation(
+        conversation_id, user, session, ROLE_COLLABORATOR
+    )
+    angles = [a.strip() for a in body.angles if a.strip()]
+    if len(angles) < 2:
+        raise api_error(
+            422, "invalid", "Exploring in parallel needs at least two angles."
+        )
+    if len(angles) > 6:
+        raise api_error(422, "invalid", "Six angles at once is the limit.")
+
+    created = []
+    for angle in angles:
+        try:
+            branch = await _store.create_branch(
+                conversation_id=conversation_id,
+                from_node_id=body.from_node_id,
+                name=_branch_label(angle),
+                intent=angle,
+            )
+        except KeyError:
+            raise api_error(404, "not_found", "node not found")
+        created.append(
+            {
+                "branch_id": branch.id,
+                "fork_node_id": branch.fork_node_id,
+                "name": branch.name,
+                "intent": branch.intent,
+            }
+        )
+
+    if conv.visibility == "shared":
+        # One event for the set, not one per branch: four separate
+        # `branch.created` frames would land as four separate surprises in a
+        # teammate's lineage, and they are one act.
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branches.explored",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "branches": created,
+            },
+            exclude_user=user.id,
+        )
+    return {"items": created}
+
+
+def _branch_label(angle: str) -> str:
+    """A short lineage label from the angle, so nobody names a thing twice.
+
+    Same derivation the fork dialog already does client-side; kept here too
+    because this route never asks for a name at all.
+    """
+    words = [w for w in re.split(r"\W+", angle.lower()) if w][:3]
+    return "-".join(words) or "exploration"
 
 
 @router.post("/{branch_id}/notes")
