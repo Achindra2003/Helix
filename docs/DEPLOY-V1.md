@@ -200,6 +200,16 @@ Recommendation: (1), and take the `node_embeddings` foreign key while there.
 Uniform predicates are the ones that stay correct, and this is precisely the
 work that is cheap now and expensive once there is data to backfill.
 
+**Done, 9 August (`3f284ae`).** Option (1), migration `c8e41f7b3a26`: all six
+tables carry `workspace_id`, NOT NULL, with the invariant checked against the
+real routes; `node_embeddings.node_id` is a foreign key with ON DELETE CASCADE.
+So A5 now starts at the policies, and every one of them is a one-liner.
+
+What remains of A5 is the part that genuinely needs a server: the non-owner
+application role, `FORCE ROW LEVEL SECURITY`, the policies themselves, and the
+negative test that connects *as that role*. None of it should be attempted
+before A2.
+
 *Verify:* the permission matrix passes unchanged **as the non-owner role**, and
 one hand-written negative test — connect as that role, `SELECT * FROM nodes`
 with a foreign workspace's id set, and get zero rows. If that test can be made
