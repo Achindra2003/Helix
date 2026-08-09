@@ -34,6 +34,13 @@ async def lifespan(app: FastAPI):
     # by the time it mattered.
     await checkpointing.connect()
     yield
+    # Embed-on-write is fire-and-forget, so at this moment there may be writes
+    # in flight. Let them land before the database goes: closing the loop
+    # underneath a half-written transaction leaves a lock behind, and on SQLite
+    # the next process to start inherits it.
+    from .conversation.router import _embeddings
+
+    await _embeddings.drain()
     await checkpointing.disconnect()
     await db.disconnect()
 

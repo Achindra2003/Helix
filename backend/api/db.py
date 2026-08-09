@@ -46,8 +46,9 @@ engine = create_async_engine(settings.database_url, **_engine_kwargs())
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
 @event.listens_for(Engine, "connect")
-def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
-    """Make SQLite behave like the database this ships against.
+def _configure_sqlite(dbapi_connection, _record):
+    """Make SQLite behave like the database this ships against, and like a
+    database a web server can actually share.
 
     SQLite ignores every foreign key unless the connection asks it not to, so
     the schema's constraints were decoration in dev and real in production. A
@@ -77,6 +78,23 @@ def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
         return
     cursor = dbapi_connection.cursor()
     cursor.execute("PRAGMA foreign_keys=ON")
+    # --- and make concurrent access survivable ------------------------------
+    # The zero-infra install *is* SQLite, running under a web server that
+    # writes from more than one place at a time: a request handler saving a
+    # turn, and the fire-and-forget task embedding it afterwards
+    # (`EmbeddingIndex.ensure_soon`). In the default rollback-journal mode a
+    # writer locks the whole database against readers, so those two collide
+    # and one of them gets `database is locked`.
+    #
+    # WAL lets readers run against the last committed snapshot while a writer
+    # works, which is the difference between "one at a time" and "a server".
+    # busy_timeout is the other half: without it a contended write fails
+    # immediately instead of waiting its turn, which is how an ordinary
+    # overlap became an error rather than a pause.
+    #
+    # Both are no-ops on an in-memory database, which has nothing to share.
+    cursor.execute("PRAGMA journal_mode=WAL")
+    cursor.execute("PRAGMA busy_timeout=5000")
     cursor.close()
 
 

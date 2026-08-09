@@ -5,6 +5,8 @@ forged for any user by anyone who has read this repository, so the app must
 not start that way. These tests pin the three outcomes: refuse, generate and
 persist, or accept what was configured.
 """
+import os
+
 import pytest
 
 from api.config import (
@@ -79,8 +81,13 @@ def test_generates_and_persists_when_a_secret_file_is_configured(tmp_path):
     assert generated != PLACEHOLDER_JWT_SECRET
     assert len(generated) >= 32
     assert target.read_text().strip() == generated
-    # Not world- or group-readable: 0600.
-    assert target.stat().st_mode & 0o077 == 0
+    # Not world- or group-readable: 0600. Only meaningful where those bits
+    # exist — Windows has no POSIX mode, `chmod` there sets the read-only flag
+    # and nothing else, so the assertion tested the platform rather than the
+    # code. Skipped rather than deleted: the container this protects runs on
+    # Linux, and CI checks it there.
+    if os.name != "nt":
+        assert target.stat().st_mode & 0o077 == 0
 
 
 def test_persisted_secret_is_reused_across_restarts(tmp_path):

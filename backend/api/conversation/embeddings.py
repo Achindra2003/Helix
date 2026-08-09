@@ -80,6 +80,9 @@ class EmbeddingIndex:
         self._sf = session_factory
         # Injectable for tests; the default is the engine's shared embedder.
         self._memory = memory
+        # Strong references to the in-flight background embeds. See
+        # `ensure_soon` for why the set is not optional.
+        self._pending: set = set()
 
     def _mem(self):
         if self._memory is None:
@@ -177,7 +180,18 @@ class EmbeddingIndex:
     def ensure_soon(self, node: Node) -> None:
         """Fire-and-forget embed-on-write (the hot path must not wait on it).
 
-        A lost task is harmless: `ensure` backfills on first retrieval."""
+        A lost *result* is harmless — `ensure` backfills on first retrieval —
+        but a lost *task* is not, and this used to drop the task on the floor.
+        `create_task` returns the only strong reference to a running coroutine;
+        with nothing holding it, the garbage collector may take the task at any
+        point, including partway through the write. What that leaves behind is
+        not a missing vector, which the backfill covers, but an abandoned
+        transaction, which under SQLite is a lock the next writer waits on and
+        eventually fails against.
+
+        So: keep the reference until the task finishes, and let `drain` wait
+        for the stragglers at shutdown.
+        """
         async def _bg():
             try:
                 await self.ensure([node])
@@ -185,9 +199,22 @@ class EmbeddingIndex:
                 pass  # retrieval-time ensure() is the safety net
 
         try:
-            asyncio.get_running_loop().create_task(_bg())
+            task = asyncio.get_running_loop().create_task(_bg())
         except RuntimeError:  # no loop (sync test context) — backfill covers it
-            pass
+            return
+        self._pending.add(task)
+        task.add_done_callback(self._pending.discard)
+
+    async def drain(self) -> None:
+        """Let outstanding background embeds finish.
+
+        Called on shutdown. Without it the event loop closes underneath a task
+        that is mid-write — which in the test suite is one client's teardown
+        leaving a lock for the next test to trip over, and in the container is
+        a stop signal doing the same to the next boot.
+        """
+        while self._pending:
+            await asyncio.gather(*tuple(self._pending), return_exceptions=True)
 
     async def drop(self, node_ids: list[str]) -> None:
         """Remove persisted vectors for nodes that no longer exist (e.g. the

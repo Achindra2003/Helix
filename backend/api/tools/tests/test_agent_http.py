@@ -258,7 +258,15 @@ def test_approval_is_membership_gated(monkeypatch, make_workspace, make_user):
 # --- allowlist settings ---------------------------------------------------------
 
 
-def test_tool_settings_default_catalog_shape(make_workspace):
+def test_tool_settings_default_catalog_shape(monkeypatch, make_workspace):
+    # `web_search` is available exactly when a Tavily key is configured, and
+    # this asserts the unconfigured shape — so the key has to be absent by
+    # instruction rather than by luck. Without this the test passed on CI and
+    # failed on any machine whose `backend/.env` had one, which reads as a
+    # product defect and is a test reaching outside itself.
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "tavily_api_key", "")
     with TestClient(app) as client:
         headers, _, wid = make_workspace(client)
         resp = client.get(f"/api/workspaces/{wid}/settings/tools", headers=headers)
