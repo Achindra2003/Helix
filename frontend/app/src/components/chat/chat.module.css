@@ -130,7 +130,16 @@
 .stageHead { padding: 16px 26px 13px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; gap: 10px 14px; position: relative; flex-wrap: wrap; }
 .stageTitleBlock { flex: 1 1 260px; min-width: 260px; }
 .stageTitle { font-family: var(--font-display); font-size: 24px; line-height: 1.1; }
-.stageMeta { display: flex; align-items: center; gap: 11px; margin-top: 5px; }
+.stageMeta { display: flex; align-items: center; gap: 11px; margin-top: 5px; min-width: 0; }
+/* The change this thread is against. Truncates rather than wraps: a pasted PR
+   URL is long, and the meta row is a single line of small facts — a second line
+   of it would push the conversation itself down the screen. The full value is
+   in the title attribute, and it is set from the thread menu. */
+.stageSubject {
+  font-size: var(--t-small); color: var(--ink-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-left: 1px solid var(--rule-soft); padding-left: 11px;
+}
 .chip { font-family: var(--font-mono); font-size: 11px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 7px; display: inline-flex; gap: 5px; align-items: center; color: var(--ink-2); }
 .canvas { flex: 1; overflow-y: auto; padding: 24px 26px 14px; display: flex; flex-direction: column; gap: 20px; position: relative; }
 

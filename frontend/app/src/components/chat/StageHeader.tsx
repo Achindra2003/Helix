@@ -57,6 +57,18 @@ export function StageHeader({
             on <span style={{ color: "var(--oxblood)" }}>{branch?.name ?? "main"}</span>
           </span>
           <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messageCount} nodes</span>
+          {/* What this thread is about, when it is about something outside
+              Helix — a pull request, an issue, a draft. It was settable from
+              the thread menu and shown nowhere, so a team could point a thread
+              at a change and then read forty turns of "this change" with no
+              way to tell which. It belongs in the meta row rather than beside
+              the title: the title is what the thread is *called*, this is what
+              it is *against*. */}
+          {conversation.subject && (
+            <span className={`mono ${s.stageSubject}`} title={conversation.subject}>
+              {conversation.subject}
+            </span>
+          )}
         </div>
         {/* What the thread concluded, above the branch verdict: it is
             the answer to the question the whole conversation was

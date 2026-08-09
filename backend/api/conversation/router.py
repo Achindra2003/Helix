@@ -501,6 +501,12 @@ async def export_conversation(
         f"*a Helix conversation · branch “{br.name}” · {len(nodes)} nodes*",
         "",
     ]
+    # What this thread is about, when it is about something outside Helix — a
+    # pull request, an issue, a document under review. A transcript that
+    # discusses "this change" for forty turns and never names it is readable
+    # today and unusable to the person who finds it next quarter.
+    if conv.subject:
+        lines += [f"**About:** {conv.subject}", ""]
     # The decision, before the transcript. Someone handed this file is reading
     # it to find out what was concluded and why; making them infer that from a
     # transcript is the copy-paste problem this export exists to replace.
@@ -1427,6 +1433,11 @@ async def escalate_deep_reasoning(
         model=resolved.resolved_deep_model,
         provenance={
             "mode": mode,
+            # What the run was reasoning *about*, when the thread names an
+            # external artifact. A Review run's whole value is that its verdict
+            # can be traced back to the change it judged; without this the
+            # archive holds a review of "this patch" and no way to tell which.
+            "subject": conv.subject,
             "adaptive": settings.deep_reasoning_adaptive,
             "steerable": body.steerable,
             "compute_budget": settings.deep_reasoning_compute_budget,
@@ -1605,6 +1616,9 @@ async def send_agent_message(
         model=model,
         provenance={
             "kind": "agent",
+            # Same reason as the deep run above: an agent that read a pull
+            # request should leave a record of which one.
+            "subject": conv.subject,
             "tools": [t.name for t in tools],
             "allowlist": allowed,
             "max_tool_rounds": settings.agent_max_tool_rounds,

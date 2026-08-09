@@ -18,27 +18,50 @@ Verdicts here are **holds** / **bends** / **breaks**, and they are about
 
 ## The short version
 
+Two columns per module: where this run-through found each one (7 August), and
+where it stands after Stages 0–4 of `PLAN-V1.md` (9 August). Arrows are changes.
+
 | Module | General team | Dev team | Research team |
 |---|---|---|---|
 | Auth, workspaces, invites (FR-1/2) | holds | holds | holds |
-| RBAC + role preview (FR-3) | holds | holds | bends |
+| RBAC + role preview (FR-3) | holds | holds | bends → **holds** |
 | Conversations + streaming (FR-4) | holds | holds | holds |
 | Presence + live fan-out (FR-5) | holds | holds | holds |
 | Fork & branch lineage (FR-6) | **bends** | holds | holds |
 | Notes + mentions | holds | holds | holds |
 | Prompt library (FR-7) | holds | holds | holds |
 | Provider / BYO key (FR-8/16) | holds | holds | holds |
-| Deep Reasoning + modes (FR-9/10/11) | **bends** | bends | holds |
+| Deep Reasoning + modes (FR-9/10/11) | **bends** | bends → **holds** | holds |
 | Budget + guardrails (FR-12) | holds | holds | holds |
-| History, replay, export (FR-13) | holds | **bends** | **breaks** |
-| Agent tools (FR-14) | holds | **breaks** | bends |
-| Documents + grounding (FR-15) | holds | **breaks** | **bends** |
+| History, replay, export (FR-13) | holds | **bends** → **holds** | **breaks** → **holds** |
+| Agent tools (FR-14) | holds | **breaks** → **holds** | bends |
+| Documents + grounding (FR-15) | holds | **breaks** → bends | **bends** |
 | Search / recall / resurfacing | holds | bends | **breaks** |
-| The Map + decisions ledger | holds | bends | holds |
+| The Map + decisions ledger | holds | bends → **holds** | holds |
 
-Five breaks. Four of them are in the two rooms that are *not* the research
-group — which is the honest shape of a product whose only evidenced audience so
-far is research.
+**Then:** five breaks, four of them outside the research room — the honest shape
+of a product whose only evidenced audience so far was research.
+
+**Now:** one break, and it is a scale limit rather than a missing feature —
+retrieval is exact cosine in process, comfortable to roughly 5k chunks, and a
+serious literature review is tens of thousands. It is documented, deliberate,
+and precisely this room's working size. See *What is still open*, at the end.
+
+Two entries deliberately did **not** move. Fork-and-branch still bends for
+brainstorming: voting gave the room a way to *converge*, but a fork is still a
+dialog and a naming decision, so cheap disposable divergence is as expensive as
+it was. And Deep Reasoning still bends there for the same reason it did on 7
+August — you can run one question in one mode at a time, and the brainstorm move
+is running two modes side by side.
+
+### Verified end to end, not by reading
+
+`frontend/app/e2e/rooms.mjs` walks each room's whole journey against a running
+stack — a real database, a real event stream, a real agent loop, and a fake MCP
+server standing in for GitHub. It asserts on the artifacts a room *leaves with*
+(the export, the report, the ledger) rather than on the calls that produced
+them, because every gap this document originally found lived in the space
+between two features that were each individually fine. All three journeys pass.
 
 ---
 
@@ -350,3 +373,48 @@ The cost is roughly one module and a migration. The reason to do it first is
 that MCP multiplies the number of things the agent can do to the outside world,
 and adding capability before adding the record is how you end up unable to
 answer the only question that matters after an incident.
+
+**Built, 8 August.** Spans around every tool execution, a durable `tool_calls`
+ledger, approvals and denials recorded with the deciding member, `agent` added
+to the LLM ledger's `kind`, and agent runs archived beside deep runs with their
+tool transcript. The `rooms.mjs` dev-team journey ends by reading the ledger
+back: `get_pull_request · mcp:github · ok · 1 call · 217ms`, from an MCP server
+that did not exist when this section was written.
+
+---
+
+## What is still open
+
+Everything above that has not moved, in one place, so this document can be read
+as a description of the product rather than a history of it.
+
+**One break.** *Retrieval has a ceiling exactly where the research room starts.*
+Exact cosine in process: comfortable to roughly 5k chunks, and a serious
+literature review is 50–500 papers. Nothing about this changed, and it is the
+one finding here that is a scale decision rather than a missing feature — an
+approximate index (HNSW/FAISS) or an external vector store is the fix, and both
+are deliberate deferrals recorded in `PRODUCT.md`.
+
+**Three bends, all one idea.** The general room's are the same missing thing
+seen from three angles: **cheap parallel exploration.**
+
+1. *A fork costs a dialog and a name.* Right for "we are choosing between two
+   architectures", heavy for "throw five ideas at this". Brainstorming wants
+   three disposable branches off one message, most abandoned without ceremony.
+2. *One question runs in one mode at a time.* The brainstorm move is running
+   Explore and Solve on the same question and reading them side by side. The
+   engine could do it; there is no affordance and the Map has nowhere to show it.
+3. *A brainstorm is an event; Helix only has threads.* No session, board, or
+   "this afternoon's workshop" container, so a workspace running weekly
+   brainstorms accumulates an undifferentiated list.
+
+Voting closed the *converge* half of this room's problem in Stage 1. The
+*diverge* half is untouched, and it is a single feature — parallel forks with a
+comparison view — rather than three.
+
+**One bend that is now a shape, not a gap.** *Documents cannot ingest a repo*,
+and after MCP they no longer need to: a dev team's repository context arrives as
+tools the agent calls, under the owner's allowlist and the approval gate, rather
+than as files copied into a knowledge base. Worth stating explicitly because the
+original finding ("Helix cannot see a repository") reads as unresolved against
+the document store and is resolved against the product.

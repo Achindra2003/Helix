@@ -184,6 +184,9 @@ async def build_conversation_report(
         "kind": "conversation_report",
         "title": conv.title,
         "conversation_id": conv.id,
+        # The external artifact this thread is about, when it names one. See
+        # `build_workspace_report` for why a decision record has to carry it.
+        "subject": conv.subject,
         "visibility": conv.visibility,
         "exported_on": date.today().isoformat(),
         "conclusion": {
@@ -200,6 +203,8 @@ async def build_conversation_report(
 def render_conversation_markdown(report: dict[str, Any]) -> str:
     lines: list[str] = [f"# {report['title']}", ""]
     lines += [f"*Helix decision report · exported {report['exported_on']}*", ""]
+    if report.get("subject"):
+        lines += [f"*About: {report['subject']}*", ""]
 
     # The decision leads. Someone handed this file opens it to find out what was
     # settled — making them infer that from a transcript is the copy-paste
@@ -332,6 +337,14 @@ async def build_workspace_report(
             {
                 "conversation_id": conv.id,
                 "title": conv.title,
+                # The change this decision was about, when there is one. An
+                # architecture decision that cannot name the pull request it
+                # governs decays into folklore within two sprints: a reader six
+                # months later cannot tell whether the decision survived
+                # contact with the code. The field existed and reached only the
+                # agent's context, which is the one audience that does not need
+                # to remember it.
+                "subject": conv.subject,
                 "conclusion": {
                     "text": conv.conclusion,
                     "recorded_by": await names.of(conv.concluded_by),
@@ -370,6 +383,11 @@ def render_workspace_markdown(report: dict[str, Any]) -> str:
 
     for t in threads:
         lines += [f"## {t['title']}", ""]
+        # Directly under the heading, above the verdict: this is the "which
+        # change?" line, and a reader scanning for their PR should find it
+        # without reading the reasoning first.
+        if t.get("subject"):
+            lines += [f"*About: {t['subject']}*", ""]
         conclusion = t["conclusion"]
         if conclusion["text"]:
             lines += [f"**Concluded:** {conclusion['text']}", ""]
