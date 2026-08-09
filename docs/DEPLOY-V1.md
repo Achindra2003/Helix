@@ -13,18 +13,85 @@ kind of confidence that evaporates on first contact.
 
 ## The two risks that decide everything else
 
-**1. Memory.** The image bakes CPU PyTorch and MiniLM (`Dockerfile`, the
-`sentence_transformers` warm-up). The recorded hosting plan is a free GCP
-`e2-micro`: **1 GB of RAM, shared vCPU.** If the container's resident set does
-not fit, the fix is architectural, not a flag — and it is much cheaper to learn
-that from `docker stats` than from an OOM kill on a VM.
+**1. Memory — measured, 9 August.** The image bakes CPU PyTorch and MiniLM
+(`Dockerfile`, the `sentence_transformers` warm-up). The recorded hosting plan
+is a free GCP `e2-micro`: **1 GB of RAM, shared vCPU.**
 
-**2. Postgres.** The driver, the compose file and 20+ Alembic migrations exist
-and have never been pointed at a real server. Four migration tests fail on
-Windows for path reasons and are green on CI, so their *first* honest run
-against Postgres is still ahead of us.
+Measured by staging the real imports in one process and reading the working set
+(no Docker build needed — the risk is the Python process, and the wheels are
+already installed locally):
+
+| After loading | Resident |
+|---|---|
+| bare interpreter | 14 MB |
+| \+ numpy | 27 MB |
+| \+ the API (FastAPI, SQLAlchemy, routes) | 98 MB |
+| \+ the Ouroboros engine (LangGraph/LangChain) | 313 MB |
+| \+ MiniLM weights | 498 MB |
+| \+ one embed call | 550 MB |
+| \+ an ingest-sized batch (64 chunks) | **568 MB** |
+
+So the app is roughly **570 MB steady-state once anything semantic has run**,
+of which 470 MB is the engine and the embedder. Against 1 GB, minus ~150 MB for
+a minimal Debian and the Docker daemon, that leaves on the order of 300 MB of
+headroom. **It fits, and it is not comfortable.** Three consequences:
+
+- **One uvicorn worker.** Each additional worker is another ~570 MB — the cap
+  is memory, not CPU, and nothing in the plan needs a second one.
+- **Do not build on the VM.** The build needs far more than the run; build
+  elsewhere and pull the image (Stage B2 already says so).
+- **Add swap anyway.** 2 GB of swap on the instance converts a spike from an
+  OOM kill into a slow request.
+
+Two caveats, stated rather than buried: this is a Windows working set, and
+Linux RSS for the same stack is usually within a few tens of MB either way; and
+it excludes the SQLite page cache and per-request allocations. It is the right
+number to *plan* with and not a substitute for `docker stats` in A1 — but it is
+now a confirmation step rather than a decision point.
+
+**2. Postgres.** The driver, the compose file and 14 Alembic migrations exist
+and have never been pointed at a real server. A static audit on 9 August
+(below) found and fixed one defect that would have broken it; what remains is
+the class of thing only a real server can show.
 
 Everything in Stage A exists to retire these two before anything is provisioned.
+
+---
+
+## What the static Postgres audit found
+
+Done without a server, on 9 August, because it is cheap and the alternative is
+finding out during a deploy.
+
+**Clean.** `GROUP BY` is strict-correct everywhere (every selected
+non-aggregate column is grouped), so Postgres's stricter rule changes nothing.
+Search filters in Python rather than SQL, so SQLite's case-insensitive `LIKE`
+is not being relied on. JSON is stored as `Text` and booleans as `Boolean`, both
+dialect-neutral. There is no raw SQL outside tests.
+
+**One real defect, fixed.** `document_corpus_revisions.updated_at` was created
+as `sa.DateTime()` — naive — while the model resolves to `TIMESTAMP WITH TIME
+ZONE` through the declarative base. asyncpg refuses an aware value into a naive
+column, so **every document upload and delete would have failed on Postgres**,
+on any instance whose schema came from Alembic rather than `create_all`.
+
+This is the same defect `e7b3c95a1d84` was written to repair in thirteen
+columns on 6 August, reintroduced one table later on 9 August. It recurred
+because nothing could see it: SQLite renders both spellings as `TIMESTAMP`, so
+the drift guard — which runs `compare_type` against SQLite — compares them
+equal. Two checks now catch it without a Postgres server
+(`api/tests/test_migrations.py`): every timestamp column in the metadata must
+be tz-aware, and no migration *after* the repair may spell one naively.
+
+**A related fix.** Those migration tests derived the backend directory by
+splitting `__file__` on `"/api/"`, which never matches on Windows — so all four
+failed locally with a nonsense path, and the drift guard never ran outside CI.
+That is four of the six "known Windows reds" gone, and it means the guard now
+runs on the machine where the code is written.
+
+**Still only provable on a real server:** connection/pool behaviour under
+asyncpg, the `DB_NO_POOL` path the conftest takes for Postgres, and anything
+about concurrent writers.
 
 ---
 
@@ -36,8 +103,14 @@ document. This is the install a stranger will do, executed once by us first.
 *Verify:* the app answers on :8000, the JWT secret is generated to `/data`, and
 `docker compose down && up` keeps the account — a regenerated secret logs
 everyone out and is the failure this volume exists to prevent.
+*Also verify:* pause a guided deep run, `docker compose down && up`, and steer
+it. Checkpoints were landing in `/app` — the image layer — on any non-SQLite
+database, so a paused run did not survive replacing the container. The image
+now sets `CHECKPOINT_PATH=/data/helix-checkpoints.db`; this is the step that
+proves it, and it is the same walk-away-and-come-back the feature exists for.
 *Measure:* `docker stats` at rest, and again during a grounded send (that is
-when MiniLM is resident). **Write the number down.** It decides A4.
+when MiniLM is resident). Expect ~570 MB for the app process, per the table
+above; this run confirms the estimate on Linux rather than deciding anything.
 
 **A2. `docker compose -f docker-compose.postgres.yml up`.**
 The parity run that has never happened.
@@ -49,11 +122,18 @@ been bitten by before.
 
 **A3. Migrations against a real server.**
 `alembic upgrade head` in the Postgres container, then `alembic check`.
-*Verify:* no drift, and the four Windows-red migration tests pass inside the
-container. That converts six known failures into two.
+*Verify:* no drift, and specifically that a document upload and a delete both
+succeed — that is the path the naive-timestamp defect broke, and the only way
+to confirm the repair is a write against a real `TIMESTAMPTZ` column.
+The four migration tests that used to fail on Windows are green now (the cause
+was a path assumption, not the database), so two known local failures remain
+and both are environmental: file modes, and a Tavily key in `.env`.
 
-**A4. The embedder decision — with A1's number in hand.**
-If the container fits comfortably in 1 GB, nothing to do. If it does not:
+**A4. The embedder decision.**
+Already decided by the measurement above: ~570 MB fits inside 1 GB with
+roughly 300 MB of headroom, so **keep the neural embedder and stay on
+`e2-micro`**, with one worker and 2 GB of swap. Revisit only if A1's
+`docker stats` contradicts the estimate badly. The alternatives, if it does:
 
 | Option | Cost | What it gives up |
 |---|---|---|
@@ -61,14 +141,18 @@ If the container fits comfortably in 1 GB, nothing to do. If it does not:
 | **Drop `sentence-transformers`** | Free | Retrieval and convergence fall back to the lexical embedder. It works — the code path is deliberate and tested — but "semantic convergence" stops being semantic, and grounding quality drops on paraphrase. |
 | **Hosted embeddings API** | Per-call | The offline, zero-infra self-host story. Fine for the hosted demo, wrong as the default. |
 
-Recommendation: pay for `e2-small` before degrading the product. The neural
-embedder is load-bearing for two of the three rooms.
+If it comes to a choice, pay for `e2-small` before degrading the product: the
+neural embedder is load-bearing for two of the three rooms. On the measured
+numbers it should not come to that.
 
 ---
 
 ## Stage B — the image
 
-**B1.** Apply whatever A4 decided; rebuild; re-run A1's measurement.
+**B1.** Apply whatever A4 decided; rebuild; re-run A1's measurement. Set
+`--workers 1` explicitly rather than relying on the default — the memory budget
+is what caps it, and a future reader changing that number should have to read
+this line first.
 **B2.** Tag `v1.0.0`, push to GHCR.
 *Verify:* `docker run ghcr.io/<owner>/helix:v1.0.0` on a clean machine with no
 repo checkout brings up a working app. That is the claim the README makes.

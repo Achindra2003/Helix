@@ -23,6 +23,11 @@ class Settings(BaseSettings):
     # agent run resumes from. Blank means "beside the application database", so
     # one volume carries both. Its own file on purpose: the schema belongs to
     # LangGraph, not to our migrations. See api/checkpointing.py.
+    #
+    # Blank can only name a directory when the database is itself a file. With
+    # a Postgres URL it degrades to a path relative to the working directory,
+    # which is why the image sets this explicitly; set it yourself on any
+    # deployment where the process's working directory is not persistent.
     checkpoint_path: str = ""
 
     # Create tables at boot (api/db.py) instead of running migrations. Default

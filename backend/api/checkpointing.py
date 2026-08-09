@@ -44,6 +44,15 @@ def _sqlite_path() -> str:
     The app DB may be Postgres (hosted) while checkpoints stay local — that is
     fine and even correct: a checkpoint is only meaningful to the process that
     can reach the run, and runs are in-process by design.
+
+    "Beside the database" only names a directory when the database *is* a file.
+    Against Postgres there is nowhere to derive, and the old fallback was a
+    relative `./helix-checkpoints.db` — which in the container resolves to
+    `/app`, the image layer, while the volume is mounted at `/data`. Paused
+    runs were written somewhere that a container replacement deletes, which is
+    exactly the failure this module exists to prevent, in the one configuration
+    that had never been run. `CHECKPOINT_PATH` is set explicitly in the image
+    for that reason; this stays as the last resort for a bare process.
     """
     if settings.checkpoint_path:
         return settings.checkpoint_path
@@ -71,6 +80,20 @@ async def connect() -> None:
             AsyncSqliteSaver.from_conn_string(path)
         )
         log.info("Checkpoints persist to %s — paused runs survive a restart", path)
+        if not settings.checkpoint_path and not settings.database_url.startswith(
+            "sqlite"
+        ):
+            # A remote database means the operator has a persistence story;
+            # a relative checkpoint file means the paused runs are not in it.
+            # Durable-looking and not durable is worse than plainly in-memory,
+            # because nothing complains until a deploy eats a waiting run.
+            log.warning(
+                "The application database is remote but checkpoints are at %s, "
+                "relative to the working directory. Set CHECKPOINT_PATH to a "
+                "persistent location or paused runs will not survive replacing "
+                "the process.",
+                path,
+            )
     except Exception as exc:  # pragma: no cover - exercised by the fallback test
         from langgraph.checkpoint.memory import MemorySaver
 

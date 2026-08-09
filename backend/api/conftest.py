@@ -19,8 +19,22 @@ os.environ["LLM_PROVIDER"] = "stub"
 # `TEST_DATABASE_URL` is the seam. CI sets it to a throwaway Postgres (see
 # .github/workflows/ci.yml, job `backend-postgres`) and runs the identical
 # suite, so a dialect-specific defect fails a build instead of a deploy.
+#
+# The process id is in the filename because this file *deletes* the database it
+# is about to use, and two pytest processes sharing one path means the second
+# one deletes the first one's database mid-run. Most tests survive that — every
+# TestClient's lifespan calls create_all, so the next one rebuilds the tables —
+# which is what made it so confusing: the failure only lands when the deletion
+# falls inside a test that already wrote a row, and it surfaces as
+# `no such table: users` in whichever test happened to be running. It reads as
+# a product bug in an innocent test, and it moves every time.
+#
+# That is not a hypothetical: running one focused test while a full suite is in
+# flight does it, and so does any CI job that runs two pytest invocations over
+# one checkout at the same time.
+_TEST_DB_NAME = f"test_helix-{os.getpid()}.db"
 os.environ["DATABASE_URL"] = os.environ.get(
-    "TEST_DATABASE_URL", "sqlite+aiosqlite:///./test_helix.db"
+    "TEST_DATABASE_URL", f"sqlite+aiosqlite:///./{_TEST_DB_NAME}"
 )
 os.environ["GROQ_API_KEY"] = ""
 os.environ["JWT_SECRET"] = "test-secret"
@@ -39,8 +53,14 @@ os.environ["SEED_EXAMPLE_WORKSPACE"] = "0"
 
 if os.environ["DATABASE_URL"].startswith("sqlite"):
     # Fresh DB per test session (delete up front; leave the file behind
-    # afterwards for post-mortem inspection).
-    _test_db = Path(__file__).resolve().parent.parent / "test_helix.db"
+    # afterwards for post-mortem inspection — see pytest_sessionfinish, which
+    # keeps it only when there is something to inspect).
+    #
+    # Resolved against the working directory, because that is what the relative
+    # URL above resolves against. It used to be resolved against this file's
+    # parent, so running pytest from anywhere but `backend/` deleted one
+    # database and then used a different, stale one.
+    _test_db = Path.cwd() / _TEST_DB_NAME
     if _test_db.exists():
         _test_db.unlink()
 else:
@@ -77,6 +97,23 @@ else:
 import uuid
 
 import pytest
+
+
+def pytest_sessionfinish(session, exitstatus):
+    """Keep the database only when there is a failure to inspect.
+
+    The file is named per process so concurrent runs cannot collide, which
+    would otherwise leave one behind for every run this repository has ever
+    seen. A green run has nothing to post-mortem, so it cleans up after itself;
+    a red one leaves the evidence exactly where the comment above promises.
+    """
+    if exitstatus == 0 and os.environ["DATABASE_URL"].startswith("sqlite"):
+        try:
+            Path.cwd().joinpath(_TEST_DB_NAME).unlink(missing_ok=True)
+        except OSError:
+            # Windows keeps a handle on an open SQLite file. Leaving a stray
+            # database behind is not worth failing a green run over.
+            pass
 
 
 @pytest.fixture

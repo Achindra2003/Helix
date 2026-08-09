@@ -105,6 +105,18 @@ ENV DATABASE_URL=sqlite+aiosqlite:////data/helix.db
 # every install its own unique secret instead of the public placeholder.
 ENV JWT_SECRET_FILE=/data/.jwt_secret
 
+# Where a paused run waits. A guided deep run stopped for steering, or an agent
+# turn stopped for tool approval, lives in this file until someone comes back
+# to it — so it belongs on the volume for the same reason the secret does.
+#
+# Stated rather than derived. api/checkpointing.py can put it "beside the
+# application database" only when that database is a file; against Postgres it
+# has nowhere to derive from and falls back to a path relative to the working
+# directory, which here is /app — the image layer, wiped by every container
+# replacement. Both compose files mount the volume at /data, so this is correct
+# for either database, and for SQLite it is the same path the derivation picks.
+ENV CHECKPOINT_PATH=/data/helix-checkpoints.db
+
 EXPOSE 8000
 
 # Lets Docker distinguish "running" from "alive". A hung app now shows as

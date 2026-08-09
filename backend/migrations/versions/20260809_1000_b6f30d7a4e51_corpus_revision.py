@@ -40,7 +40,15 @@ def upgrade() -> None:
         # The workspace *is* the key: one corpus per workspace, one row.
         sa.Column("workspace_id", sa.String(), primary_key=True),
         sa.Column("revision", sa.Integer(), nullable=False, server_default="0"),
-        sa.Column("updated_at", sa.DateTime(), nullable=False),
+        # timezone=True, like every other timestamp in this schema. The model
+        # spells it `Mapped[datetime]` and the declarative base maps that to
+        # TIMESTAMP WITH TIME ZONE (api/db.py); a naive column here would be
+        # the exact defect e7b3c95a1d84 was written to repair, reintroduced one
+        # table later. SQLite renders both as TIMESTAMP and never objects,
+        # which is why the drift guard — which runs on SQLite — cannot see the
+        # difference, and why `bump_corpus_revision` writing an aware value
+        # would have failed only on Postgres, only on upload and delete.
+        sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
 
 
