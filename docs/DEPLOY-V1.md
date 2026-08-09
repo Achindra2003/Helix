@@ -145,6 +145,66 @@ If it comes to a choice, pay for `e2-small` before degrading the product: the
 neural embedder is load-bearing for two of the three rooms. On the measured
 numbers it should not come to that.
 
+**A5. Row-Level Security — *after* A2, never before.**
+NFR-2 is 🟡: tenancy is enforced in the API on every route
+(`_require_membership` / `_require_conversation`, 404 rather than 403 so probing
+does not leak existence, with `api/tests/test_permission_matrix.py` behind it).
+RLS is defence in depth against a route that *forgets* — its value scales with
+how many people are adding routes.
+
+Sequenced here rather than deferred, for a reason that is about debugging, not
+effort: adding a policy layer before Postgres has ever run inverts the order of
+questions. When a query returns zero rows on the first Postgres day, "app or
+migration?" is answerable; "app, migration, or policy?" is much less so — and
+the audit above already found one defect waiting in that first run.
+
+*The trap that makes rushing it worse than skipping it:* Postgres table owners
+bypass RLS by default. The app connects as the role that owns the schema, so
+the likely outcome of a hasty pass is policies that exist, read correctly in the
+migration, and are silently never enforced — a security control you now believe
+in. Doing it honestly means a **separate non-owner application role**,
+`FORCE ROW LEVEL SECURITY`, and a test that connects *as that role* — without
+which the suite proves nothing.
+
+*The decision A5 has to make first, from the schema as it stands (audited
+9 August).* Fourteen tables carry `workspace_id` directly and take a one-line
+policy: `conversations`, `documents`, `document_chunks`,
+`document_corpus_revisions`, `deep_runs`, `resumable_runs`, `prompts`,
+`llm_calls`, `notices`, `invites`, `memberships`, `workspace_settings`,
+`mcp_servers`, `mcp_tools`.
+
+Eight do not, and they are the problem:
+
+| Table | Hops to `workspace_id` |
+|---|---|
+| `workspaces` | it *is* the root — predicate is "a workspace I am a member of" |
+| `users` | not workspace-scoped at all; needs its own rule |
+| `branches`, `conversation_references` | 1 (→ `conversations`) |
+| `nodes`, `branch_votes` | 2 (→ `branches` → `conversations`) |
+| `node_citations` | 3 (→ `nodes` → `branches` → `conversations`) |
+| `node_embeddings` | 3, and it has **no declared foreign key** at all — only a bare `node_id` column |
+
+`nodes` is the hottest table in the product — every message is a row — so a
+policy that subqueries three levels up runs on every read of every thread. So
+A5 opens with a choice, and it is a schema choice with a migration behind it:
+
+1. **Denormalise `workspace_id`** onto `branches`, `nodes`, `branch_votes`,
+   `node_citations`, `node_embeddings`, `conversation_references`. Every policy
+   becomes identical and indexable; the cost is six columns to keep true, which
+   is a backfill plus writes that already know the workspace.
+2. **Join-based policies.** Nothing to backfill, and the predicate stays in one
+   place — but the hot path pays for it, and `node_embeddings` needs its missing
+   foreign key before it can even be expressed.
+
+Recommendation: (1), and take the `node_embeddings` foreign key while there.
+Uniform predicates are the ones that stay correct, and this is precisely the
+work that is cheap now and expensive once there is data to backfill.
+
+*Verify:* the permission matrix passes unchanged **as the non-owner role**, and
+one hand-written negative test — connect as that role, `SELECT * FROM nodes`
+with a foreign workspace's id set, and get zero rows. If that test can be made
+to pass without the policies installed, it is not testing them.
+
 ---
 
 ## Stage B — the image

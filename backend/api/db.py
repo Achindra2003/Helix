@@ -44,6 +44,28 @@ def _engine_kwargs() -> dict:
 engine = create_async_engine(settings.database_url, **_engine_kwargs())
 SessionLocal = async_sessionmaker(engine, expire_on_commit=False)
 
+if settings.database_url.startswith("sqlite"):
+    from sqlalchemy import event
+
+    @event.listens_for(engine.sync_engine, "connect")
+    def _sqlite_enforce_foreign_keys(dbapi_connection, _record):
+        """Make SQLite behave like the database this ships against.
+
+        SQLite ignores every foreign key unless the connection asks it not to,
+        which means the schema's constraints were decoration in dev and real in
+        production. A delete that leaves an orphan behind is silently fine here
+        and a `ForeignKeyViolation` there — the same shape of defect as a naive
+        timestamp column, and invisible for the same reason: the suite only
+        ever ran on the permissive dialect.
+
+        On rather than off, even though it makes the local suite stricter than
+        it was. A constraint that only exists in production is not a constraint,
+        it is a deployment surprise.
+        """
+        cursor = dbapi_connection.cursor()
+        cursor.execute("PRAGMA foreign_keys=ON")
+        cursor.close()
+
 
 class Base(DeclarativeBase):
     """Declarative base for all ORM models.

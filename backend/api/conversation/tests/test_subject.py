@@ -10,13 +10,37 @@ from starlette.testclient import TestClient
 import api.conversation.router as router_mod
 from api.conversation.context import build_messages
 from api.conversation.events import Node
-from api.conversation.store import InMemoryStore
+from api.conversation.store import DbStore, InMemoryStore
+from api.db import SessionLocal
 from api.main import app
 
 
 @pytest.fixture(autouse=True)
 def in_memory_store(monkeypatch):
+    """Most of this file is about what the subject *says* — in a prompt, in an
+    export, in a report — and a dict serves that faster than a database."""
     monkeypatch.setattr(router_mod, "_store", InMemoryStore())
+
+
+@pytest.fixture
+def db_backed_store(in_memory_store, monkeypatch):
+    """Opt back out, for the one test that archives a run.
+
+    A deep run is written to `deep_runs` through SQLAlchemy whatever the store
+    is, and that row has a foreign key to `conversations.id`. With the
+    conversation in a dict there is no such row, so the insert is an orphan —
+    silently accepted by SQLite, which does not enforce foreign keys, and a
+    `ForeignKeyViolation` on Postgres. The hybrid was invisible for exactly as
+    long as the suite only ran on the permissive dialect.
+
+    Depends on the fixture above rather than trusting autouse ordering: the
+    point is to replace what it installed, so the dependency is the guarantee.
+    """
+    monkeypatch.setattr(
+        router_mod,
+        "_store",
+        DbStore(SessionLocal, on_node=router_mod._embeddings.ensure_soon),
+    )
 
 
 def _conv(client, headers, wid):
@@ -170,7 +194,9 @@ def test_both_conversation_exports_name_the_change(make_workspace):
         assert "PR #482" in report.text
 
 
-def test_a_run_records_what_it_was_reasoning_about(monkeypatch, make_workspace):
+def test_a_run_records_what_it_was_reasoning_about(
+    monkeypatch, make_workspace, db_backed_store
+):
     """A Review run's value is that its verdict traces back to the change it
     judged. Without this the archive holds a review of "this patch" and no way
     to tell which patch."""

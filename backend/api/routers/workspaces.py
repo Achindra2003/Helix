@@ -10,9 +10,11 @@ from ..config import settings
 from ..conversation.embeddings import EmbeddingIndex, NodeEmbeddingRow
 from ..conversation.models import (
     BranchRow,
+    BranchVoteRow,
     ConversationReferenceRow,
     ConversationRow,
     DeepRunRow,
+    NodeCitationRow,
     NodeRow,
 )
 from ..db import SessionLocal, get_session
@@ -279,6 +281,12 @@ async def delete_workspace(
     node_ids = select(NodeRow.id).where(NodeRow.branch_id.in_(branch_ids))
 
     await session.execute(delete(NodeEmbeddingRow).where(NodeEmbeddingRow.node_id.in_(node_ids)))
+    # Citations hang off nodes and votes off branches, and neither is on the
+    # spine this walk follows. They were missing here for the same reason they
+    # were missing from `DbStore.delete_conversation`: SQLite was not enforcing
+    # the foreign keys that would have said so.
+    await session.execute(delete(NodeCitationRow).where(NodeCitationRow.node_id.in_(node_ids)))
+    await session.execute(delete(BranchVoteRow).where(BranchVoteRow.branch_id.in_(branch_ids)))
     await session.execute(delete(NodeRow).where(NodeRow.branch_id.in_(branch_ids)))
     await session.execute(delete(BranchRow).where(BranchRow.conversation_id.in_(conv_ids)))
     await session.execute(
@@ -287,8 +295,12 @@ async def delete_workspace(
             | ConversationReferenceRow.referenced_conversation_id.in_(conv_ids)
         )
     )
-    await session.execute(delete(ConversationRow).where(ConversationRow.workspace_id == workspace_id))
+    # Before the conversations, not after: `deep_runs.conversation_id` is a
+    # foreign key, so clearing the parent first orphans every archived run.
+    # The ordering read as "conversation things, then run things" and was
+    # wrong in the only direction that matters.
     await session.execute(delete(DeepRunRow).where(DeepRunRow.workspace_id == workspace_id))
+    await session.execute(delete(ConversationRow).where(ConversationRow.workspace_id == workspace_id))
     await session.execute(delete(DocumentChunkRow).where(DocumentChunkRow.workspace_id == workspace_id))
     await session.execute(delete(DocumentRow).where(DocumentRow.workspace_id == workspace_id))
     # The corpus is gone with the workspace; its revision row goes too.

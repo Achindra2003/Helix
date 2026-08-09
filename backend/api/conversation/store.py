@@ -1011,7 +1011,14 @@ class DbStore:
     async def delete_conversation(self, conversation_id: str) -> list[str]:
         from sqlalchemy import delete, or_, select
 
-        from .models import BranchRow, ConversationReferenceRow, ConversationRow, NodeRow
+        from .models import (
+            BranchRow,
+            BranchVoteRow,
+            ConversationReferenceRow,
+            ConversationRow,
+            NodeCitationRow,
+            NodeRow,
+        )
 
         async with self._sf() as s:
             conv = await s.get(ConversationRow, conversation_id)
@@ -1026,6 +1033,21 @@ class DbStore:
                         select(NodeRow.id).where(NodeRow.branch_id.in_(branch_ids))
                     )
                 ).scalars()
+            )
+            # Children first, and these two are the ones the original walk
+            # missed: it followed the spine (nodes, then branches, then the
+            # conversation) and not the tables hanging off it. A citation
+            # outlives its node and a vote outlives its branch, so deleting the
+            # parent leaves a row pointing at nothing — accepted in silence by
+            # SQLite while it ignored foreign keys, and refused outright by
+            # Postgres. The user-visible shape was "delete this thread" failing
+            # for exactly the threads worth keeping a record of: the ones with
+            # a grounded answer, or an exploration somebody backed.
+            await s.execute(
+                delete(NodeCitationRow).where(NodeCitationRow.node_id.in_(node_ids))
+            )
+            await s.execute(
+                delete(BranchVoteRow).where(BranchVoteRow.branch_id.in_(branch_ids))
             )
             await s.execute(delete(NodeRow).where(NodeRow.id.in_(node_ids)))
             await s.execute(delete(BranchRow).where(BranchRow.conversation_id == conversation_id))
@@ -1104,7 +1126,13 @@ class DbStore:
     async def delete_branch(self, branch_id: str) -> list[str]:
         from sqlalchemy import delete, select
 
-        from .models import BranchRow, ConversationRow, NodeRow
+        from .models import (
+            BranchRow,
+            BranchVoteRow,
+            ConversationRow,
+            NodeCitationRow,
+            NodeRow,
+        )
 
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
@@ -1124,6 +1152,15 @@ class DbStore:
                         select(NodeRow.id).where(NodeRow.branch_id == branch_id)
                     )
                 ).scalars()
+            )
+            # Same omission as `delete_conversation`, same reason. A branch
+            # people voted on is precisely the one that gets abandoned after
+            # losing the argument, so this is the common case, not the corner.
+            await s.execute(
+                delete(NodeCitationRow).where(NodeCitationRow.node_id.in_(node_ids))
+            )
+            await s.execute(
+                delete(BranchVoteRow).where(BranchVoteRow.branch_id == branch_id)
             )
             await s.execute(delete(NodeRow).where(NodeRow.branch_id == branch_id))
             await s.delete(branch)
