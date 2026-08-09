@@ -210,10 +210,15 @@ def make_emotional_analysis(llm: BaseChatModel, config: OuroborosConfig):
         thought = state.get("thought", "")
         new_mood = derive_mood(thought, state.get("mood", "curious"), config)
         mode = state.get("mode", "explore")
-        if mode in ("analyze", "solve", "create"):
+        if mode in ("analyze", "solve", "create", "review"):
             # Practical modes: the "emotional" perspective is the *human* dimension,
             # not therapy for the thought. Keeps answers grounded instead of talking
             # about the mind's "yearning" / "emotional burden".
+            #
+            # `review` belongs here for a sharper reason than the others: the
+            # branch below asks what a thought "is avoiding, or yearning toward",
+            # and a review run's thought is a defect report about someone else's
+            # work. Sent down that branch, the mode psychoanalyses the author.
             prompt = (
                 f'Examine this thinking on a real problem:\n"{thought}"\n\n'
                 "Give the human perspective in one or two sentences: who is affected, "

@@ -226,7 +226,8 @@ class Settings(BaseSettings):
     # small model while the recursive self-critique loop — whose whole value is
     # reasoning quality — runs on the strongest available model.
     deep_reasoning_model: str = "llama-3.3-70b-versatile"
-    deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize
+    # The instance default only — a run picks its own mode (DeepRequest.mode).
+    deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize|review
     # Tool policy (FR-14): may deep runs reach out to the web (research fan-out)?
     # Enforced server-side when the graph is built; research additionally needs
     # a TAVILY_API_KEY to do anything at all.

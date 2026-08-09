@@ -112,9 +112,9 @@ class DeepRequest(BaseModel):
     # cycles; the client resumes it (with optional guidance) via
     # POST /conversations/deep/runs/{run_id}/steer.
     steerable: bool = False
-    # Which of the five reasoning modes to run: explore | analyze | create |
-    # solve | philosophize. Each carries its own depth, energy curve, steer
-    # interval and four prompts (engine/ouroboros/presets.py).
+    # Which of the six reasoning modes to run: explore | analyze | create |
+    # solve | philosophize | review. Each carries its own depth, energy curve,
+    # steer interval and four prompts (engine/ouroboros/presets.py).
     #
     # Per *run*, not per workspace or per server. Explore-vs-Solve is a property
     # of the question, and it changes within one team within one afternoon —

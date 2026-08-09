@@ -403,7 +403,7 @@ def build_ouroboros_graph(
 
 
 # --- The reasoning modes, as the API exposes them ------------------------------
-# Five presets ship in engine/ouroboros/presets.py, each with its own depth,
+# Six presets ship in engine/ouroboros/presets.py, each with its own depth,
 # energy curve, steer interval and four distinct prompts. Until now the API
 # pinned one server-wide `.env` string, so every workspace on an instance got
 # the same one — the largest built-and-unreachable capability in the product.
@@ -432,5 +432,9 @@ REASONING_MODES: dict[str, dict[str, str]] = {
     "philosophize": {
         "label": "Philosophize",
         "description": "Question the foundations — including whether this is the real question.",
+    },
+    "review": {
+        "label": "Review",
+        "description": "Read a change against what it was meant to do, and rank what's wrong by severity. Best for a diff, a draft, or a plan someone has to sign off.",
     },
 }

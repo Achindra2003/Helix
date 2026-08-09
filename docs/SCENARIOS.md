@@ -269,14 +269,21 @@ Four things to decide before building it, each of which is a real risk:
 - **A large `tools/list` costs tokens on every turn.** The allowlist is the
   budget control, and it should be presented that way.
 
-### The reviewer: a mode, not a second agent
+### The reviewer: a mode, not a second agent  ✅ *built*
 
 A "code reviewer agent" invites a parallel system — its own prompts, its own
-loop, its own UI. It does not need one. Helix already has five reasoning presets
+loop, its own UI. It does not need one. Helix already had five reasoning presets
 that differ by depth, energy curve, steer interval and four prompts each, chosen
 per run. A reviewer is a **sixth preset** plus the GitHub tools, and its output
 is already modelled: a branch with an intent, ending in a verdict with a reason,
 landing in the decisions ledger and the export.
+
+That preset now ships as `Mode.REVIEW`. The claim above was testable and it
+held: the whole feature is a config, four prompts and one entry in the
+advertised list — the picker, the monitor, the steer protocol, the budget, the
+archive and the export all took it without modification. See `PLAN-V1.md` §4
+for the one thing that was not free (a mode is also the hard-coded lists in
+`graph/nodes.py` that decide how it thinks, not only its prompts).
 
 That reuses the monitor (watch it reason, steer it, stop it), the approval gate,
 the ledger and the export — and it means a review is a *record*, which is the

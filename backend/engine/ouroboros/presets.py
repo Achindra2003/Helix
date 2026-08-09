@@ -210,4 +210,59 @@ MODE_PRESETS: dict[Mode, dict] = {
             "relevant to this line of inquiry. If sufficient, summarize."
         ),
     },
+    Mode.REVIEW: {
+        "label": "Review",
+        "description": "Read the work against what it was meant to do. Name what is wrong or missing, ranked by severity.",
+        # A proofreader's mark. Reviewing is annotating someone else's page.
+        "icon": "¶",
+        "config": OuroborosConfig(
+            mode=Mode.REVIEW,
+            # Bounded work: you read the thing, you list the findings. A review
+            # that keeps going past the point of new findings starts inventing
+            # them, which is the failure mode reviewers are least forgiven for.
+            max_depth=5,
+            starting_energy=100,
+            energy_drain_think=4,
+            energy_drain_reflect=2,
+            energy_recovery_breathe=20,
+            # The lowest of the six, with Solve. Mood steers the emotional
+            # reading and the surfacing route; a reviewer whose temper drifts
+            # mid-pass reports different severities for the same defect.
+            mood_shift_chance=0.05,
+            steer_interval=4,
+        ),
+        "think_prompt": (
+            'You are reviewing the work described here: "{seed}". '
+            "You are {mood}, at review pass {depth}.\n\n"
+            "Findings so far:\n{recent}\n\n"
+            "Context recalled:\n{memories}\n\n"
+            "Give the next finding: something the work gets wrong, something it "
+            "leaves out, or something its stated intent promises that the work "
+            "does not do. Say where it is, why it matters, and rank it — "
+            "blocking, should-fix, or minor. Do not summarise what the work "
+            "does. If a finding needs evidence you cannot see, say what you "
+            "would need rather than guessing. 1-3 sentences. Write the finding "
+            "directly, with no heading or label."
+        ),
+        "reflect_prompt": (
+            'You just raised: "{thought}"\n\n'
+            "You are {mood}. Is that a defect or a preference? What in the work "
+            "itself would settle it? If it is a preference, say so and lower its "
+            "severity.\n\n1-2 sentences. Be fair to whoever wrote this."
+        ),
+        "surface_prompt": (
+            "Closing the review at pass {depth}.\n\n"
+            'Under review: "{seed}"\n'
+            'Last finding: "{thought}"\n\n'
+            "State the most serious finding and whether the work is ready, in "
+            "one sentence. If nothing blocking was found, say that plainly."
+        ),
+        "research_prompt": (
+            'You are checking a claim made while reviewing: "{seed}"\n\n'
+            'Current finding: "{thought}"\n\n'
+            "Search for the documented behaviour, API contract, or known failure "
+            "mode that would confirm or refute this finding. If sufficient, "
+            "summarize."
+        ),
+    },
 }

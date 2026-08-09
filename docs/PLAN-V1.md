@@ -1,7 +1,7 @@
 # Plan — from the three-room run-through to v1
 
-> **Status, 8 August 2026.** Stages 0–3 are **done**; Stages 4 (Review preset)
-> and 5 (deployment) are not started, at the user's direction. Item 1.5 was
+> **Status, 9 August 2026.** Stages 0–4 are **done**; Stage 5 (deployment) is
+> not started, at the user's direction. Item 1.5 was
 > decided as **(b) — Observers may write notes only**. Two things turned out
 > differently from the plan below and are corrected in place: the citation break
 > was larger than described (they existed *only* in browser memory), and item
@@ -225,7 +225,7 @@ calls appearing in the tool ledger.
 
 ---
 
-## Stage 4 — the Review preset
+## Stage 4 — the Review preset  ✅ *done*
 
 Not a parallel agent. A **sixth reasoning mode** alongside explore / analyze /
 create / solve / philosophize — same structure (depth, energy curve, steer
@@ -241,6 +241,41 @@ a slot for ways of thinking.
 *Verify:* the preset appears in the picker, runs to completion on a real PR,
 respects the same budget guardrails, and its steer interval behaves like the
 others under the existing preset tests.
+
+**What it actually took.** The preset itself is what this section describes —
+`Mode.REVIEW`, a config and four prompts in `engine/ouroboros/presets.py`, one
+entry in `REASONING_MODES`. The picker needed no change at all: it renders
+whatever `GET /conversations/deep/modes` returns, so the mode appeared in the
+menu the moment the server advertised it. That is the argument for "a preset,
+not an agent" holding up in practice.
+
+The part the plan did not anticipate is that a mode is not only its prompts.
+Two hard-coded mode lists in `graph/nodes.py` decide behaviour, and a new mode
+lands on the *default* side of both by omission:
+
+- `make_emotional_analysis` branches on `mode in ("analyze", "solve",
+  "create")` for the practical "human perspective" prompt. Everything else gets
+  a prompt asking what the thought "is avoiding, or yearning toward" — so
+  Review, left out, would have psychoanalysed the author of the code under
+  review. `review` was added to that list.
+- `route_after_synthesis` permits one web-research detour for `analyze` and
+  `solve`. Review was deliberately **left out**: the evidence a review needs is
+  the diff and the workspace's own documents, both of which already reach the
+  run through the seed and the grounder. A web search would spend a cycle to
+  learn nothing about this change.
+
+*Verified:* the six-item picker in a real browser at 1440×900 and 1440×768
+(the menu rises out of the composer, and a sixth item does not push its top
+edge off-screen — 309px and 177px of headroom respectively); choosing Review
+starts a run the server archives with `provenance.mode == "review"` under the
+same `compute_budget` as every other mode, and the split button remembers the
+choice. 11 new tests: 8 engine-level, 3 API-level.
+
+*Not verified, and honestly so:* "runs to completion on a real PR". That needs
+a GitHub MCP server with a live credential, which this instance does not have
+configured — the run above went through the stub provider. The MCP path itself
+is covered by `api/tools/tests/test_mcp.py` against a fake server; what remains
+unproven is the two working together on a real repository.
 
 ---
 
