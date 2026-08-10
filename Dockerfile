@@ -129,4 +129,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
 # development convenience and a production liability.
 # --host 0.0.0.0 is required — the default 127.0.0.1 would only accept
 # connections from *inside* the container, making the published port useless.
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# --workers 1 is stated rather than left to the default, which is also 1. The
+# number is a memory decision, not a throughput one: the measured resident set
+# is ~570 MB once MiniLM has run, against 1 GB on the target instance, so a
+# second worker does not fit — it would be OOM-killed, not slow. Anyone raising
+# this has to size the box first, and saying it here is what makes that the
+# obvious next thought.
+#
+# It is also load-bearing for correctness, not only for memory. Presence and
+# fan-out are an in-process dict, and RunManager — which owns "stop this run",
+# the per-workspace concurrency cap and the live monitor — is a module
+# singleton. Two workers would serve those from whichever process took the
+# request, so the app would look like it scaled and fail at the interesting
+# moment. See docs/DEPLOY-V1.md on why Redis is deferred rather than added.
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]
