@@ -53,19 +53,38 @@ jobs:
       - name: Work out the image name
         id: name
         run: |
-          echo "repo=ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')" >> "$GITHUB_OUTPUT"
-          echo "version=${{ github.event.inputs.tag || github.ref_name }}" >> "$GITHUB_OUTPUT"
+          repo="ghcr.io/$(echo '${{ github.repository }}' | tr '[:upper:]' '[:lower:]')"
+          version="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+          # The exact version is always published; `latest` is only claimed by a
+          # real release. A hyphen after the version is SemVer's marker for a
+          # pre-release, so v0.9.0-rc1 publishes only itself and v1.0.0 takes
+          # both. This matters more than it looks: `latest` is what the
+          # quickstart pulls, and the whole reason to cut a release candidate is
+          # that nobody has run the image yet — an rc that overwrote `latest`
+          # would hand strangers exactly the untested thing it was hedging
+          # against.
+          tags="$repo:$version"
+          case "$version" in
+            *-*) echo "pre-release $version — leaving :latest where it is" ;;
+            *)   tags="$tags"$'\n'"$repo:latest" ;;
+          esac
+          {
+            echo "tags<<TAGS"
+            echo "$tags"
+            echo "TAGS"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Build and push
         uses: docker/build-push-action@v6
         with:
           context: .
           push: true
-          # Both tags: the exact version is what a deployment pins, `latest` is
-          # what the README's quickstart pulls.
-          tags: |
-            ${{ steps.name.outputs.repo }}:${{ steps.name.outputs.version }}
-            ${{ steps.name.outputs.repo }}:latest
+          # Decided in the step above: the exact version is what a deployment
+          # pins, and `latest` joins it only for a non-pre-release tag.
+          tags: ${{ steps.name.outputs.tags }}
           # Shares the layer cache with ci.yml's `image` job, so the torch
           # install is not paid for twice.
           cache-from: type=gha
