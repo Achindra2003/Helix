@@ -108,13 +108,26 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt -r requirements-engine.txt -r requirements-dev.txt
 
-      # TEST_DATABASE_URL is the only difference from the job above — see
+      # Two env vars, and they point at the same server for different reasons.
+      #
+      # TEST_DATABASE_URL is what the suite runs against — see
       # backend/api/conftest.py, which reads it and otherwise defaults to
-      # SQLite. Still secret-free: the provider is still the stub.
+      # SQLite. That schema is built by `create_all`.
+      #
+      # MIGRATION_TEST_DATABASE_URL is what api/tests/test_migrations.py uses
+      # to create its own throwaway databases, and it closes the gap the first
+      # one leaves: a hosted deploy applies *migrations*, not `create_all`, and
+      # until now no migration had ever run against a real server. That is
+      # exactly where the naive-timestamp defect lived — it only bit instances
+      # whose schema came from Alembic. Both paths are now checked on the
+      # dialect that can tell them apart.
+      #
+      # Still secret-free: the provider is still the stub.
       - name: Run tests
         working-directory: backend
         env:
           TEST_DATABASE_URL: postgresql+asyncpg://helix:helix@localhost:5432/helix
+          MIGRATION_TEST_DATABASE_URL: postgresql+asyncpg://helix:helix@localhost:5432/helix
         run: pytest -q
 
   frontend:

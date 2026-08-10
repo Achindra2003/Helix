@@ -7,9 +7,18 @@ only, long after the change that caused it. So: assert they agree, and assert
 that a model change without a matching migration fails here rather than in
 production.
 
-These drive Alembic through its Python API against a throwaway SQLite file
-rather than shelling out, so they work the same in CI as locally.
+These drive Alembic through its Python API rather than shelling out, against a
+throwaway SQLite file by default — so they work the same in CI as locally, on a
+laptop with no database server.
+
+Set `MIGRATION_TEST_DATABASE_URL` and the identical checks run against a real
+Postgres, each on its own freshly created database. CI does that. Both matter:
+SQLite is what makes them cheap enough to run on every change, and Postgres is
+the only dialect that can see a whole class of defect the others cannot — see
+the note above `test_every_timestamp_column_carries_its_timezone`.
 """
+import os
+import re
 from pathlib import Path
 
 import sqlalchemy as sa
@@ -46,15 +55,66 @@ def _alembic_config(db_url: str) -> Config:
     return cfg
 
 
-def _db_urls(tmp_path, name="migrated"):
-    """(async, sync) URLs for the same file.
+# Set to a Postgres URL and every check in this file runs there instead of on a
+# throwaway SQLite file. CI does that (.github/workflows/ci.yml, job
+# `backend-postgres`), which is the only place it happens: the point is a
+# dialect that can tell two spellings apart, and no laptop here has a server.
+#
+# This is the gap that made the naive-timestamp defect possible. The suite runs
+# against Postgres in CI, but it builds its schema with `create_all` — so the
+# *migrations* had still never touched a real server, and a migration is what a
+# hosted deploy actually applies. That defect bit "on any instance whose schema
+# came from Alembic rather than create_all", which is precisely the path
+# nothing exercised.
+_PG_BASE = os.environ.get("MIGRATION_TEST_DATABASE_URL", "")
 
-    env.py builds an async engine, so Alembic must be handed the aiosqlite
-    driver; the inspector afterwards is synchronous and needs the plain one.
-    Same file either way.
+
+def _db_urls(tmp_path, name="migrated"):
+    """(async, sync) URLs for one throwaway database.
+
+    env.py builds an async engine, so Alembic must be handed an async driver;
+    the inspector afterwards is synchronous and needs the sync one. Same
+    database either way — that is the whole contract, and the callers below do
+    not care which server is behind it.
     """
-    path = f"{tmp_path}/{name}.db"
-    return f"sqlite+aiosqlite:///{path}", f"sqlite:///{path}"
+    if not _PG_BASE:
+        path = f"{tmp_path}/{name}.db"
+        return f"sqlite+aiosqlite:///{path}", f"sqlite:///{path}"
+
+    # A real server has no equivalent of "a file in tmp_path", so make one:
+    # a fresh database per call, named after the test that asked. Dropped
+    # first rather than after, so a crashed run leaves evidence and the next
+    # run still starts clean. Postgres caps identifiers at 63 characters.
+    db = re.sub(r"[^a-z0-9_]", "_", f"migtest_{name}_{tmp_path.name}".lower())[:60]
+    url = sa.engine.make_url(_PG_BASE)
+    admin = sa.create_engine(
+        # "postgres" is the maintenance database: CREATE DATABASE cannot run
+        # inside a transaction, and cannot run from the database it creates.
+        url.set(drivername="postgresql+psycopg2", database="postgres"),
+        isolation_level="AUTOCOMMIT",
+    )
+    with admin.connect() as conn:
+        conn.execute(sa.text(f'DROP DATABASE IF EXISTS "{db}"'))
+        conn.execute(sa.text(f'CREATE DATABASE "{db}"'))
+    admin.dispose()
+
+    # Left behind on purpose. In CI the whole server is a service container
+    # thrown away with the job, and locally the drop above makes a rerun
+    # idempotent — so cleanup would only buy tidiness, at the cost of a
+    # teardown that runs while a failed test still wants its schema.
+    # render_as_string(hide_password=False), not str(): SQLAlchemy's __str__
+    # renders the password as "***", and these strings are handed to Alembic
+    # and to create_engine as connection URLs. The masked form is a valid URL
+    # with the wrong password, so it fails as an authentication error rather
+    # than as anything that mentions masking.
+    return (
+        url.set(drivername="postgresql+asyncpg", database=db).render_as_string(
+            hide_password=False
+        ),
+        url.set(drivername="postgresql+psycopg2", database=db).render_as_string(
+            hide_password=False
+        ),
+    )
 
 
 def test_migrations_run_and_reach_head(tmp_path):
@@ -123,15 +183,20 @@ def test_migrated_schema_matches_create_all(tmp_path):
 
 
 # --- the blind spot in every check above -------------------------------------
-# All of them run on SQLite, which stores timestamps as text and renders both
-# `DateTime()` and `DateTime(timezone=True)` as TIMESTAMP. So they compare
-# equal, `compare_type` sees nothing, and a naive column reaches Postgres —
-# where asyncpg refuses to write the tz-aware values this product produces, and
-# the write 500s.
+# On SQLite — which is how they run unless MIGRATION_TEST_DATABASE_URL is set —
+# timestamps are text, and both `DateTime()` and `DateTime(timezone=True)`
+# render as TIMESTAMP. So they compare equal, `compare_type` sees nothing, and
+# a naive column reaches Postgres, where asyncpg refuses to write the tz-aware
+# values this product produces and the write 500s.
 #
 # That has now happened twice: e7b3c95a1d84 repaired thirteen such columns, and
-# b6f30d7a4e51 added a fourteenth one table later. The two below are the only
-# checks here that do not need a Postgres server to notice it.
+# b6f30d7a4e51 added a fourteenth one table later.
+#
+# Pointing the checks above at Postgres closes the hole properly, and CI now
+# does. The two below stay regardless, because they are the ones that fail on a
+# laptop — the machine where the mistake is actually made, minutes after it is
+# made, rather than on a push. A guard that only fires in CI is a guard you
+# argue with; one that fires locally is one you fix.
 
 
 def test_every_timestamp_column_carries_its_timezone():
