@@ -11,6 +11,42 @@ kind of confidence that evaporates on first contact.
 
 ---
 
+## Amendment, 10 August — the build does not happen on this machine
+
+Stage A was written as "on this machine, before any cloud". It cannot be: the
+build filled the development machine's system drive and failed. `C:` had zero
+bytes free at the end of it, against a Docker disk image that had grown to
+10.6 GB and an image whose layers run to several GB more. That is a fact about
+the machine, not about Helix, but it changes the order of this plan.
+
+So the local container steps are withdrawn, and their *purpose* is redistributed
+rather than dropped — each of A1–A3 existed to answer a question, and every one
+of those questions still gets answered somewhere:
+
+| Question | Was going to be | Is now |
+|---|---|---|
+| Does the schema work on a real Postgres? | A2/A3, locally | **CI's `backend-postgres` job** — the whole suite against `postgres:16`, no Docker here |
+| Does the image build at all? | A1 | **CI's `image` job**, already on every push |
+| Does the built image run? | A1 | **B2 + C2**, on the VM, from GHCR |
+| Do the rooms hold against Postgres? | A2 | **C2**, once the instance is up (`HELIX_E2E_API`) |
+| Does state survive replacing a container? | A1 | **C2**, same place (`e2e/persistence.mjs`) |
+
+The one thing genuinely lost is the *cheapness* of finding out. The plan's whole
+premise was that a laptop failure costs minutes and a VM failure costs an
+afternoon. That premise no longer holds for the container steps, which is a
+reason to push harder on what CI can prove for free — and CI can prove the
+larger of the two risks, because the dialect difference was always the danger
+and the image build was always mostly a packaging check.
+
+**Not to be mistaken for the risk having gone away.** Nothing below is verified
+by a suite passing on a hosted Postgres: uvicorn actually serving, the volume
+actually mounting, the non-root user actually being able to write `/data`, and
+the memory figure holding on Linux. Those move to Stage C and arrive together,
+which is exactly the pile-up this plan was arranged to avoid. Stage C should be
+walked slowly for that reason.
+
+---
+
 ## The two risks that decide everything else
 
 **1. Memory — measured, 9 August.** The image bakes CPU PyTorch and MiniLM
@@ -96,6 +132,12 @@ about concurrent writers.
 ---
 
 ## Stage A — on this machine, before any cloud
+
+> **A1–A3 are withdrawn as local steps** (see the 10 August amendment): the
+> build does not fit on this machine. They are kept below rather than deleted,
+> because they are still the right checks — they now run in CI and on the
+> instance instead, and the *verify* lines are the checklist to carry there.
+> A4 and A5 are unaffected; neither ever needed a container.
 
 **A1. `docker compose up`, the default (SQLite).**
 Register, make a workspace, send a message on the stub provider, upload a
@@ -219,13 +261,17 @@ to pass without the policies installed, it is not testing them.
 
 ## Stage B — the image
 
-**B1.** Apply whatever A4 decided; rebuild; re-run A1's measurement. Set
-`--workers 1` explicitly rather than relying on the default — the memory budget
-is what caps it, and a future reader changing that number should have to read
-this line first.
-**B2.** Tag `v1.0.0`, push to GHCR.
+**B1.** Set `--workers 1` explicitly in the image rather than relying on the
+default — the memory budget is what caps it, and a future reader changing that
+number should have to read this line first. A4 needs no change applied.
+**B2.** Tag `v1.0.0`; **CI builds and pushes to GHCR** (`.github/workflows/
+release.yml`). The build runs on a runner with room for it, which since the
+10 August amendment is the only place it runs at all. The existing `image`
+job stays as the per-push correctness gate; release is the same build with
+`push: true` and a tag.
 *Verify:* `docker run ghcr.io/<owner>/helix:v1.0.0` on a clean machine with no
-repo checkout brings up a working app. That is the claim the README makes.
+repo checkout brings up a working app. That is the claim the README makes —
+and since nobody here has run the image, C2 is the first time it is tested.
 
 ---
 
@@ -234,6 +280,17 @@ repo checkout brings up a working app. That is the claim the README makes.
 **C1.** GCP VM (size per A4), Debian, Docker installed, firewall 80/443 only.
 **C2.** Compose up, with `JWT_SECRET` set explicitly rather than generated —
 one known secret is easier to rotate than one to go looking for.
+*This is where A1 and A2 now land*, and it is the first time the image has ever
+run, so take it in that order and stop at the first failure:
+1. `/health` answers, and `docker stats` reports the app around 570 MB — the
+   measurement of 9 August was taken on Windows and this is its Linux check.
+2. `node e2e/persistence.mjs seed …`, `docker compose down && up`,
+   then `verify` — the account, a token issued *before* the restart, the
+   thread, and a guided run paused before it. The token is the sharp one: a
+   fresh login would pass even against a regenerated signing secret.
+3. `HELIX_E2E_API=… node e2e/rooms.mjs` — all three rooms against Postgres.
+   Set `HELIX_E2E_MCP_HOST` to an address the *container* can reach, since
+   room two makes the app call back into a stub MCP server.
 **C3.** TLS. Caddy in front, one `Caddyfile`, automatic certificates. The app
 serves the API and the built frontend on one port, so there is nothing to route
 — this is a reverse proxy and not an ingress.
