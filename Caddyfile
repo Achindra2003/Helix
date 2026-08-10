@@ -1,0 +1,37 @@
+# TLS for the hosted Helix instance. Used by docker-compose.prod.yml.
+#
+# Caddy obtains and renews a Let's Encrypt certificate automatically, which is
+# the entire reason it is here rather than nginx: there is no certbot step, no
+# renewal cron, and no expiry to forget in ninety days. The only requirement is
+# that HELIX_DOMAIN's DNS A record already points at this instance before the
+# stack starts — the ACME challenge is answered on port 80, so a domain that
+# does not resolve here yet fails to issue rather than waiting.
+
+{$HELIX_DOMAIN} {
+	# The app serves the API and the built frontend on one port, so there is
+	# nothing to route — this is a reverse proxy and not an ingress.
+	reverse_proxy helix:8000 {
+		# Two streaming paths run through here and both would break silently
+		# under response buffering:
+		#
+		#   - Server-Sent Events, which is how a chat reply arrives token by
+		#     token. Buffered, the whole reply lands at once and the product's
+		#     defining interaction looks broken rather than fails.
+		#   - The workspace WebSocket (presence and fan-out), which Caddy
+		#     upgrades natively — no special directive needed.
+		#
+		# flush_interval -1 disables buffering outright. Caddy already does
+		# this for text/event-stream by content type; stating it means a
+		# response that streams under a different content type is covered too.
+		flush_interval -1
+	}
+
+	encode zstd gzip
+
+	# Off by default in Caddy. A deployment nobody can see the logs of is a
+	# deployment nobody can debug, and this is the first instance anyone has
+	# run — `docker compose logs caddy` should show requests arriving.
+	log {
+		output stderr
+	}
+}

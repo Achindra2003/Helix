@@ -1,0 +1,129 @@
+# Helix on the hosted instance — pull, never build.
+#
+#   HELIX_VERSION=v0.9.0-rc1 docker compose -f docker-compose.prod.yml up -d
+#
+# This file exists because the other two cannot be used on the server. Both
+# docker-compose.yml and docker-compose.postgres.yml carry a `build:` section,
+# which on a 1 GB e2-micro is not merely slow — the build needs several GB of
+# RAM and disk that the instance does not have, and the machine this project
+# was developed on ran its system drive to zero bytes attempting exactly that
+# (docs/DEPLOY-V1.md, 10 August amendment). So there is no `build:` anywhere
+# below. The image comes from GHCR, built by a runner that has room.
+#
+# Nothing here publishes a port except Caddy. The app and the database talk
+# over the compose network; the firewall only has to allow 80 and 443, which
+# is the only shape that survives someone forgetting to close 8000.
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-helix}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: ${POSTGRES_DB:-helix}
+    # Tuned down deliberately, and this is the line that makes the instance
+    # fit. Postgres defaults to shared_buffers=128MB and sizes several other
+    # caches from it; against a 1 GB box already holding a ~570 MB application
+    # that is most of the remaining headroom. 64 MB is ample for a workspace
+    # tool with a handful of concurrent users, and leaving the default here is
+    # the likeliest way to meet the OOM killer.
+    command: >
+      postgres
+      -c shared_buffers=64MB
+      -c effective_cache_size=192MB
+      -c max_connections=50
+      -c work_mem=2MB
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-helix}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  helix:
+    # No default tag on purpose. A floating `:latest` here would mean the
+    # instance silently changes version on the next `up`, and nobody could say
+    # afterwards what was running when something broke. The `:?` makes an
+    # unset version an error at the point of the mistake.
+    image: ghcr.io/achindra2003/helix:${HELIX_VERSION:?set HELIX_VERSION, e.g. v0.9.0-rc1}
+    restart: unless-stopped
+    # No `ports:`. Caddy reaches this over the compose network; the outside
+    # world reaches Caddy. Publishing 8000 would expose the app on plain HTTP
+    # alongside the TLS everything else goes through.
+    expose:
+      - "8000"
+    environment:
+      # NOTE the "+asyncpg" driver. api/db.py uses SQLAlchemy's async engine,
+      # which cannot drive a plain "postgresql://" URL — that form selects the
+      # synchronous psycopg2 driver, which is not installed, and the app dies
+      # on startup.
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-helix}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-helix}
+      # Set explicitly rather than generated. A generated secret lives in the
+      # data volume and is fine until the day you need to rotate it or restore
+      # onto a new instance — then it is a value nobody has. One known secret
+      # is easier to rotate than one to go looking for.
+      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env — see the runbook}
+      DB_AUTO_CREATE: ${DB_AUTO_CREATE:-false}
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      TAVILY_API_KEY: ${TAVILY_API_KEY:-}
+      FRONTEND_BASE_URL: https://${HELIX_DOMAIN:?set HELIX_DOMAIN in .env}
+    depends_on:
+      postgres:
+        # Wait for the database to actually accept connections, not merely for
+        # its container to exist — otherwise the app races it and crashes.
+        condition: service_healthy
+    # Lets the container resolve the VM it runs on. Two documented things need
+    # it, and neither works without it on Linux, where Docker does not provide
+    # this name by default:
+    #
+    #   - the room journeys (docs/DEPLOY-RUNBOOK.md, step 8). rooms.mjs starts
+    #     a stub MCP server on the host and registers it, and the *app* then
+    #     calls back into it. Without a name the container can resolve, room
+    #     two fails for a reason that looks like a Helix bug and is not.
+    #   - LLM_PROVIDER=ollama, if this instance ever points at an Ollama
+    #     running on the host rather than at Groq.
+    #
+    # It adds a hosts entry, not a published port; nothing new is reachable
+    # from outside the machine.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    volumes:
+      # Application data lives in Postgres, but /data still holds the
+      # checkpoint database for paused deep runs (CHECKPOINT_PATH is set to
+      # /data in the image). Without this volume a guided run paused before a
+      # redeploy would not survive it — which is the feature the volume is for.
+      - helix-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8000/health', timeout=4).status == 200 else 1)"]
+      interval: 30s
+      timeout: 5s
+      start_period: 40s
+      retries: 3
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    environment:
+      HELIX_DOMAIN: ${HELIX_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates and ACME account keys. Without this volume Caddy asks
+      # Let's Encrypt for a fresh certificate on every restart and will hit the
+      # rate limit (5 per domain per week) during exactly the kind of
+      # restart-heavy afternoon a first deployment is.
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - helix
+
+volumes:
+  postgres-data:
+  helix-data:
+  caddy-data:
+  caddy-config:

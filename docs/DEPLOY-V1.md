@@ -9,6 +9,13 @@ minutes, rather than on a VM at the end.
 written, reviewed and covered by tests that use SQLite — which is precisely the
 kind of confidence that evaporates on first contact.
 
+> **Running the deployment?** Use **`DEPLOY-RUNBOOK.md`**, not this file. Since
+> the machine-side work is now done by someone who was not part of these
+> conversations, the commands live there as an ordered list with their
+> verification attached. This document is the reasoning behind that order —
+> read it to understand *why* a step exists or what a failure means, and read
+> the runbook to know what to type.
+
 ---
 
 ## Amendment, 10 August — the build does not happen on this machine

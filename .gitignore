@@ -19,6 +19,9 @@ dist/
 .env
 .env.*
 !.env.example
+# The hosted instance's template. Same rule as above: the example is committed
+# so the server has something to copy, the filled-in .env never is.
+!.env.prod.example
 
 # Editors / OS
 .idea/
