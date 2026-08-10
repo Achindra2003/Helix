@@ -14,13 +14,24 @@
 //
 // Isolated stack on 8023, throwaway DB, stub provider. Ports chosen to miss
 // every other script in this directory.
+//
+// Set HELIX_E2E_API to run the same journeys against a stack that is already
+// running — which for DEPLOY-V1 stage A2 is the Postgres container. The rooms
+// are the assertion either way; the point of pointing them at a container is
+// that a dialect difference shows up as a room failing rather than as a
+// mysterious 500 in production. Two things change when the stack is external:
+// nothing is booted here, and the MCP server the app calls back into has to be
+// named by an address reachable *from the app*, which inside Docker is not
+// 127.0.0.1 — hence HELIX_E2E_MCP_HOST.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 const repo = "D:/Specialisation Project 4th Trimester";
-const API = "http://127.0.0.1:8023";
+const EXTERNAL = process.env.HELIX_E2E_API || "";
+const API = EXTERNAL || "http://127.0.0.1:8023";
+const MCP_HOST = process.env.HELIX_E2E_MCP_HOST || "127.0.0.1";
 const dbFile = join(tmpdir(), `helix-rooms-${Date.now()}.db`);
 const children = [];
 const failures = [];
@@ -46,6 +57,18 @@ async function waitFor(url, label, tries = 160) {
     await new Promise((r) => setTimeout(r, 500));
   }
   throw new Error(`${label} never came up at ${url}`);
+}
+
+/** Re-read something until it stops being in-flight. Returns the last value
+ *  either way, so the caller's assertion is what reports the failure — a
+ *  timeout here should not hide *what* the document ended up as. */
+async function settle(read, done, tries = 60) {
+  let last = await read();
+  for (let i = 0; i < tries && !done(last); i++) {
+    await new Promise((r) => setTimeout(r, 500));
+    last = await read();
+  }
+  return last;
 }
 
 function check(ok, label) {
@@ -291,7 +314,7 @@ async function roomTwo(mcpPort) {
   // MCP as a catalog source: discovery, then the owner's allowlist.
   const added = await api(`/api/workspaces/${ws.id}/mcp`, {
     token: lead.token, method: "POST",
-    body: { name: "github", url: `http://127.0.0.1:${mcpPort}` },
+    body: { name: "github", url: `http://${MCP_HOST}:${mcpPort}` },
   });
   const server = added.items[0];
   check(!!server, "an MCP server can be registered against a workspace");
@@ -405,7 +428,17 @@ async function roomThree() {
   const doc = await (await fetch(`${API}/api/workspaces/${ws.id}/documents`, {
     method: "POST", headers: { Authorization: `Bearer ${pi.token}` }, body: form,
   })).json();
-  check(doc.status === "ready", `a paper ingests and chunks (${doc.chunk_count} chunks)`);
+  // Polled rather than asserted outright. The stack booted above sets
+  // DOCUMENTS_INGEST_INLINE, so upload returns already-chunked; a real
+  // deployment does that work in the background and answers "pending" first.
+  // Waiting covers both, and asserting after the wait still fails an ingest
+  // that never finishes — which is the thing worth catching.
+  const ingested = await settle(
+    () => api(`/api/workspaces/${ws.id}/documents/${doc.id}`, { token: pi.token }),
+    (d) => d.status !== "processing",
+  );
+  check(ingested.status === "ready",
+    `a paper ingests and chunks (${ingested.chunk_count} chunks)`);
 
   // A filename is not a citation.
   const catalogued = await api(`/api/workspaces/${ws.id}/documents/${doc.id}`, {
@@ -470,13 +503,17 @@ async function roomThree() {
 let mcp;
 async function main() {
   mcp = await startMcpServer(8123);
-  boot(join(repo, "backend", ".venv", "Scripts", "python.exe"),
-    ["-m", "uvicorn", "api.main:app", "--port", "8023"],
-    { cwd: join(repo, "backend"), env: {
-      ...process.env, LLM_PROVIDER: "stub", HELIX_DEV: "1",
-      DOCUMENTS_INGEST_INLINE: "1",
-      DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}`,
-    } });
+  if (EXTERNAL) {
+    console.log(`running against ${API} (MCP callback host: ${MCP_HOST})`);
+  } else {
+    boot(join(repo, "backend", ".venv", "Scripts", "python.exe"),
+      ["-m", "uvicorn", "api.main:app", "--port", "8023"],
+      { cwd: join(repo, "backend"), env: {
+        ...process.env, LLM_PROVIDER: "stub", HELIX_DEV: "1",
+        DOCUMENTS_INGEST_INLINE: "1",
+        DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}`,
+      } });
+  }
   await waitFor(`${API}/health`, "backend");
 
   await roomOne();
