@@ -25,7 +25,8 @@ of those questions still gets answered somewhere:
 
 | Question | Was going to be | Is now |
 |---|---|---|
-| Does the schema work on a real Postgres? | A2/A3, locally | **CI's `backend-postgres` job** — the whole suite against `postgres:16`, no Docker here |
+| Does the app's SQL work on a real Postgres? | A2, locally | **CI's `backend-postgres` job** — the whole suite against `postgres:16`, no Docker here |
+| Do the *migrations* work on a real Postgres? | A3, locally | **Same job**, via `MIGRATION_TEST_DATABASE_URL` — see A3, which this closed on 10 August |
 | Does the image build at all? | A1 | **CI's `image` job**, already on every push |
 | Does the built image run? | A1 | **B2 + C2**, on the VM, from GHCR |
 | Do the rooms hold against Postgres? | A2 | **C2**, once the instance is up (`HELIX_E2E_API`) |
@@ -162,11 +163,32 @@ today; anything that fails here is a genuine dialect difference — the class of
 bug where SQLite accepts a foreign key Postgres rejects, which this repo has
 been bitten by before.
 
-**A3. Migrations against a real server.**
-`alembic upgrade head` in the Postgres container, then `alembic check`.
-*Verify:* no drift, and specifically that a document upload and a delete both
-succeed — that is the path the naive-timestamp defect broke, and the only way
-to confirm the repair is a write against a real `TIMESTAMPTZ` column.
+**A3. Migrations against a real server. ✅ Done in CI, 10 August.**
+This was the last item that could still find a code-level defect, and it turned
+out not to need a container either.
+
+The gap it closed is narrow and was easy to miss: CI's `backend-postgres` job
+already ran the whole suite against `postgres:16`, but that schema is built by
+`create_all`. A hosted deploy applies **migrations**. So the migrations had
+still never touched a real server — and that is exactly where the
+naive-timestamp defect lived, since it only bit instances whose schema came
+from Alembic rather than `create_all`.
+
+`api/tests/test_migrations.py` now takes a `MIGRATION_TEST_DATABASE_URL` and
+creates a throwaway database per test on a real server; the workflow points it
+at the Postgres service the job already had. The four checks are the ones that
+were always there, on a dialect that can finally tell `TIMESTAMP` from
+`TIMESTAMP WITH TIME ZONE`: upgrade reaches head, `compare_metadata` finds no
+drift, **the migrated schema equals the `create_all` schema**, and downgrade
+returns to base. All pass — so the two install paths really do agree on
+Postgres, which had been asserted for months and checked only on SQLite.
+
+A fifth check guards the wiring: it fails if a server is claimed and not used.
+Without it a misspelled variable would send the others quietly back to SQLite
+and still report green — the same defect shape, turned on the test file.
+
+*Still needing a live instance:* that a document upload and delete succeed
+end to end. The schema is now proven; the write path through it is a C2 step.
 The four migration tests that used to fail on Windows are green now (the cause
 was a path assumption, not the database), so two known local failures remain
 and both are environmental: file modes, and a Tavily key in `.env`.
