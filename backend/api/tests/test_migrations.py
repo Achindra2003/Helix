@@ -21,6 +21,7 @@ import os
 import re
 from pathlib import Path
 
+import pytest
 import sqlalchemy as sa
 from alembic import command
 from alembic.autogenerate import compare_metadata
@@ -115,6 +116,26 @@ def _db_urls(tmp_path, name="migrated"):
             hide_password=False
         ),
     )
+
+
+def test_the_server_is_actually_reached_when_one_is_configured(tmp_path):
+    """That the Postgres mode is really in use, when CI says it should be.
+
+    Everything else in this file passes on SQLite. So if the workflow's
+    `MIGRATION_TEST_DATABASE_URL` were misspelled, or set on the wrong step, or
+    dropped in a refactor, these checks would quietly go back to proving
+    nothing about Postgres and still report green — which is exactly the shape
+    of defect this file exists to catch, turned on the file itself.
+
+    Skipped rather than failed without the variable: SQLite is the honest
+    default for a laptop, and this only has an opinion about the case where
+    somebody has claimed a server.
+    """
+    if not _PG_BASE:
+        pytest.skip("no MIGRATION_TEST_DATABASE_URL — SQLite mode is the default")
+    async_url, sync_url = _db_urls(tmp_path)
+    assert async_url.startswith("postgresql+asyncpg://"), async_url
+    assert sync_url.startswith("postgresql+psycopg2://"), sync_url
 
 
 def test_migrations_run_and_reach_head(tmp_path):
