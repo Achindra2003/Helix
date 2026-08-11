@@ -42,8 +42,9 @@ because a given failure is necessarily real, but because "we shipped it with a
 red build and assumed" is not a sentence you want to be saying afterwards.
 Re-check before step 1 rather than trusting this paragraph.
 
-**Nothing has been published yet.** `ghcr.io/achindra2003/helix` does not exist
-at any tag. Step 1 creates it.
+**The image is published.** `ghcr.io/achindra2003/helix:v0.9.0-rc1` exists and
+is anonymously pullable as of 11 August — step 1 is done, and Mansoor starts at
+step 2.
 
 **Nobody has ever run this image.** It builds in CI and is never started there.
 Step 9 is the first execution of the built artifact in the project's history,
@@ -129,13 +130,33 @@ git push origin v0.9.0-rc1
 unclaimed until a real release, so nothing points strangers at an image that
 has not been through step 9 yet.
 
-**Then make the package public** — GHCR packages are private by default even
-from a public repo, and the instance will fail to pull with an authentication
-error that looks nothing like a permissions problem. GitHub → your profile →
+**Package visibility needed no manual step.** An earlier draft of this file
+said GHCR packages are private by default and must be flipped in the UI. That
+is true of a package created by a personal access token; it is not true here.
+This one is published by the workflow's `GITHUB_TOKEN` from a public
+repository, so it inherited that repository's visibility and was pullable
+anonymously the moment it existed. Checked rather than assumed — see below.
+If a future package does come out private, the fix is GitHub → profile →
 Packages → `helix` → Package settings → Change visibility → Public.
 
-*Verify:* `docker pull ghcr.io/achindra2003/helix:v0.9.0-rc1` from any machine
-with no GitHub credentials.
+**Verified after the fact, 11 August**, against the registry with an anonymous
+token and no GitHub credentials:
+
+| | |
+|---|---|
+| Anonymous pull | works (`200` on the manifest and the tag list) |
+| Tags published | `v0.9.0-rc1` — and nothing else |
+| `:latest` | `404`. The pre-release logic works in practice, not just on paper |
+| Platform | `linux/amd64` only, which is what an `e2-micro` is |
+| Download size | **~617 MB** compressed across 12 layers |
+
+That last number is the one to plan the VM's first minutes around: ~617 MB is
+what crosses the network, and the *unpacked* image on disk is several times
+that — comfortably inside step 2's 20 GB, and nowhere near quick on a shared
+vCPU. A slow first `docker compose up` is expected and is not a fault.
+
+*Re-verify at any time:* `docker pull ghcr.io/achindra2003/helix:v0.9.0-rc1`
+from a machine with no GitHub credentials.
 
 ## Step 2 — the instance
 
