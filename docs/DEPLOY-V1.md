@@ -325,7 +325,14 @@ serves the API and the built frontend on one port, so there is nothing to route
 — this is a reverse proxy and not an ingress.
 **C4.** Decide `ALLOW_REGISTRATION`. Open is right for a public demo and wrong
 the moment it is a real instance; the knob and the invite-only path both exist.
-**C5.** Seed the example workspace so the first screen is not empty.
+*Ordering constraint, found 11 August:* it can only be closed **after** the
+first accounts exist. Registration with signup closed requires an invite, and
+invites are issued by workspace owners, so on an empty database there is nobody
+to issue one and a `false` set in advance locks the instance out permanently.
+**C5. Already done — no step.** `seed_example_workspace` runs on every
+successful registration (`api/routers/auth.py`), after the commit and
+swallowing its own failures, so the first screen is populated without anyone
+seeding anything.
 
 ---
 

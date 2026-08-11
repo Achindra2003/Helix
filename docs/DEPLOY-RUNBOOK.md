@@ -5,8 +5,10 @@ risk; this one is a list of commands for someone who was not part of those
 conversations. Where the two disagree, this file is what to run and that one is
 why.
 
-**Read the whole of "Before you start" before typing anything.** Two of the
-steps below cannot be undone cheaply, and one of them is currently blocked.
+**Read the whole of "Before you start" and "What this costs" before typing
+anything.** Two of the steps below cannot be undone cheaply, one flag decides
+whether this instance is free, and one setting locks the instance out for good
+if it is changed too early.
 
 ---
 
@@ -22,14 +24,23 @@ steps below cannot be undone cheaply, and one of them is currently blocked.
 
 ## Before you start
 
-**Blocker — CI is red.** The `Backend tests (261, hermetic)` job has failed on
-the last two pushes (`0f2811b`, `8e122ab`), both of which touched only
-documentation and a workflow file. The Postgres job passes, and the full suite
-passes locally (511 passed, 1 skipped). The cause is not yet known: reading the
-failing log needs `gh auth login`, which nobody has run. **Do not publish an
-image while a test job is red** — not because the failure is necessarily real,
-but because "we shipped it with a red build and assumed" is the sentence you do
-not want to be saying later. Diagnose it first; it is likely quick.
+**CI is green at HEAD.** All four jobs pass on `6738204`. An earlier note here
+called this a blocker; it no longer is.
+
+One thing to know rather than to act on: the `Backend tests (261, hermetic)`
+job failed on `0f2811b` and `8e122ab` — two commits that touched only a
+workflow file and documentation — and then passed on `6738204`, which is also
+inert. In both failures the dependency install *succeeded* and the test step
+ran its full ~165 s, the same as a green run, so this is not a broken
+environment; it is one or more tests that fail intermittently. Nobody has named
+which, because reading a failing job's log needs `gh auth login` and that has
+not been run. It is worth naming before `v1.0.0` and it does not block anything
+below.
+
+**The rule stands: do not publish an image while a test job is red.** Not
+because a given failure is necessarily real, but because "we shipped it with a
+red build and assumed" is not a sentence you want to be saying afterwards.
+Re-check before step 1 rather than trusting this paragraph.
 
 **Nothing has been published yet.** `ghcr.io/achindra2003/helix` does not exist
 at any tag. Step 1 creates it.
@@ -47,9 +58,30 @@ rather than a paragraph.
 - A domain name you can add an A record to. Caddy issues a Let's Encrypt
   certificate for it, so **DNS must point at the instance before the stack
   starts** — the ACME challenge is answered on port 80, and a name that does
-  not resolve to this machine fails to issue rather than waiting.
+  not resolve to this machine fails to issue rather than waiting. If you do
+  not own one, see step 5: a free subdomain works and needs no change to the
+  `Caddyfile`.
 - A Groq API key. See the note in step 7 — it is needed for verification even
   though the instance runs on the stub provider.
+
+### What this costs
+
+The intended answer is nothing, and it is nearly true. `e2-micro` in the three
+listed regions, and 20 GB of `pd-standard`, are inside Google's always-free
+allowance; the registry, CI, TLS, and the Groq and Tavily free tiers cost
+nothing. Two things sit outside it, and both are easy to miss:
+
+- **The external IPv4 address**, roughly $3 a month. Google bills every public
+  IPv4 attached to a running instance, free-tier machine or not. There is no
+  way around it while the instance is reachable from the internet — deleting
+  the instance after the evaluation window is the lever, not tuning.
+- **The boot disk**, if step 2's `--boot-disk-type` flag is dropped.
+
+The always-free tier also requires an **upgraded (paid) billing account** with
+a card on file. Trial credits expire, and when they do an un-upgraded account
+stops its resources — which for a demo URL tends to happen exactly when
+somebody finally opens it. Set a $1 budget alert while you are in the billing
+console.
 
 ---
 
@@ -83,7 +115,9 @@ rather than tuning — say so rather than trimming the app.
 
 ## Step 1 — publish the image *(Achindra's go-ahead; runs in CI, not on a machine)*
 
-Requires the CI blocker above to be resolved first.
+Confirm CI is green on the commit being tagged before running this — see
+"Before you start". It was green at `6738204`; that is a fact with a date on
+it, not a standing guarantee.
 
 ```bash
 git tag v0.9.0-rc1
@@ -111,12 +145,20 @@ gcloud compute instances create helix-v1 \
   --zone=us-central1-a \
   --image-family=debian-12 --image-project=debian-cloud \
   --boot-disk-size=20GB \
+  --boot-disk-type=pd-standard \
   --tags=http-server,https-server
 ```
 
 `e2-micro` is only free in `us-west1`, `us-central1` and `us-east1`. 20 GB of
 disk is well beyond the ~2.5 GB image, and disk is the cheap axis — this
 project has already lost a day to a full one.
+
+**`--boot-disk-type=pd-standard` is not optional if this is meant to be free.**
+`gcloud` defaults new instances to `pd-balanced`, and the always-free
+allowance covers *standard* persistent disk only — 30 GB-months of it, so 20 GB
+sits inside it. Omit the flag and the instance still works; it just quietly
+bills for the disk, which is the kind of charge nobody notices until the month
+turns.
 
 ## Step 3 — firewall
 
@@ -152,6 +194,18 @@ Point an A record for your domain at the instance's external IP
 --format='get(networkInterfaces[0].accessConfigs[0].natIP)'`), and wait for it
 to resolve before step 8. `dig +short your.domain` answering with that IP is
 the check.
+
+**No domain?** A free subdomain from [DuckDNS](https://duckdns.org) works
+exactly like any other name here: it is ordinary public DNS, Caddy answers the
+same HTTP-01 challenge on port 80, and the `Caddyfile` needs no change at all —
+put `helix-something.duckdns.org` in `HELIX_DOMAIN` and continue. Swapping to a
+real domain later is that one line and a restart.
+
+Avoid the wildcard-DNS services that encode an IP in the hostname
+(`nip.io`, `sslip.io` and friends). They resolve fine, but everyone shares one
+registered domain, so Let's Encrypt's per-domain rate limit is frequently
+already spent by strangers and issuance fails for reasons that look like a
+problem with this instance.
 
 ## Step 6 — the repo and the configuration
 
@@ -276,6 +330,30 @@ exactly this.
 Register through the UI over HTTPS, make a workspace, send a message, upload a
 document. The install a stranger would do, done once by us — and the only check
 here that exercises the built frontend rather than the API.
+
+Registering also seeds an example workspace automatically (`auth.py` calls
+`seed_example_workspace` after the account commits), so the first screen is not
+empty and there is nothing to seed by hand.
+
+---
+
+## Step 10 — decide who can sign up *(after step 9, never before)*
+
+`.env` ships `ALLOW_REGISTRATION=true`, and it has to start that way. With
+registration closed, `/auth/register` demands a valid invite, and invites come
+from workspace owners — on an empty database nobody can issue one, so closing
+signup before anyone has registered locks the instance out for good.
+
+So once the accounts that should exist do exist, make the call:
+
+| | |
+|---|---|
+| **Leave it open** | Right for a public demo anyone should be able to try. |
+| **`ALLOW_REGISTRATION=false`,** then `docker compose -f docker-compose.prod.yml up -d` | Right for a real instance. Existing users keep working; new ones need an invite link. |
+
+Not a formality. `GROQ_API_KEY` is the *server's* key and Deep Reasoning falls
+back to it for every user regardless of provider, so on an open instance anyone
+who finds the URL can spend it. Whichever you pick, pick it deliberately.
 
 ---
 
