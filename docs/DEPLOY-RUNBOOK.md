@@ -56,12 +56,12 @@ rather than a paragraph.
 ## What you need first
 
 - A GCP project with billing enabled.
-- A domain name you can add an A record to. Caddy issues a Let's Encrypt
-  certificate for it, so **DNS must point at the instance before the stack
-  starts** — the ACME challenge is answered on port 80, and a name that does
-  not resolve to this machine fails to issue rather than waiting. If you do
-  not own one, see step 5: a free subdomain works and needs no change to the
-  `Caddyfile`.
+- The domain. **`helix-arm.duckdns.org`**, already claimed — you need the
+  DuckDNS token from whoever owns the account, so the name can be repointed
+  at the instance in step 5. Caddy issues a Let's Encrypt certificate for it,
+  so **DNS must point at the instance before the stack starts**: the ACME
+  challenge is answered on port 80, and a name pointing anywhere else fails
+  to issue rather than waiting.
 - A Groq API key. See the note in step 7 — it is needed for verification even
   though the instance runs on the stub provider.
 
@@ -216,17 +216,36 @@ Point an A record for your domain at the instance's external IP
 to resolve before step 8. `dig +short your.domain` answering with that IP is
 the check.
 
-**This instance uses [DuckDNS](https://duckdns.org)** (decided 11 August). It
-is ordinary public DNS, so Caddy answers the same HTTP-01 challenge on port 80
-and the `Caddyfile` needs no change at all — put `<name>.duckdns.org` in
-`HELIX_DOMAIN` and continue. Swapping to a real domain later is that one line
-and a restart.
+**This instance is `helix-arm.duckdns.org`** — claimed 11 August, and already
+live. [DuckDNS](https://duckdns.org) is ordinary public DNS, so Caddy answers
+the same HTTP-01 challenge on port 80 and the `Caddyfile` needs no change at
+all. Swapping to a real domain later is one `.env` line and a restart.
 
-Useful ordering: the subdomain can be **claimed before the instance exists**,
-and pointed at an IP afterwards from the DuckDNS page (or by hitting its update
-URL from the VM). So the name does not have to wait on step 2, and step 2 does
-not have to wait on whoever owns the DuckDNS account — only the A-record update
-sits between them, and it propagates in about a minute.
+**It currently points somewhere else.** As of 11 August it answers
+`103.146.217.131`, which is the network it was registered from, not a server.
+This is the normal state for a freshly claimed name and it is the trap in this
+step: a domain that resolves to the *wrong* host looks healthier than one that
+does not resolve at all, and Caddy will happily try to issue against it. Let's
+Encrypt then calls that address on port 80, finds nothing, and spends one of
+the five certificate attempts you get per week.
+
+So the check is not "does it resolve" but **"does it resolve to this
+instance"**:
+
+```bash
+dig +short helix-arm.duckdns.org      # must equal the VM's external IP
+```
+
+Repoint it after step 2 from the DuckDNS page, or from the VM itself:
+
+```bash
+curl "https://www.duckdns.org/update?domains=helix-arm&token=<token>&ip="
+```
+
+Leaving `ip=` empty makes DuckDNS use the address the request came from, which
+is the VM — so run it *on the box* and it sets itself. Propagation is about a
+minute. The token is on the DuckDNS page; treat it like a password, since
+anyone holding it can move the name.
 
 Avoid the wildcard-DNS services that encode an IP in the hostname
 (`nip.io`, `sslip.io` and friends). They resolve fine, but everyone shares one
