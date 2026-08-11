@@ -30,8 +30,8 @@ here.
 
 | | |
 |---|---|
-| **Achindra** | The Hugging Face and Neon accounts, and the Groq key. All three are email sign-ups; none takes a card. |
-| **Mansoor** | Everything below. |
+| **Mansoor** | All of it, accounts included — Hugging Face, Neon and Groq are three email sign-ups and none takes a card. Nothing below needs anyone else. |
+| **Achindra** | Nothing, once this starts. One thing to know: the Space lives under whoever's account creates it, so the public URL will read `huggingface.co/spaces/<mansoor>/helix`. Add Achindra as a Space collaborator (Settings → Collaborators) so the link does not depend on one person's account. |
 | **Already done** | The image is published and CI-green: `ghcr.io/achindra2003/helix:v0.9.0-rc1`, anonymously pullable, linux/amd64, ~617 MB. The Space does not build Helix — it runs that artifact. |
 
 ---
@@ -84,11 +84,19 @@ works normally.
 
 ---
 
-## What you need first
+## Step 0 — the three accounts
 
-- A **Hugging Face** account — huggingface.co, email sign-up, no card.
-- A **Neon** account — neon.tech, email sign-up, no card. Free Postgres.
-- A **Groq API key** — console.groq.com. Free tier.
+All three are email sign-ups. None asks for a card, and none needs
+institutional verification — which is the entire reason this deployment is
+here rather than on a VM.
+
+| | |
+|---|---|
+| **huggingface.co** | Hosts the Space. Sign up, verify the email, done. |
+| **neon.tech** | Free Postgres. "Sign up with GitHub" is the fastest route. |
+| **console.groq.com** | Free API key, used in step 4. Create it under *API Keys* and copy it immediately — Groq shows it once. |
+
+Fifteen minutes, and none of it depends on anyone else.
 
 ---
 
