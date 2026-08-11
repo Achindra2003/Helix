@@ -1,5 +1,25 @@
 # Deploy runbook — Helix v1 on a GCP instance
 
+> ## ⚠ Superseded, 11 August — do not follow this file
+>
+> **The live runbook is [`DEPLOY-HF-SPACES.md`](DEPLOY-HF-SPACES.md).**
+>
+> GCP was abandoned at the billing step, not on technical grounds: the card was
+> declined, the UPI alternative wanted a ₹1000 prepayment with reports of
+> accounts suspended right after paying, and Azure for Students failed
+> institutional email verification. Helix now runs on Hugging Face Spaces,
+> which needs no payment method.
+>
+> Kept rather than deleted, because most of it survived the move and is the
+> only written record of *why*: the memory measurements, the sizing table, the
+> `postgresql+asyncpg` trap, the reasoning about verification order, and the
+> registration-bootstrap constraint all still apply. What is dead is
+> everything specific to a VM — `gcloud`, the firewall, swap, Caddy, TLS, and
+> `helix-arm.duckdns.org`, which a free Space cannot use.
+>
+> If a future deployment gets a working card, this file is a better starting
+> point than a blank page. Until then it describes a machine nobody has.
+
 The executable half of `DEPLOY-V1.md`. That document argues about ordering and
 risk; this one is a list of commands for someone who was not part of those
 conversations. Where the two disagree, this file is what to run and that one is
