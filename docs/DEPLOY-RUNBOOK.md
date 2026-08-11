@@ -195,11 +195,17 @@ Point an A record for your domain at the instance's external IP
 to resolve before step 8. `dig +short your.domain` answering with that IP is
 the check.
 
-**No domain?** A free subdomain from [DuckDNS](https://duckdns.org) works
-exactly like any other name here: it is ordinary public DNS, Caddy answers the
-same HTTP-01 challenge on port 80, and the `Caddyfile` needs no change at all —
-put `helix-something.duckdns.org` in `HELIX_DOMAIN` and continue. Swapping to a
-real domain later is that one line and a restart.
+**This instance uses [DuckDNS](https://duckdns.org)** (decided 11 August). It
+is ordinary public DNS, so Caddy answers the same HTTP-01 challenge on port 80
+and the `Caddyfile` needs no change at all — put `<name>.duckdns.org` in
+`HELIX_DOMAIN` and continue. Swapping to a real domain later is that one line
+and a restart.
+
+Useful ordering: the subdomain can be **claimed before the instance exists**,
+and pointed at an IP afterwards from the DuckDNS page (or by hitting its update
+URL from the VM). So the name does not have to wait on step 2, and step 2 does
+not have to wait on whoever owns the DuckDNS account — only the A-record update
+sits between them, and it propagates in about a minute.
 
 Avoid the wildcard-DNS services that encode an IP in the hostname
 (`nip.io`, `sslip.io` and friends). They resolve fine, but everyone shares one
