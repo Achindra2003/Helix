@@ -11,6 +11,13 @@ from __future__ import annotations
 
 # model-id prefix -> (input $/1M tokens, output $/1M tokens)
 PRICES_PER_MILLION: dict[str, tuple[float, float]] = {
+    "openai/gpt-oss-20b": (0.075, 0.30),
+    "openai/gpt-oss-120b": (0.15, 0.60),
+    # Kept after their 16 Aug 2026 shutdown on Groq's free and developer
+    # tiers: enterprise contracts still serve them, a workspace can still
+    # name one under its own key, and an existing usage ledger holds rows
+    # that were priced at these figures. Dropping them would silently
+    # restate history as "unknown model".
     "llama-3.1-8b-instant": (0.05, 0.08),
     "llama-3.3-70b-versatile": (0.59, 0.79),
     "gemma2-9b-it": (0.20, 0.20),
