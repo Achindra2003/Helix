@@ -120,6 +120,10 @@ docker compose up
 Open **http://localhost:8000**, register, create a workspace, and chat. That
 is the whole install — no Python, no Node, no database server, no API key.
 
+The first run **builds** the image rather than downloading one, which takes
+roughly ten minutes and wants several GB of free disk (see *About the image*
+for where the size goes). Nothing after that first build is slow.
+
 The container serves the API *and* the built UI on one port, stores its data
 in a Docker volume (so it survives rebuilds), runs as a non-root user, and
 reports health to Docker. It ships on the `stub` provider: a fake model that
@@ -192,7 +196,14 @@ model).
 
 ### Switch to Postgres later
 Set `DATABASE_URL=postgresql+asyncpg://helix:helix@localhost:5432/helix` in
-`backend/.env` and run `docker compose up postgres` — no code changes.
+`backend/.env` and start just the database — no code changes:
+
+```bash
+docker compose -f docker-compose.postgres.yml up postgres
+```
+
+The `postgres` service lives in that file, not the default one; the default
+compose file runs Helix alone on SQLite and has no database server in it.
 
 ## Choosing an LLM provider
 
@@ -202,17 +213,43 @@ Set `LLM_PROVIDER` in `backend/.env`:
 |----------|--------------------------------|--------------------------------------|
 | `stub`   | nothing                        | echoes the prompt; default           |
 | `groq`   | `GROQ_API_KEY`                 | hosted, fast, free tier              |
-| `ollama` | `docker compose --profile ollama up` then `docker compose exec ollama ollama pull llama3.2` | local, ~8GB RAM |
+| `ollama` | [Ollama](https://ollama.com) running separately, then `ollama pull llama3.2` | local, ~8GB RAM |
 
-Deep Reasoning always runs on Groq and uses its own model
-(`DEEP_REASONING_MODEL`, default the 70B) so chat can stay on a fast small
-model while the reasoning loop gets the strongest one.
+Helix ships no Ollama container — it points at one you already run, via
+`OLLAMA_BASE_URL`. Developing on the host, the default `http://localhost:11434`
+is right; from inside the Helix container it is not, because localhost there is
+the container: use `http://host.docker.internal:11434`.
+
+Deep Reasoning and agent runs follow the same provider the workspace chats
+with — Groq, a local Ollama, or any OpenAI-compatible endpoint — so a fully
+self-hosted Helix with no cloud account still gets its flagship feature. They
+take their own model (`DEEP_REASONING_MODEL`, or **deep model** in the
+Provider panel), so chat can stay on a fast small model while the reasoning
+loop gets the strongest one. On Ollama and OpenAI-compatible endpoints the
+default is simply the workspace's chat model, since the Groq-shaped default
+name would not exist there.
+
+## Restarts
+
+Deep and agent runs pause for a human — a guided run stops for steering, an
+agent turn stops for tool approval — and that wait can outlast the server.
+**A paused run survives a restart**: its reasoning is checkpointed to
+`helix-checkpoints.db` (beside your database; set `CHECKPOINT_PATH` to move
+it) and everything around it to a `resumable_runs` row, so steering it after a
+deploy picks up where it stopped rather than answering "not found".
+
+A run that is *mid-execution* when the process dies is lost, and costs one
+re-run. `GET /health` reports `durable_runs` so you can tell which regime you
+are in — it is `false` if the checkpoint driver is missing, in which case the
+server still starts and says so in the log.
 
 ## Roadmap (post-v2)
 
 - Per-conversation model picker (today the provider/model is set once per
   workspace) and agents/connectors — the next wave of market gaps.
-- Postgres row-level security + Alembic migrations for prod hardening.
+- Postgres row-level security, as defence in depth behind the per-route tenancy
+  checks that enforce it today. (Alembic migrations are done — 15 of them, and
+  CI applies them to a real Postgres on every push.)
 - Redis pub/sub behind the realtime seam for multi-process deployment.
 - A blob store for original uploaded files (today only extracted text is
   kept; re-upload re-ingests).

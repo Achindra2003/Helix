@@ -41,6 +41,49 @@ class DocumentRow(Base):
     chunk_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
 
+    # ── bibliographic identity ───────────────────────────────────────────────
+    # A research team uploads papers; the index knew only filenames. So a
+    # citation read "[smith-et-al-final-v3.pdf — part 4]", which is not a
+    # citation — it names a file on somebody's laptop, not a work anyone else
+    # can find. These four fields are what turn a chunk reference into a
+    # reference.
+    #
+    # All optional, all editable after upload, and none of them extracted
+    # automatically: guessing an author from a PDF's metadata is wrong often
+    # enough that a wrong attribution would be worse than a blank one, and this
+    # is the field a reader will trust most.
+    doc_title: Mapped[str] = mapped_column(String, default="")
+    authors: Mapped[str] = mapped_column(String, default="")
+    year: Mapped[str] = mapped_column(String, default="")
+    # DOI, arXiv id, or a URL — one "where does this live" field rather than
+    # three that are usually empty.
+    identifier: Mapped[str] = mapped_column(String, default="")
+
+
+def cite_as(d: DocumentRow) -> str:
+    """One short human reference for this document.
+
+    "Smith et al. (2019)" when we know that much, the title when only a title
+    was given, the filename otherwise. Never empty: a source with no visible
+    name reads as a rendering fault, and the filename is at least true.
+
+    Lives beside the row rather than in the router because three readers need
+    the identical string — the citation chip, the exports, and the grounding
+    block the *model* sees. If they computed it separately they would drift,
+    and a reply that names its source differently from the export beneath it is
+    worse than one that names it plainly.
+    """
+    who = (d.authors or "").strip()
+    year = (d.year or "").strip()
+    title = (d.doc_title or "").strip()
+    if who and year:
+        return f"{who} ({year})"
+    if who:
+        return who
+    if title and year:
+        return f"{title} ({year})"
+    return title or d.filename
+
 
 class DocumentChunkRow(Base):
     """One retrievable chunk: its text and its embedding, versioned like
@@ -58,3 +101,41 @@ class DocumentChunkRow(Base):
     embedder_version: Mapped[str] = mapped_column(String, default="")
     vector: Mapped[bytes] = mapped_column(LargeBinary, default=b"")
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class CorpusRevisionRow(Base):
+    """How many times a workspace's chunk corpus has changed.
+
+    Retrieval caches a per-workspace index (vectors as a matrix, plus the BM25
+    postings) and has to know when that cache is stale. The obvious probe —
+    `COUNT(*)` and `MAX(created_at)` over the workspace's chunks — is O(corpus)
+    and measured **120 ms at 50,000 chunks even on a covering index**, because
+    counting means walking every entry. The freshness check cost more than the
+    search it was protecting.
+
+    A counter is O(1) forever: one primary-key lookup, one row. It has to live
+    in the database rather than in process memory because a deployment runs
+    more than one worker — an upload handled by worker A must invalidate worker
+    B's cache, and B only ever learns that from shared state.
+
+    Absent row means revision 0, so a workspace that has never had a document
+    costs nothing and needs no backfill.
+    """
+
+    __tablename__ = "document_corpus_revisions"
+
+    workspace_id: Mapped[str] = mapped_column(String, primary_key=True)
+    revision: Mapped[int] = mapped_column(Integer, default=0)
+    updated_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+async def bump_corpus_revision(session, workspace_id: str) -> None:
+    """Mark a workspace's corpus changed. Call inside the same transaction as
+    the chunk write, so a cache can never be invalidated for a change that then
+    rolls back — or worse, miss one that committed."""
+    row = await session.get(CorpusRevisionRow, workspace_id)
+    if row is None:
+        session.add(CorpusRevisionRow(workspace_id=workspace_id, revision=1))
+        return
+    row.revision += 1
+    row.updated_at = _now()

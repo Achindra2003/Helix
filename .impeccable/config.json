@@ -1,0 +1,23 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "overused-font",
+        "value": "inter",
+        "createdAt": "2026-08-01T03:50:11.285Z",
+        "reason": "Intentional: Inter is the instrument voice in the two-voice type system (see DESIGN.md). IM Fell English carries reading, Cinzel carries display."
+      },
+      {
+        "rule": "codex-grid-background",
+        "value": "*",
+        "files": [
+          "frontend/app/src/routes/map.module.css"
+        ],
+        "createdAt": "2026-08-01T03:56:59.403Z",
+        "reason": "The flagged element is .canvas, the pannable stemma map itself — the rule's own carve-out for canvas/map/blueprint surfaces."
+      }
+    ]
+  }
+}

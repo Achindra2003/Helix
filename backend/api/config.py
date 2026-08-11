@@ -1,4 +1,13 @@
+import secrets
+from pathlib import Path
+
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+# The placeholder shipped in .env.example and the compose defaults. It is
+# public, so any deployment still using it can have its login tokens forged by
+# anyone who has read the repository. `assert_secure_config()` refuses to boot
+# on it.
+PLACEHOLDER_JWT_SECRET = "dev-only-change-me"
 
 
 class Settings(BaseSettings):
@@ -10,9 +19,119 @@ class Settings(BaseSettings):
     #   postgresql+asyncpg://helix:helix@postgres:5432/helix
     database_url: str = "sqlite+aiosqlite:///./helix.db"
 
-    jwt_secret: str = "dev-only-change-me"
+    # Where LangGraph checkpoints live — the working state a paused deep or
+    # agent run resumes from. Blank means "beside the application database", so
+    # one volume carries both. Its own file on purpose: the schema belongs to
+    # LangGraph, not to our migrations. See api/checkpointing.py.
+    #
+    # Blank can only name a directory when the database is itself a file. With
+    # a Postgres URL it degrades to a path relative to the working directory,
+    # which is why the image sets this explicitly; set it yourself on any
+    # deployment where the process's working directory is not persistent.
+    checkpoint_path: str = ""
+
+    # Create tables at boot (api/db.py) instead of running migrations. Default
+    # True so the self-hosted install stays one command; the hosted instance
+    # sets DB_AUTO_CREATE=0 and runs `alembic upgrade head` as a deploy step.
+    # Both build the same schema — migrations/env.py explains the split, and
+    # the baseline is verified against create_all.
+    db_auto_create: bool = True
+
+    # Set when DATABASE_URL points at a transaction-mode connection pooler
+    # rather than straight at Postgres — Supabase's port 6543, or any PgBouncer
+    # in transaction mode. It disables asyncpg's prepared-statement caching,
+    # which such a pooler cannot support. See api/db.py for what breaks without
+    # it (an intermittent failure that only appears under concurrency).
+    db_pooled: bool = False
+
+    # Open a fresh connection per checkout instead of keeping a pool. This
+    # exists for the test suite, which builds a new event loop for every
+    # `TestClient` while sharing one module-level engine — and an asyncpg
+    # connection belongs to the loop that opened it, so a pooled one blows up
+    # in the next test with "another operation is in progress". See
+    # api/conftest.py, which sets it for Postgres runs.
+    #
+    # Leave it off everywhere else: a server runs one loop for its whole life,
+    # where the pool is exactly what you want.
+    db_no_pool: bool = False
+
+    # Give every new account a populated example workspace (api/onboarding.py):
+    # a forked thread, a reference edge, a finished deep-run trace, and an
+    # ingested document. Static content, so it costs no tokens and works before
+    # a provider key is pasted — which is the point, since the features worth
+    # seeing are the ones that otherwise need a key.
+    seed_example_workspace: bool = True
+
+    # --- Who may create an account ----------------------------------------------
+    # True (the default) keeps signup open, which is right for a public demo and
+    # for the first person to stand up a fresh instance — someone has to be able
+    # to get in.
+    #
+    # False makes the instance invite-only: /auth/register refuses unless the
+    # caller presents a usable invite token. It is deliberately *not* a hard
+    # close, because a hard close would break the invite links the product
+    # already issues — a teammate handed `/invite/{token}` must still be able to
+    # make the account that invite attaches to. So the existing invite machinery
+    # (role, expiry, use budget, revocation by an owner) becomes the admission
+    # control, rather than a second mechanism beside it.
+    #
+    # The intended sequence for a private install: leave this open, register the
+    # accounts that belong there, then set it False. Everyone after that arrives
+    # by invitation.
+    allow_registration: bool = True
+
+    # --- Public instance notice -------------------------------------------------
+    # Text for the banner a hosted demo shows on every page ("data may be wiped
+    # with notice; self-host for keeps"). Empty (the default) means no banner,
+    # which is right for a self-hosted install: it is *their* instance and their
+    # data, so the warning would be a lie. Served unauthenticated because the
+    # login screen has to show it too — keep it to a notice, never anything
+    # that would matter to a stranger.
+    public_notice: str = ""
+    # Where the notice's "self-host" link points. Separate from the text so an
+    # operator can retarget it to their own fork without rewriting the sentence.
+    public_notice_link: str = "https://github.com/Achindra2003/Helix"
+
+    # --- Crash reporting (api/monitoring.py) ------------------------------------
+    # Unset (the default) = no reporting, no SDK, no network client. A
+    # self-hoster's errors are theirs, not ours.
+    sentry_dsn: str = ""
+    sentry_environment: str = "production"
+    # Errors are always reported; performance traces are sampled separately and
+    # default to off, because tracing on a free tier consumes the quota that
+    # error reporting actually needs.
+    sentry_traces_sample_rate: float = 0.0
+
+    # --- Transactional email (api/email.py) -------------------------------------
+    # Unset = no email sent; the reset link is logged instead, which is what a
+    # self-hoster and a local developer both want. Email *verification* is
+    # deliberately not implemented: BYO keys mean a fake account cannot spend
+    # anything, so it would be friction without safety.
+    resend_api_key: str = ""
+    # Must be an address on a domain verified in your Resend account, or Resend
+    # rejects the send.
+    email_from: str = "Helix <onboarding@resend.dev>"
+    # Short by design: a reset link is a bearer credential sitting in an inbox.
+    # Long enough to survive slow mail delivery, short enough that a forwarded
+    # or leaked message goes stale quickly. Completing a reset invalidates the
+    # link immediately regardless (see security.make_reset_token).
+    password_reset_ttl_minutes: int = 30
+
+    jwt_secret: str = PLACEHOLDER_JWT_SECRET
     jwt_alg: str = "HS256"
     jwt_ttl_hours: int = 24 * 7
+
+    # Escape hatch for local development, where the placeholder secret is
+    # harmless and typing a real one every time is friction. Opt-in and
+    # explicit: HELIX_DEV=1. Never set it on anything reachable from a network.
+    helix_dev: bool = False
+
+    # Where to persist an auto-generated signing secret when JWT_SECRET is not
+    # set. Empty (the default) means "no fallback — refuse to boot", which is
+    # right for a bare-metal deploy where an unexpected file is a surprise. The
+    # container sets this to a path on its data volume so `docker compose up`
+    # stays a single command and still gets a unique secret per install.
+    jwt_secret_file: str = ""
 
     # Used to build invite links.
     frontend_base_url: str = "http://localhost:5173"
@@ -38,6 +157,45 @@ class Settings(BaseSettings):
     # instance ships with no fallback key, so this silently no-ops there (each
     # workspace burns its own key; no accidental spend on the operator's key).
     llm_enable_server_fallback: bool = True
+
+    # --- Abuse caps (P2) ---
+    # Modest ceilings, not business rules: they exist so one account cannot
+    # fill the database or wedge a workspace, and every one is far above what
+    # honest use of a team workspace reaches. Set any of them to 0 to disable
+    # that cap entirely (useful for a trusted single-tenant self-host).
+    max_workspaces_per_user: int = 20
+    max_members_per_workspace: int = 50
+    # How many times one invite link may be redeemed. Expiry already existed;
+    # without a use cap a leaked link is an open door until it expires.
+    invite_max_uses: int = 25
+    # Request body ceilings, enforced by middleware (see api/main.py). The
+    # global cap sits above document_max_bytes so uploads still fit; the
+    # message cap is much tighter because a prompt is text, and an enormous one
+    # is either abuse or a bug.
+    max_request_bytes: int = 12 * 1024 * 1024
+    max_message_bytes: int = 64 * 1024
+
+    # --- Rate limits (P2; see api/rate_limit.py) ---
+    # Sliding windows per user (or per IP when unauthenticated). The threat is
+    # database spam and run floods, not token theft — BYO keys mean a flood
+    # burns the workspace's own provider quota. Any limit set to 0 is disabled;
+    # rate_limit_enabled=False turns the whole mechanism off.
+    rate_limit_enabled: bool = True
+    # Registration and login share this one: it guards both mass-signup and
+    # password guessing, neither of which carries a token, so both key on IP.
+    rate_limit_auth_per_hour: int = 20
+    # Ordinary chat. Well above human typing speed, low enough that a script
+    # cannot fill the node table.
+    rate_limit_messages_per_minute: int = 30
+    # Deep and agent runs: each fans out into many model and tool calls, so
+    # they get a tighter budget than plain messages.
+    rate_limit_runs_per_minute: int = 10
+    # Document uploads: the heaviest write path (a file up to
+    # document_max_bytes, then a chunk row per ~220 words and an embedding per
+    # chunk). Requires membership, so this bounds a member rather than the open
+    # internet — hence per-hour, and set generously enough that a real bulk
+    # import of a reference folder still goes through in one sitting.
+    rate_limit_uploads_per_hour: int = 120
 
     # --- Workspace documents / file grounding ---
     document_max_bytes: int = 8 * 1024 * 1024  # upload cap
@@ -73,7 +231,8 @@ class Settings(BaseSettings):
     # small model while the recursive self-critique loop — whose whole value is
     # reasoning quality — runs on the strongest available model.
     deep_reasoning_model: str = "llama-3.3-70b-versatile"
-    deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize
+    # The instance default only — a run picks its own mode (DeepRequest.mode).
+    deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize|review
     # Tool policy (FR-14): may deep runs reach out to the web (research fan-out)?
     # Enforced server-side when the graph is built; research additionally needs
     # a TAVILY_API_KEY to do anything at all.
@@ -122,3 +281,100 @@ class Settings(BaseSettings):
 
 
 settings = Settings()
+
+
+class InsecureConfigError(RuntimeError):
+    """Raised at startup when the configuration is unsafe to expose."""
+
+
+def _generate_secret() -> str:
+    return secrets.token_urlsafe(32)
+
+
+def secure_jwt_secret(cfg: Settings | None = None) -> str:
+    """Resolve a safe token-signing secret, or refuse to start.
+
+    The placeholder is printed in this repository, so any instance still using
+    it can have a session forged for any user by anyone who has read the code.
+    A warning is not enough — self-hosters do not read logs, and the instance
+    would run that way forever.
+
+    But a hard failure alone would break the one-command install, so the
+    resolution order below keeps *both* properties (secure by default, and
+    `docker compose up` still just works):
+
+    1. An explicitly configured JWT_SECRET always wins.
+    2. Otherwise, if a secret file is configured (the container sets
+       JWT_SECRET_FILE=/data/.jwt_secret on its data volume), read it — or
+       generate one, persist it 0600, and log that it happened. Persisting is
+       what makes it survive restarts; a secret regenerated on every boot would
+       log the whole team out on every restart.
+    3. Otherwise refuse to boot, with a ready-to-paste secret in the message.
+
+    HELIX_DEV=1 opts out entirely, for local development where the placeholder
+    is harmless.
+
+    Called from the app's lifespan rather than at import time: importing the
+    settings module must stay free of side effects like writing files.
+    """
+    cfg = cfg or settings
+
+    # An empty or whitespace-only value counts as unset, not as a secret.
+    # `JWT_SECRET: ${JWT_SECRET:-}` in compose produces exactly that when the
+    # operator has not set one, and signing tokens with "" would be strictly
+    # worse than the placeholder.
+    configured = (cfg.jwt_secret or "").strip()
+
+    if configured and configured != PLACEHOLDER_JWT_SECRET:
+        return configured
+    if cfg.helix_dev:
+        return cfg.jwt_secret
+
+    if cfg.jwt_secret_file:
+        path = Path(cfg.jwt_secret_file)
+        try:
+            if path.is_file():
+                existing = path.read_text(encoding="utf-8").strip()
+                if existing:
+                    return existing
+            path.parent.mkdir(parents=True, exist_ok=True)
+            generated = _generate_secret()
+            # 0600 before writing: never briefly world-readable on disk.
+            path.touch(mode=0o600, exist_ok=True)
+            path.chmod(0o600)
+            path.write_text(generated, encoding="utf-8")
+            print(
+                f"[helix] No JWT_SECRET set. Generated one and stored it at "
+                f"{path}. It persists across restarts; delete the file to "
+                f"rotate (this logs everyone out).",
+                flush=True,
+            )
+            return generated
+        except OSError as exc:
+            raise InsecureConfigError(
+                f"\n  Refusing to start: JWT_SECRET is unset and the secret file"
+                f"\n  {path} could not be read or written ({exc}).\n"
+                f"\n  Set JWT_SECRET explicitly:\n"
+                f"\n      JWT_SECRET={_generate_secret()}\n"
+            ) from exc
+
+    raise InsecureConfigError(
+        "\n"
+        "  Refusing to start: JWT_SECRET is still the public placeholder.\n"
+        "\n"
+        "  It signs every login token. Anyone who has seen this repository can\n"
+        "  forge a session for any user on this instance.\n"
+        "\n"
+        "  Set it to the freshly generated value below (or any random string):\n"
+        "\n"
+        f"      JWT_SECRET={_generate_secret()}\n"
+        "\n"
+        "  Changing it later logs everyone out and invalidates saved workspace\n"
+        "  provider keys (their encryption is derived from it), so set it\n"
+        "  before inviting anyone.\n"
+        "\n"
+        "  Alternatively set JWT_SECRET_FILE to a writable path and one will be\n"
+        "  generated and persisted there (this is what the container does).\n"
+        "\n"
+        "  For local development only, skip this check with HELIX_DEV=1.\n"
+    )

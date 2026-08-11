@@ -19,6 +19,9 @@ dist/
 .env
 .env.*
 !.env.example
+# The hosted instance's template. Same rule as above: the example is committed
+# so the server has something to copy, the filled-in .env never is.
+!.env.prod.example
 
 # Editors / OS
 .idea/
@@ -45,5 +48,12 @@ helix.db
 # BATON-RAJNISH.md, BATON-MANSOOR.md, and baton-2.md are curated handoff docs
 # and stay tracked; only the raw .txt session transcripts are ignored.
 baton*.txt
+*-baton.txt
 dump*.txt
 *-dump.txt
+
+# Impeccable: per-developer overrides (hook consent). Shared config.json is tracked.
+.impeccable/config.local.json
+
+# Written only when an e2e run fails — a diagnostic, not a deliverable.
+docs/screenshots/99-failure.png

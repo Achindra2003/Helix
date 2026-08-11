@@ -8,6 +8,8 @@
   background: var(--paper); padding: 26px 20px; text-align: center; cursor: pointer;
   color: var(--ink-3); transition: border-color 0.15s, background 0.15s;
   display: flex; flex-direction: column; align-items: center; gap: 7px;
+  /* it is a <button>, so opt back out of the instrument voice and full width */
+  width: 100%; font-family: inherit;
 }
 .drop:hover, .dropActive { border-color: var(--gilt); background: var(--paper-3); }
 .dropGlyph { font-size: 22px; color: var(--gilt-1); }
@@ -16,11 +18,13 @@
 /* knowledge-base search (same ranking chat grounding uses) */
 .search {
   display: flex; align-items: center; gap: 10px; background: var(--paper);
-  border: 1px solid var(--rule); border-radius: 10px; padding: 10px 14px; margin: 14px 0;
+  border: 1px solid var(--rule); border-radius: 10px; padding: 0 14px; margin: 14px 0;
   transition: border-color var(--dur-1), box-shadow var(--dur-1);
 }
 .search:focus-within { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.14); }
-.searchInput { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); }
+/* Padding on the input, not the well: the field's hit area is then the whole
+   height of what reads as the field. Same rendering as before. */
+.searchInput { flex: 1; background: none; border: none; outline: none; color: var(--ink); font-size: 14px; font-family: var(--font-read); padding: 12px 0; }
 
 .hit {
   background: var(--paper); border: 1px solid var(--rule-soft); border-radius: 11px;
@@ -29,7 +33,7 @@
 .hitHead { display: flex; align-items: baseline; gap: 10px; }
 .hitScoreBar { height: 3px; border-radius: 2px; background: var(--rule-soft); flex: 0 0 72px; overflow: hidden; }
 .hitScoreFill { height: 100%; background: var(--gilt); }
-.hitBody { font-size: 13.5px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
+.hitBody { font-size: 13px; line-height: 1.55; color: var(--ink-2); font-style: italic; }
 
 .list { display: flex; flex-direction: column; gap: 9px; margin: 10px 0 38px; }
 .row {
@@ -43,8 +47,8 @@
   background: var(--paper-3); border: 1px solid var(--rule-soft); text-transform: uppercase;
 }
 .docName { font-size: 15px; font-weight: 600; color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.docMeta { font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
-.docError { font-size: 12.5px; color: var(--oxblood); margin-top: 3px; }
+.docMeta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 3px; display: flex; gap: 10px; flex-wrap: wrap; }
+.docError { font-size: 12px; color: var(--oxblood); margin-top: 3px; }
 
 .status { font-family: var(--font-mono); font-size: 11px; border: 1px solid var(--rule); border-radius: 5px; padding: 2px 8px; white-space: nowrap; }
 .statusReady { color: var(--verde); border-color: rgba(70, 98, 76, 0.45); }
@@ -58,6 +62,16 @@
   font-size: 12px; padding: 3px 9px; cursor: pointer; flex: 0 0 auto;
 }
 .delete:hover { border-color: var(--oxblood); color: var(--oxblood); }
+
+/* Cataloguing a source. Sits beside delete and matches its proportions, but
+   reaches for gilt rather than oxblood on hover: describing a document is the
+   constructive act on this row, and the destructive one already owns the red. */
+.catalogue {
+  background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 5px;
+  font-family: var(--font-mono); font-size: 11px; padding: 3px 9px;
+  cursor: pointer; flex: 0 0 auto; white-space: nowrap;
+}
+.catalogue:hover { border-color: var(--gilt); color: var(--gilt-1); }
 
 @media (max-width: 760px) {
   .scroll { padding: 20px 16px 40px; }

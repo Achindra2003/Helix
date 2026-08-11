@@ -8,7 +8,11 @@ from sqlalchemy.pool import StaticPool
 
 from api.db import Base
 from api.documents.lexical import BM25, rrf_fuse, squash, tokenize
-from api.documents.models import DocumentChunkRow, DocumentRow
+from api.documents.models import (
+    DocumentChunkRow,
+    DocumentRow,
+    bump_corpus_revision,
+)
 from api.documents.service import DocumentIndex
 
 
@@ -106,11 +110,21 @@ async def index(tmp_path):
     async with sf() as session:
         session.add(DocumentRow(id="d1", workspace_id="w1", author_id="u",
                                 filename="hw.md", status="ready"))
+        # The document has to land before the chunks that point at it. Adding
+        # them to one session does not order them: the unit of work sorts by
+        # mapper relationships, there are none here, and what is left is table
+        # name — where `document_chunks` comes before `documents`. Real ingest
+        # is safe because the row is committed by the upload route first
+        # (api/documents/router.py); only fixtures build both at once.
+        await session.flush()
         for i, content in enumerate(_CHUNKS):
             session.add(DocumentChunkRow(
                 document_id="d1", workspace_id="w1", idx=i, content=content,
                 embedder_version="", vector=b"",
             ))
+        # Chunks inserted behind `ingest()` still have to announce themselves:
+        # retrieval reads a corpus revision, not a row count.
+        await bump_corpus_revision(session, "w1")
         await session.commit()
     yield DocumentIndex(sf, memory=BlindToIdentifiersMem())
     await engine.dispose()

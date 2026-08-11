@@ -34,9 +34,16 @@ function boot(cmd, args, opts) {
 }
 
 // Windows: killing a shell doesn't kill its children (vite outlives npm).
-// taskkill /T takes the whole tree down.
+// taskkill /T takes the whole tree down. Resolves only once taskkill has
+// actually exited — exiting the process before then leaves vite holding 5173,
+// and the next run boots against a stale frontend.
 function killTree(pid) {
-  try { spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" }); } catch { /* gone */ }
+  return new Promise((done) => {
+    try {
+      spawn("taskkill", ["/pid", String(pid), "/T", "/F"], { stdio: "ignore" })
+        .on("close", done).on("error", done);
+    } catch { done(); }
+  });
 }
 
 async function waitFor(url, label, tries = 120) {
@@ -55,13 +62,15 @@ const step = (msg) => console.log(`  • ${msg}`);
 async function main() {
   boot(join(repo, "backend", ".venv", "Scripts", "python.exe"),
     ["-m", "uvicorn", "api.main:app", "--port", "8000"],
-    { cwd: join(repo, "backend"), env: { ...process.env, DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}` } });
+    // HELIX_DEV skips the JWT_SECRET guard, which otherwise refuses to start.
+    // The run is throwaway — its own SQLite file, no real users, no real keys.
+    { cwd: join(repo, "backend"), env: { ...process.env, HELIX_DEV: "1", DATABASE_URL: `sqlite+aiosqlite:///${dbFile.replace(/\\/g, "/")}` } });
   boot("npm", ["run", "dev"], { cwd: join(repo, "frontend", "app"), shell: true });
   await waitFor(`${API}/health`, "backend");
   await waitFor(UI, "frontend");
   step("backend + frontend up");
 
-  const browser = await chromium.launch();
+  browser = await chromium.launch();
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   page.setDefaultTimeout(30_000);
   // Where was the page when a step failed? (Written only on failure.)
@@ -74,6 +83,11 @@ async function main() {
   await page.locator('input[type="password"]').fill("demo-password-1");
   await page.screenshot({ path: join(shots, "01-signin.png") });
   await page.getByRole("button", { name: /Create account ⟶/ }).click();
+  // /health answers as soon as the server binds, but the FIRST real request
+  // sits behind lazy init (the embedder, the provider client), and on a cold
+  // machine that outlasts the 30s default while the button just shows "…".
+  // Wait on the navigation, not on the next control.
+  await page.waitForURL(/\/workspaces/, { timeout: 120_000 });
   step("registered");
 
   // --- workspace ---
@@ -110,14 +124,14 @@ async function main() {
     "Chunks below the measured relevance floor of 0.20 are never included",
     "in grounding. The embedder is all-MiniLM-L6-v2, versioned per row.",
   ].join("\n"));
-  await page.getByRole("button", { name: "DOCS" }).click();
+  await page.getByRole("button", { name: "DOCS", exact: true }).click();
   await page.locator('input[type="file"]').first().setInputFiles(spec);
   await page.getByText("ready", { exact: false }).first().waitFor({ timeout: 60_000 });
   await page.screenshot({ path: join(shots, "05-docs.png") });
   step("document ingested");
 
   // --- cited grounding ---
-  await page.getByRole("button", { name: "CHAT" }).click();
+  await page.getByRole("button", { name: "CHAT", exact: true }).click();
   // Re-select the thread explicitly and wait for it to be on stage — asking
   // before the branch reload finishes would auto-create an "Untitled" thread.
   await page.getByText("Chunking strategy").first().click();
@@ -164,10 +178,10 @@ async function main() {
   }
 
   // --- map + tools panel ---
-  await page.getByRole("button", { name: "MAP" }).click();
+  await page.getByRole("button", { name: "MAP", exact: true }).click();
   await new Promise((r) => setTimeout(r, 2_500)); // layout settle
   await page.screenshot({ path: join(shots, "07-map.png") });
-  await page.getByRole("button", { name: "TEAM" }).click();
+  await page.getByRole("button", { name: "TEAM", exact: true }).click();
   await page.getByText("Agent tools").first().scrollIntoViewIfNeeded();
   await page.screenshot({ path: join(shots, "08-tools-panel.png") });
   step("map + tools panel captured");
@@ -177,13 +191,22 @@ async function main() {
 }
 
 let failShot = async () => {};
+let browser;
 main()
   .catch(async (e) => {
     console.error("\nSmoke click-through FAILED:", e.message);
     await failShot();
     process.exitCode = 1;
   })
-  .finally(() => {
-    for (const c of children) killTree(c.pid);
-    setTimeout(() => rmSync(dbFile, { force: true }), 1500);
+  .finally(async () => {
+    // On the failure path main() never reached its browser.close(), and an open
+    // Playwright browser keeps the event loop alive forever — the run would sit
+    // there wedged instead of reporting. Close it here, then exit explicitly so
+    // a stray handle can't hold the process open either way.
+    await browser?.close().catch(() => {});
+    await Promise.all(children.map((c) => killTree(c.pid)));
+    // The backend may still hold the SQLite handle for a moment; a leftover
+    // file in the temp dir is not worth delaying the exit over.
+    try { rmSync(dbFile, { force: true }); } catch { /* it's in tmp */ }
+    process.exit(process.exitCode ?? 0);
   });

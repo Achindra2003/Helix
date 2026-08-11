@@ -113,7 +113,7 @@ function RecordBody({ rec, onBack }: { rec: DeepRunRecord; onBack: () => void })
         <div className={s.provBox} style={{ borderColor: "rgba(110,90,168,0.4)" }}>
           <div className="eyebrow" style={{ color: "var(--violet)", marginBottom: 5 }}>⟂ Steers</div>
           {rec.trace.steers.map((g, i) => (
-            <div key={i} style={{ fontSize: 12.5, color: "var(--ink-2)", fontStyle: "italic" }}>“{g}”</div>
+            <div key={i} style={{ fontSize: 12, color: "var(--ink-2)", fontStyle: "italic" }}>“{g}”</div>
           ))}
         </div>
       )}

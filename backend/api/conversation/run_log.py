@@ -15,10 +15,13 @@ dataset the eval harness samples from.
 from __future__ import annotations
 
 import json
+import logging
 import time
 from typing import Any, AsyncIterator
 
 from .models import DeepRunRow
+
+log = logging.getLogger(__name__)
 
 # Keep step excerpts compact: the trace is for diagnosis, not archival replay.
 _EXCERPT_CHARS = 300
@@ -100,6 +103,30 @@ class DeepRunRecorder:
             conf = payload.get("confidence")
             if isinstance(conf, (int, float)):
                 self._confidence = float(conf)
+        elif kind in ("tool_call", "tool_result"):
+            # Agent runs were archived with an empty trace. The recorder only
+            # ever understood `step` events, which deep runs emit and agent
+            # runs do not — so a row existed saying an agent run happened and
+            # nothing at all about what it did. The tool transcript *is* the
+            # agent run's trace, in the same sense the reasoning steps are a
+            # deep run's, and "the agent gave a weird answer yesterday" is only
+            # answerable if the calls behind it were kept.
+            entry: dict[str, Any] = {
+                "idx": len(self._steps),
+                "node": kind,
+                "depth": 0,
+                "tool": getattr(event, "name", ""),
+            }
+            if kind == "tool_call":
+                # Arguments, not a digest: unlike the ledger, this trace is
+                # workspace data already — it lives beside the conversation it
+                # came from and is read by the same people.
+                entry["arguments"] = getattr(event, "arguments", {})
+                entry["sensitive"] = bool(getattr(event, "sensitive", False))
+            else:
+                entry["status"] = getattr(event, "status", "")
+                entry["thought"] = str(getattr(event, "content", ""))[:_EXCERPT_CHARS]
+            self._steps.append(entry)
         elif kind == "complete":
             self._status = event.status
             self._stop_reason = event.stop_reason
@@ -144,7 +171,13 @@ class DeepRunRecorder:
                 session.add(row)
                 await session.commit()
         except Exception:
-            pass
+            # Still swallowed — the run itself already succeeded on its own
+            # terms, and losing its record must not fail it. But it is logged
+            # now: this `except` used to be a bare `pass`, and that silence is
+            # how "no deep run is ever recorded on Postgres" stayed invisible.
+            # A history that quietly stops filling in is worse than one that
+            # errors, because nobody goes looking for rows they think exist.
+            log.exception("Failed to persist the record for deep run %s", row.id)
 
     async def wrap(self, gen: AsyncIterator) -> AsyncIterator:
         """Relay `gen` unchanged while observing it; flush when the segment ends.

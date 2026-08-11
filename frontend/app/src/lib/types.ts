@@ -20,6 +20,26 @@ export interface Workspace {
   owner_id: string;
   role: Role;
   created_at?: string;
+  /** What is in it, from the list endpoint — threads this caller may open, and
+   *  how many people are in the room. Absent on responses from create/rename. */
+  conversation_count?: number;
+  member_count?: number;
+}
+
+/** Something a teammate needs to know, kept server-side until they have seen
+ *  it. Today only `mention`; the kind exists so run-finished and
+ *  thread-concluded can move off the session store without a schema change. */
+export interface ServerNotice {
+  id: string;
+  kind: "mention" | string;
+  workspace_id: string;
+  conversation_id: string;
+  branch_id: string;
+  node_id: string;
+  actor_email: string;
+  excerpt: string;
+  created_at: string | null;
+  read: boolean;
 }
 
 export interface Member {
@@ -52,6 +72,16 @@ export interface Conversation {
   visibility: Visibility;
   default_branch_id: string;
   created_at?: string;
+  // What the thread concluded — the answer to "so what did we land on?".
+  // Written by a human; Helix can draft it, but a draft nobody accepted is
+  // not a conclusion.
+  conclusion?: string;
+  concluded_by?: string | null;
+  concluded_at?: string | null;
+  // The external artifact this thread is about — a PR, an issue, a spec URL.
+  // Written for the agent as much as the reader: a team says "this change" for
+  // forty turns and never says the number.
+  subject?: string;
 }
 
 // A conversation linked in as live cross-thread context (see addReference).
@@ -60,6 +90,8 @@ export interface ConversationRef {
   title: string;
 }
 
+export type BranchStatus = "open" | "adopted" | "abandoned";
+
 export interface Branch {
   id: string;
   conversation_id: string;
@@ -67,6 +99,19 @@ export interface Branch {
   parent_branch_id: string | null;
   fork_node_id: string | null;
   head_node_id: string | null;
+  // The exploration's own lifecycle: what it set out to try, and what came of
+  // it. `status` is "open" until someone records a verdict; abandoning never
+  // removes the branch, because the alternative you rejected is half of why
+  // the one you took is defensible.
+  intent: string;
+  status: BranchStatus;
+  resolution: string;
+  resolved_by: string | null;
+  resolved_at: string | null;
+  // Members backing this exploration. Ids rather than a count, so the rail can
+  // show whether *you* already voted without a second request, and so a verdict
+  // being written can name who backed what.
+  votes: string[];
 }
 
 export interface Node {
@@ -78,6 +123,10 @@ export interface Node {
   content: string;
   author_id: string | null;
   token_count: number;
+  /** Document chunks this reply was grounded on, in relevance order. Persisted
+   *  server-side, so the chips survive a reload — they used to live only in
+   *  this tab's memory. Absent on user turns and ungrounded replies. */
+  citations?: GroundingItem[];
 }
 
 export interface Prompt {
@@ -123,13 +172,26 @@ export interface WorkspaceDocument {
   chunk_count: number;
   author_id: string;
   created_at: string;
+  // Bibliographic identity, all optional and none of it inferred from the file.
+  // `cite_as` is the server's own rendering of these — the single string the
+  // chip, the export and the model's context all use, so they cannot drift.
+  doc_title?: string;
+  authors?: string;
+  year?: string;
+  identifier?: string;
+  cite_as?: string;
 }
 
-// One grounded source behind a reply — arrives as a `grounding` frame before
-// the reply's tokens (SSE and the WS run_event relay alike).
+// One grounded source behind a reply. Arrives twice, on purpose: as a
+// `grounding` frame before the reply's tokens (so the sources are on screen
+// while it streams), and again on the assistant node itself, which is the
+// durable copy the thread renders from after a reload.
 export interface GroundingItem {
   document_id: string;
   filename: string;
+  /** How the source is named: "Smith et al. (2019)" once the document has been
+   *  catalogued, the filename until then. Never empty. */
+  cite_as?: string;
   chunk_index: number;
   score: number;
   excerpt: string;
@@ -230,6 +292,15 @@ export interface ToolCatalogItem {
   sensitive: boolean; // sensitive ⇒ every call pauses for human approval
   available: boolean;
   allowed: boolean;
+  /** "builtin", or "mcp:<server>". The catalog has two sources, and which
+   *  tools we wrote versus which arrived from someone else's server is the
+   *  thing an owner most needs to notice. */
+  source?: string;
+  /** An MCP tool whose description or schema changed since it was reviewed.
+   *  Unavailable until a human reads the new text — a description goes
+   *  straight into the model's context, so a server that could rewrite one
+   *  after approval would make the allowlist meaningless. */
+  needs_review?: boolean;
 }
 
 export interface ToolSettings {
@@ -237,10 +308,48 @@ export interface ToolSettings {
   items: ToolCatalogItem[];
 }
 
+/** One MCP server this workspace has been pointed at. */
+export interface McpServer {
+  id: string;
+  name: string;
+  url: string;
+  auth_header: string;
+  /** Whether a credential is stored — never what it is. */
+  has_auth: boolean;
+  enabled: boolean;
+  last_error: string;
+  last_synced_at: string | null;
+  tools: McpServerTool[];
+}
+
+export interface McpServerTool {
+  name: string;
+  /** Verbatim, as the server wrote it and as the model will read it. */
+  description: string;
+  sensitive: boolean;
+  needs_review: boolean;
+}
+
 export interface Health {
   status: string;
   db_time: string;
   provider: string;
+}
+
+/** One of the engine's five reasoning presets, as offered at escalation. */
+export interface ReasoningMode {
+  id: string;
+  label: string;
+  description: string;
+}
+
+/** The few settings the sign-in screen needs before anyone has a token. */
+export interface PublicConfig {
+  notice: string;
+  notice_link: string;
+  /** False on an invite-only instance: only someone holding a usable invite
+   *  link may create an account. */
+  registration_open: boolean;
 }
 
 // --- SSE event frames (the engine's run contract; `kind` tags the type) ---
@@ -262,3 +371,21 @@ export type RunEvent =
   | { kind: "waiting"; reason: string }
   | { kind: "complete"; stop_reason: string; status: "done" | "killed" | "error" }
   | { kind: "done" };
+
+/** One recorded verdict, as the decisions ledger reads it. */
+export interface Decision {
+  // "conclusion" is a whole thread's answer; "verdict" is one exploration's
+  // fate. Both are decisions, and the conclusion outranks the verdicts under it.
+  kind: "conclusion" | "verdict";
+  branch_id: string | null;
+  branch_name: string;
+  conversation_id: string;
+  conversation_title: string;
+  visibility: "shared" | "private";
+  intent: string;
+  status: "adopted" | "abandoned" | "concluded";
+  resolution: string;
+  resolved_by: string | null;
+  resolved_by_email: string;
+  resolved_at: string | null;
+}

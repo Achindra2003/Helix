@@ -23,6 +23,9 @@ export function AccountView() {
   const [confirm, setConfirm] = useState("");
   const [busy, setBusy] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
+  // Re-authentication for the irreversible action. Changing a password already
+  // asked for the current one; deleting the account asked for nothing.
+  const [deletePw, setDeletePw] = useState("");
 
   async function doChangePassword() {
     if (!current || !next) return;
@@ -38,15 +41,19 @@ export function AccountView() {
   }
 
   async function doDeleteAccount() {
+    if (!deletePw) return;
     setBusy(true);
     try {
-      await deleteAccount();
+      await deleteAccount(deletePw);
       logout();
       nav("/auth");
     } catch (e: any) {
       // 409 owns_workspaces carries the list of blocking workspaces.
       push(e?.message ?? "Delete failed", "error");
-      setConfirmDelete(false);
+      // A wrong password should not close the dialog and lose the attempt;
+      // a 409 (still owns a workspace) is a different problem and should.
+      if (e?.status !== 401) setConfirmDelete(false);
+      setDeletePw("");
     } finally { setBusy(false); }
   }
 
@@ -95,13 +102,14 @@ export function AccountView() {
         <div className="serif-d" style={{ fontSize: 22, margin: "38px 0 8px", color: "var(--oxblood)" }}>
           Danger zone
         </div>
-        <div style={{ fontSize: 13.5, color: "var(--ink-2)", marginBottom: 14, maxWidth: 480 }}>
+        <div style={{ fontSize: 13, color: "var(--ink-2)", marginBottom: 14, maxWidth: 480 }}>
           Deleting your account removes you from every workspace and signs you out for good.
           If you still <b>own</b> a workspace, the server will refuse — delete the workspace
-          (TEAM page) or have ownership moved first, so a team's shared space can never
+          (SETUP page) or have ownership moved first, so a team's shared space can never
           disappear with one account.
         </div>
-        <Button variant="oxblood" disabled={busy} onClick={() => setConfirmDelete(true)}>
+        <Button variant="oxblood" disabled={busy}
+          onClick={() => { setDeletePw(""); setConfirmDelete(true); }}>
           Delete my account
         </Button>
       </div>
@@ -110,12 +118,19 @@ export function AccountView() {
         <Dialog title="Delete this account?" onClose={() => setConfirmDelete(false)}
           footer={<>
             <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button variant="oxblood" disabled={busy} onClick={doDeleteAccount}>Delete forever</Button>
+            <Button variant="oxblood" disabled={busy || !deletePw} onClick={doDeleteAccount}>
+              Delete forever
+            </Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             This can't be undone. Your memberships are removed; messages you wrote in shared
             threads remain part of their conversations (attributed to a departed teammate).
           </div>
+          <Field label="Confirm your password">
+            <Input type="password" value={deletePw} autoComplete="current-password" autoFocus
+              onChange={(e) => setDeletePw(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter" && deletePw) doDeleteAccount(); }} />
+          </Field>
         </Dialog>
       )}
     </div>

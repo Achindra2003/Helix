@@ -1,10 +1,15 @@
 """HTTP wiring for FR-14: the agent run endpoints, the approval flow, and the
 owner-managed tool allowlist settings.
 
-Same recipe as the deep-run router tests: real FastAPI app, real auth/RBAC in
-the hermetic DB, in-memory conversation store, and `build_agent_graph`
-monkeypatched to a fake — the graph itself is proven in test_agent_graph.py;
-here we prove the HTTP surface around it.
+Same recipe as the deep-run router tests: real FastAPI app, real auth/RBAC and
+conversation store in the hermetic DB, and `build_agent_graph` monkeypatched to
+a fake — the graph itself is proven in test_agent_graph.py; here we prove the
+HTTP surface around it.
+
+The store used to be swapped for an in-memory one, which left the conversation
+in RAM while an agent turn's record was written to SQL. That row references its
+conversation by foreign key, so it was only ever accepted because SQLite does
+not enforce foreign keys; on Postgres the write failed and the record vanished.
 """
 import json
 from types import SimpleNamespace
@@ -14,13 +19,7 @@ from langchain_core.messages import AIMessage, ToolMessage
 from starlette.testclient import TestClient
 
 import api.conversation.router as router_mod
-from api.conversation.store import InMemoryStore
 from api.main import app
-
-
-@pytest.fixture(autouse=True)
-def in_memory_store(monkeypatch):
-    monkeypatch.setattr(router_mod, "_store", InMemoryStore())
 
 
 def _parse_sse(body: str) -> list[str]:
@@ -169,7 +168,7 @@ def test_sensitive_pause_then_approve_resumes_and_persists(monkeypatch, make_wor
     # web_search must be available (key) AND owner-allowed to be bound at all.
     monkeypatch.setattr(router_mod.settings, "tavily_api_key", "tvly-test")
     with TestClient(app) as client:
-        headers, _, wid = make_workspace(client)
+        headers, uid, wid = make_workspace(client)
         branch_id = _create_conv(client, headers, wid)["branch_id"]
         assert client.put(
             f"/api/workspaces/{wid}/settings/tools",
@@ -200,7 +199,13 @@ def test_sensitive_pause_then_approve_resumes_and_persists(monkeypatch, make_wor
         )
         assert second.status_code == 200
         cont = _events(second.text)
-        assert graph.decisions == [{"decision": "approve"}]
+        # The verdict carries who gave it. The approval gate is the product's
+        # safety story, and it used to leave no record of the decider at all —
+        # "who let the agent call the web?" is now answerable from the state
+        # the run was resumed with, and from the tool ledger it writes.
+        assert len(graph.decisions) == 1
+        assert graph.decisions[0]["decision"] == "approve"
+        assert graph.decisions[0]["decided_by"] == uid
         assert [e["kind"] for e in cont][-1] == "assistant_node"
         assert cont[-1]["node"]["content"] == "Approved answer."
 
@@ -253,7 +258,15 @@ def test_approval_is_membership_gated(monkeypatch, make_workspace, make_user):
 # --- allowlist settings ---------------------------------------------------------
 
 
-def test_tool_settings_default_catalog_shape(make_workspace):
+def test_tool_settings_default_catalog_shape(monkeypatch, make_workspace):
+    # `web_search` is available exactly when a Tavily key is configured, and
+    # this asserts the unconfigured shape — so the key has to be absent by
+    # instruction rather than by luck. Without this the test passed on CI and
+    # failed on any machine whose `backend/.env` had one, which reads as a
+    # product defect and is a test reaching outside itself.
+    from api.config import settings
+
+    monkeypatch.setattr(settings, "tavily_api_key", "")
     with TestClient(app) as client:
         headers, _, wid = make_workspace(client)
         resp = client.get(f"/api/workspaces/{wid}/settings/tools", headers=headers)

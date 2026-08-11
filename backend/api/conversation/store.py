@@ -13,7 +13,8 @@ it is the most heavily tested.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import Protocol, runtime_checkable
 from uuid import uuid4
 
@@ -24,6 +25,46 @@ def _uuid() -> str:
     return uuid4().hex
 
 
+# One citation's shape, and the only place it is defined. Retrieval hands back
+# whatever its ranker produced; this narrows it to the five fields the product
+# renders and exports, so a change in a retriever cannot silently widen what
+# gets persisted on every reply.
+_CITATION_FIELDS = (
+    "document_id",
+    "filename",
+    # How the source should be named — "Smith et al. (2019)" once catalogued.
+    # Frozen at write time with everything else here: renaming a document must
+    # not retroactively change what an old answer said it was citing.
+    "cite_as",
+    "chunk_index",
+    "score",
+    "excerpt",
+)
+
+# Excerpts are the citation's evidence, not the document. Long enough to show
+# the sentence a claim rests on, short enough that a 6-source reply doesn't
+# double the size of the history response.
+_EXCERPT_CHARS = 600
+
+
+def _clean_citations(items: list[dict] | None) -> list[dict]:
+    """Narrow raw retrieval hits to the persisted citation shape."""
+    out: list[dict] = []
+    for item in items or []:
+        cite = {k: item.get(k) for k in _CITATION_FIELDS if item.get(k) is not None}
+        if not cite.get("document_id"):
+            continue  # a citation that can't be traced back is not a citation
+        cite["chunk_index"] = int(cite.get("chunk_index") or 0)
+        cite["score"] = float(cite.get("score") or 0.0)
+        cite["filename"] = str(cite.get("filename") or "")
+        # Falls back to the filename so a citation always has a visible name,
+        # including for replies written before cataloguing existed.
+        cite["cite_as"] = str(cite.get("cite_as") or cite["filename"])
+        cite["excerpt"] = str(cite.get("excerpt") or "")[:_EXCERPT_CHARS]
+        out.append(cite)
+    return out
+
+
 @dataclass
 class Conversation:
     id: str
@@ -32,6 +73,12 @@ class Conversation:
     title: str
     visibility: str  # "shared" | "private"
     default_branch_id: str
+    # What the thread concluded, written by a human (Helix can draft it).
+    conclusion: str = ""
+    concluded_by: str | None = None
+    concluded_at: datetime | None = None
+    # The external artifact this thread is about (a PR, an issue, a spec URL).
+    subject: str = ""
 
 
 @dataclass
@@ -42,6 +89,17 @@ class Branch:
     parent_branch_id: str | None
     fork_node_id: str | None
     head_node_id: str | None
+    # What this exploration is trying, and what came of it. Defaulted so every
+    # existing caller and fixture keeps working unchanged.
+    intent: str = ""
+    status: str = "open"  # open | adopted | abandoned
+    resolution: str = ""
+    resolved_by: str | None = None
+    resolved_at: datetime | None = None
+    # Members who have said they'd back this exploration. Ids, not a count, so
+    # the UI can show *you* whether you already voted without a second request
+    # — and so a tally can name its backers when a verdict is being written.
+    votes: list[str] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -78,20 +136,56 @@ class ConversationStore(Protocol):
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
         """Append an immutable node to a branch, stamping a monotonic `seq` and
-        chaining `parent_id` to the branch's current head; advances the head."""
+        chaining `parent_id` to the branch's current head; advances the head.
+
+        `citations` are the document chunks a grounded reply drew on. Written
+        in the same call as the content they justify, so a reply and its
+        evidence can never be persisted apart.
+        """
         ...
 
     async def get_history(self, branch_id: str) -> list[Node]:
         """Nodes root -> head for a branch, walking `parent_id` across branch
-        boundaries (the fork read path)."""
+        boundaries (the fork read path). Nodes come back with their citations."""
         ...
 
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         """Fork: one new branch row pointing at `from_node_id`; no history copied."""
+        ...
+
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        """Record (or clear, with an empty string) what the thread concluded."""
+        ...
+
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        """Point the thread at the artifact it is about (empty clears it)."""
+        ...
+
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        """Record what came of an exploration. `status="open"` reopens it.
+
+        Never deletes: an abandoned branch stays readable forever, because the
+        alternative you rejected is half of why the decision is defensible.
+        """
+        ...
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        """Back this exploration, or withdraw backing. Returns the new state.
+
+        Idempotent per member: clicking twice leaves no trace, which is what
+        makes a vote safe to cast on a hunch.
+        """
         ...
 
     async def add_reference(
@@ -214,6 +308,7 @@ class InMemoryStore:
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
         branch = self.branches[branch_id]
         seq = self._next_seq[branch_id]
@@ -227,6 +322,7 @@ class InMemoryStore:
             content=content,
             author_id=author_id,
             token_count=token_count,
+            citations=_clean_citations(citations),
         )
         self.nodes[node.id] = node
         branch.head_node_id = node.id
@@ -244,7 +340,7 @@ class InMemoryStore:
         return out
 
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         from_node = self.nodes[from_node_id]
         branch_id = _uuid()
@@ -255,6 +351,7 @@ class InMemoryStore:
             parent_branch_id=from_node.branch_id,
             fork_node_id=from_node_id,
             head_node_id=from_node_id,  # tip starts at the fork point
+            intent=intent,
         )
         self.branches[branch_id] = branch
         # Continue numbering after the fork point so seq stays monotonic on the
@@ -333,6 +430,55 @@ class InMemoryStore:
             branch.name = name
         return branch
 
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return None
+        conv.conclusion = conclusion
+        conv.concluded_by = concluded_by if conclusion else None
+        conv.concluded_at = datetime.now(timezone.utc) if conclusion else None
+        return conv
+
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        conv = self.conversations.get(conversation_id)
+        if conv is None:
+            return None
+        conv.subject = subject
+        return conv
+
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            return None
+        branch.status = status
+        if status == "open":
+            # Reopening clears the verdict rather than leaving a stale reason
+            # attached to a branch that is live again.
+            branch.resolution = ""
+            branch.resolved_by = None
+            branch.resolved_at = None
+        else:
+            branch.resolution = resolution
+            branch.resolved_by = resolved_by
+            branch.resolved_at = datetime.now(timezone.utc)
+        return branch
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        branch = self.branches.get(branch_id)
+        if branch is None:
+            raise KeyError(branch_id)
+        if user_id in branch.votes:
+            branch.votes.remove(user_id)
+            return False
+        branch.votes.append(user_id)
+        return True
+
     async def delete_branch(self, branch_id: str) -> list[str]:
         branch = self.branches.get(branch_id)
         if branch is None:
@@ -392,6 +538,11 @@ class DbStore:
             parent_branch_id=row.parent_branch_id,
             fork_node_id=row.fork_node_id,
             head_node_id=row.head_node_id,
+            intent=row.intent or "",
+            status=row.status or "open",
+            resolution=row.resolution or "",
+            resolved_by=row.resolved_by,
+            resolved_at=row.resolved_at,
         )
 
     @staticmethod
@@ -403,6 +554,10 @@ class DbStore:
             title=row.title,
             visibility=row.visibility,
             default_branch_id=row.default_branch_id,
+            conclusion=row.conclusion or "",
+            concluded_by=row.concluded_by,
+            concluded_at=row.concluded_at,
+            subject=row.subject or "",
         )
 
     async def create_conversation(
@@ -412,16 +567,20 @@ class DbStore:
 
         async with self._sf() as s:
             conv_id, branch_id = _uuid(), _uuid()
-            s.add(
-                BranchRow(
-                    id=branch_id,
-                    conversation_id=conv_id,
-                    name="main",
-                    parent_branch_id=None,
-                    fork_node_id=None,
-                    head_node_id=None,
-                )
-            )
+            # The conversation is inserted before the branch that references
+            # it, and the `flush` is what makes that true — not the order of
+            # the `add` calls.
+            #
+            # `branches.conversation_id` is a real foreign key, but no
+            # `relationship()` joins the two mappers, and the ORM derives flush
+            # ordering from relationships rather than from table constraints.
+            # With no dependency to honour it falls back to sorting mappers by
+            # name, and `BranchRow` sorts before `ConversationRow` — so the
+            # child was always written first, whatever this method did.
+            #
+            # SQLite never objected, because it does not enforce foreign keys
+            # unless a connection asks it to. Postgres does, so every attempt
+            # to start a conversation died on `branches_conversation_id_fkey`.
             row = ConversationRow(
                 id=conv_id,
                 workspace_id=workspace_id,
@@ -431,6 +590,18 @@ class DbStore:
                 default_branch_id=branch_id,
             )
             s.add(row)
+            await s.flush()
+            s.add(
+                BranchRow(
+                    id=branch_id,
+                    conversation_id=conv_id,
+                    workspace_id=workspace_id,
+                    name="main",
+                    parent_branch_id=None,
+                    fork_node_id=None,
+                    head_node_id=None,
+                )
+            )
             await s.commit()
             return self._to_conversation(row)
 
@@ -469,7 +640,11 @@ class DbStore:
 
         async with self._sf() as s:
             row = await s.get(BranchRow, branch_id)
-            return self._to_branch(row) if row else None
+            if row is None:
+                return None
+            branch = self._to_branch(row)
+            await self._attach_votes(s, [branch])
+            return branch
 
     async def list_branches(self, conversation_id: str) -> list[Branch]:
         from sqlalchemy import select
@@ -484,7 +659,69 @@ class DbStore:
                     .order_by(BranchRow.created_at)
                 )
             ).scalars().all()
-            return [self._to_branch(r) for r in rows]
+            branches = [self._to_branch(r) for r in rows]
+            await self._attach_votes(s, branches)
+            return branches
+
+    @staticmethod
+    async def _attach_votes(s, branches: list[Branch]) -> None:
+        """Hydrate who is backing each branch, in one query for the whole tree."""
+        from sqlalchemy import select
+
+        from .models import BranchVoteRow
+
+        ids = [b.id for b in branches]
+        if not ids:
+            return
+        rows = (
+            await s.execute(
+                select(BranchVoteRow)
+                .where(BranchVoteRow.branch_id.in_(ids))
+                .order_by(BranchVoteRow.created_at)
+            )
+        ).scalars().all()
+        if not rows:
+            return
+        by_branch: dict[str, list[str]] = {}
+        for r in rows:
+            by_branch.setdefault(r.branch_id, []).append(r.user_id)
+        for branch in branches:
+            branch.votes = by_branch.get(branch.id, [])
+
+    async def toggle_branch_vote(self, *, branch_id: str, user_id: str) -> bool:
+        from sqlalchemy import delete, select
+
+        from .models import BranchRow, BranchVoteRow
+
+        async with self._sf() as s:
+            existing = (
+                await s.execute(
+                    select(BranchVoteRow).where(
+                        BranchVoteRow.branch_id == branch_id,
+                        BranchVoteRow.user_id == user_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if existing is not None:
+                await s.execute(
+                    delete(BranchVoteRow).where(BranchVoteRow.id == existing.id)
+                )
+                await s.commit()
+                return False
+            # Only reached when casting a vote, so the extra read costs nothing
+            # on the withdraw path above, and the branch has to exist anyway.
+            branch = await s.get(BranchRow, branch_id)
+            if branch is None:
+                raise KeyError(branch_id)
+            s.add(
+                BranchVoteRow(
+                    branch_id=branch_id,
+                    workspace_id=branch.workspace_id,
+                    user_id=user_id,
+                )
+            )
+            await s.commit()
+            return True
 
     async def add_node(
         self,
@@ -494,9 +731,11 @@ class DbStore:
         content: str,
         author_id: str | None,
         token_count: int = 0,
+        citations: list[dict] | None = None,
     ) -> Node:
-        from .models import BranchRow, NodeRow
+        from .models import BranchRow, NodeCitationRow, NodeRow
 
+        cites = _clean_citations(citations)
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
             if branch is None:
@@ -509,6 +748,9 @@ class DbStore:
             row = NodeRow(
                 id=_uuid(),
                 branch_id=branch_id,
+                # From the branch we already loaded — the reason branches carry
+                # it too, rather than each table joining up to the conversation.
+                workspace_id=branch.workspace_id,
                 parent_id=branch.head_node_id,
                 seq=seq,
                 role=role,
@@ -517,31 +759,160 @@ class DbStore:
                 token_count=token_count,
             )
             s.add(row)
+            if cites:
+                # The node has to reach the database before the rows that point
+                # at it. Nothing about `s.add` order guarantees that: the unit
+                # of work sorts a flush by mapper *relationships*, and there is
+                # none declared here — only a bare `ForeignKey` column, which
+                # it does not use for ordering. What is left is table-name
+                # order, and `node_citations` sorts before `nodes`.
+                #
+                # So every grounded answer inserted its citations first. SQLite
+                # accepted it while foreign keys went unenforced; Postgres would
+                # have refused, which is FR-15 — the whole research room —
+                # failing to save a reply. Same fix, same reason, as the flush
+                # in `create_conversation` above.
+                await s.flush()
+            # Same transaction as the content: a reply that survives without
+            # its sources is exactly the failure this table exists to end.
+            for ordinal, cite in enumerate(cites):
+                s.add(
+                    NodeCitationRow(
+                        node_id=row.id,
+                        workspace_id=row.workspace_id,
+                        document_id=cite["document_id"],
+                        filename=cite["filename"],
+                        cite_as=cite["cite_as"],
+                        chunk_index=cite["chunk_index"],
+                        score=cite["score"],
+                        excerpt=cite["excerpt"],
+                        ordinal=ordinal,
+                    )
+                )
             branch.head_node_id = row.id
             await s.commit()
             node = self._to_node(row)
+            node.citations = cites
             if self._on_node is not None:
                 self._on_node(node)
             return node
 
     async def get_history(self, branch_id: str) -> list[Node]:
+        """The branch's turns, oldest first, inherited across every fork above it.
+
+        Still a walk up the `parent_id` spine — that walk *is* the inheritance
+        feature, and it crosses branch boundaries for free. What changed is how
+        the rows are fetched. One `session.get` per node meant a 500-turn branch
+        issued 500 queries: invisible on SQLite's page cache, 500 network round
+        trips on Postgres, on the hot path of every single send.
+
+        So the spine is read a branch at a time instead. `create_branch` sets
+        `parent_branch_id` to the branch owning the node it forked from, so when
+        the walk runs off the end of one branch's rows, the node it is reaching
+        for is in the parent branch — fetch that branch's rows and carry on.
+        Queries now scale with the number of forks above this branch (typically
+        one to three), not with the number of turns.
+
+        The per-node fallback is kept for the case the invariant doesn't hold:
+        an older row written before `parent_branch_id` was populated, or a
+        repaired database. Slow, but it still returns the right history rather
+        than a truncated one, and a silently short history is the worst
+        possible failure here — it would quietly change what the model sees.
+        """
+        from sqlalchemy import select
+
         from .models import BranchRow, NodeRow
 
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
             if branch is None:
                 raise KeyError(branch_id)
+
             out: list[Node] = []
             node_id = branch.head_node_id
-            while node_id is not None:  # walk the parent spine across branches
+            seen_branches: set[str] = set()
+
+            while node_id is not None and branch is not None:
+                if branch.id in seen_branches:
+                    break  # cycle in parent_branch_id; fall through to the walk
+                seen_branches.add(branch.id)
+
+                rows = (
+                    await s.execute(
+                        select(NodeRow).where(NodeRow.branch_id == branch.id)
+                    )
+                ).scalars().all()
+                by_id = {r.id: r for r in rows}
+
+                while node_id is not None and node_id in by_id:
+                    row = by_id[node_id]
+                    out.append(self._to_node(row))
+                    node_id = row.parent_id
+
+                if node_id is None:
+                    break
+                branch = (
+                    await s.get(BranchRow, branch.parent_branch_id)
+                    if branch.parent_branch_id
+                    else None
+                )
+
+            # Whatever the segment walk could not account for, one node at a time.
+            while node_id is not None:
                 row = await s.get(NodeRow, node_id)
+                if row is None:
+                    break
                 out.append(self._to_node(row))
                 node_id = row.parent_id
+
             out.reverse()
+            await self._attach_citations(s, out)
             return out
 
+    @staticmethod
+    async def _attach_citations(s, nodes: list[Node]) -> None:
+        """Hydrate every node's sources in one query.
+
+        One query for the whole history, not one per node: the walk above was
+        already rewritten to stop issuing a query per turn, and re-introducing
+        that pattern for citations would undo it. Assistant nodes only — a user
+        message has no sources by definition, and on a long thread that halves
+        the id list.
+        """
+        from sqlalchemy import select
+
+        from .models import NodeCitationRow
+
+        ids = [n.id for n in nodes if n.role == "assistant"]
+        if not ids:
+            return
+        rows = (
+            await s.execute(
+                select(NodeCitationRow)
+                .where(NodeCitationRow.node_id.in_(ids))
+                .order_by(NodeCitationRow.node_id, NodeCitationRow.ordinal)
+            )
+        ).scalars().all()
+        if not rows:
+            return
+        by_node: dict[str, list[dict]] = {}
+        for r in rows:
+            by_node.setdefault(r.node_id, []).append(
+                {
+                    "document_id": r.document_id,
+                    "filename": r.filename,
+                    "cite_as": r.cite_as or r.filename,
+                    "chunk_index": r.chunk_index,
+                    "score": r.score,
+                    "excerpt": r.excerpt,
+                }
+            )
+        for node in nodes:
+            if node.id in by_node:
+                node.citations = by_node[node.id]
+
     async def create_branch(
-        self, *, conversation_id: str, from_node_id: str, name: str
+        self, *, conversation_id: str, from_node_id: str, name: str, intent: str = ""
     ) -> Branch:
         from .models import BranchRow, NodeRow
 
@@ -552,10 +923,13 @@ class DbStore:
             row = BranchRow(
                 id=_uuid(),
                 conversation_id=conversation_id,
+                # The fork point is already in this workspace, by definition.
+                workspace_id=from_node.workspace_id,
                 name=name,
                 parent_branch_id=from_node.branch_id,
                 fork_node_id=from_node_id,
                 head_node_id=from_node_id,  # tip starts at the fork point
+                intent=intent,
             )
             s.add(row)
             await s.commit()
@@ -566,7 +940,7 @@ class DbStore:
     ) -> None:
         from sqlalchemy import select
 
-        from .models import ConversationReferenceRow
+        from .models import ConversationReferenceRow, ConversationRow
 
         async with self._sf() as s:
             existing = (
@@ -579,10 +953,14 @@ class DbStore:
                 )
             ).scalar_one_or_none()
             if existing is None:
+                conv = await s.get(ConversationRow, conversation_id)
+                if conv is None:
+                    raise KeyError(conversation_id)
                 s.add(
                     ConversationReferenceRow(
                         id=_uuid(),
                         conversation_id=conversation_id,
+                        workspace_id=conv.workspace_id,
                         referenced_conversation_id=referenced_conversation_id,
                     )
                 )
@@ -669,7 +1047,14 @@ class DbStore:
     async def delete_conversation(self, conversation_id: str) -> list[str]:
         from sqlalchemy import delete, or_, select
 
-        from .models import BranchRow, ConversationReferenceRow, ConversationRow, NodeRow
+        from .models import (
+            BranchRow,
+            BranchVoteRow,
+            ConversationReferenceRow,
+            ConversationRow,
+            NodeCitationRow,
+            NodeRow,
+        )
 
         async with self._sf() as s:
             conv = await s.get(ConversationRow, conversation_id)
@@ -684,6 +1069,21 @@ class DbStore:
                         select(NodeRow.id).where(NodeRow.branch_id.in_(branch_ids))
                     )
                 ).scalars()
+            )
+            # Children first, and these two are the ones the original walk
+            # missed: it followed the spine (nodes, then branches, then the
+            # conversation) and not the tables hanging off it. A citation
+            # outlives its node and a vote outlives its branch, so deleting the
+            # parent leaves a row pointing at nothing — accepted in silence by
+            # SQLite while it ignored foreign keys, and refused outright by
+            # Postgres. The user-visible shape was "delete this thread" failing
+            # for exactly the threads worth keeping a record of: the ones with
+            # a grounded answer, or an exploration somebody backed.
+            await s.execute(
+                delete(NodeCitationRow).where(NodeCitationRow.node_id.in_(node_ids))
+            )
+            await s.execute(
+                delete(BranchVoteRow).where(BranchVoteRow.branch_id.in_(branch_ids))
             )
             await s.execute(delete(NodeRow).where(NodeRow.id.in_(node_ids)))
             await s.execute(delete(BranchRow).where(BranchRow.conversation_id == conversation_id))
@@ -710,10 +1110,65 @@ class DbStore:
             await s.commit()
             return self._to_branch(row)
 
+    async def set_conclusion(
+        self, *, conversation_id: str, conclusion: str, concluded_by: str
+    ) -> Conversation | None:
+        from .models import ConversationRow
+
+        async with self._sf() as s:
+            row = await s.get(ConversationRow, conversation_id)
+            if row is None:
+                return None
+            row.conclusion = conclusion
+            row.concluded_by = concluded_by if conclusion else None
+            row.concluded_at = datetime.now(timezone.utc) if conclusion else None
+            await s.commit()
+            return self._to_conversation(row)
+
+    async def set_subject(
+        self, *, conversation_id: str, subject: str
+    ) -> Conversation | None:
+        from .models import ConversationRow
+
+        async with self._sf() as s:
+            row = await s.get(ConversationRow, conversation_id)
+            if row is None:
+                return None
+            row.subject = subject
+            await s.commit()
+            return self._to_conversation(row)
+
+    async def resolve_branch(
+        self, *, branch_id: str, status: str, resolution: str, resolved_by: str
+    ) -> Branch | None:
+        from .models import BranchRow
+
+        async with self._sf() as s:
+            row = await s.get(BranchRow, branch_id)
+            if row is None:
+                return None
+            row.status = status
+            if status == "open":
+                row.resolution = ""
+                row.resolved_by = None
+                row.resolved_at = None
+            else:
+                row.resolution = resolution
+                row.resolved_by = resolved_by
+                row.resolved_at = datetime.now(timezone.utc)
+            await s.commit()
+            return self._to_branch(row)
+
     async def delete_branch(self, branch_id: str) -> list[str]:
         from sqlalchemy import delete, select
 
-        from .models import BranchRow, ConversationRow, NodeRow
+        from .models import (
+            BranchRow,
+            BranchVoteRow,
+            ConversationRow,
+            NodeCitationRow,
+            NodeRow,
+        )
 
         async with self._sf() as s:
             branch = await s.get(BranchRow, branch_id)
@@ -733,6 +1188,15 @@ class DbStore:
                         select(NodeRow.id).where(NodeRow.branch_id == branch_id)
                     )
                 ).scalars()
+            )
+            # Same omission as `delete_conversation`, same reason. A branch
+            # people voted on is precisely the one that gets abandoned after
+            # losing the argument, so this is the common case, not the corner.
+            await s.execute(
+                delete(NodeCitationRow).where(NodeCitationRow.node_id.in_(node_ids))
+            )
+            await s.execute(
+                delete(BranchVoteRow).where(BranchVoteRow.branch_id == branch_id)
             )
             await s.execute(delete(NodeRow).where(NodeRow.branch_id == branch_id))
             await s.delete(branch)

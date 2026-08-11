@@ -52,7 +52,7 @@ class LlmCallRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     workspace_id: Mapped[str] = mapped_column(String, index=True)
-    kind: Mapped[str] = mapped_column(String)  # chat | deep
+    kind: Mapped[str] = mapped_column(String)  # chat | deep | agent
     provider: Mapped[str] = mapped_column(String, default="")
     model: Mapped[str] = mapped_column(String, default="")
     input_tokens: Mapped[int] = mapped_column(Integer, default=0)
@@ -193,11 +193,15 @@ def _get_handler_cls() -> type:
         `helix.run_id` so a whole run groups together in the backend.
         """
 
-        def __init__(self, *, workspace_id: str, run_id: str, provider: str, model: str) -> None:
+        def __init__(
+            self, *, workspace_id: str, run_id: str, provider: str, model: str,
+            kind: str = "deep",
+        ) -> None:
             self._workspace_id = workspace_id
             self._run_id = run_id
             self._provider = provider
             self._model = model
+            self._kind = kind
             self._open: dict[Any, tuple[trace.Span, float]] = {}
 
         def _start(self, run_id: Any) -> None:
@@ -207,7 +211,7 @@ def _get_handler_cls() -> type:
                     "gen_ai.operation.name": "chat",
                     "gen_ai.system": self._provider,
                     "gen_ai.request.model": self._model,
-                    "helix.kind": "deep",
+                    "helix.kind": self._kind,
                     "helix.run_id": self._run_id,
                     "helix.workspace_id": self._workspace_id,
                 },
@@ -230,7 +234,7 @@ def _get_handler_cls() -> type:
             span.end()
             record_llm_call(
                 workspace_id=self._workspace_id,
-                kind="deep",
+                kind=self._kind,
                 provider=self._provider,
                 model=self._model,
                 usage=usage,
@@ -249,8 +253,17 @@ def _get_handler_cls() -> type:
     return _handler_cls
 
 
-def make_llm_span_callback(*, workspace_id: str, run_id: str, provider: str, model: str):
-    """A per-run LangChain callback handler tracing every LLM call it sees."""
+def make_llm_span_callback(
+    *, workspace_id: str, run_id: str, provider: str, model: str, kind: str = "deep"
+):
+    """A per-run LangChain callback handler tracing every LLM call it sees.
+
+    `kind` tags which producer spent the tokens. It was hard-coded to "deep",
+    so an agent run's spend landed in the ledger indistinguishable from a
+    reasoning run's — and the budget question "what is the agent costing us"
+    had no way to be asked.
+    """
     return _get_handler_cls()(
-        workspace_id=workspace_id, run_id=run_id, provider=provider, model=model
+        workspace_id=workspace_id, run_id=run_id, provider=provider, model=model,
+        kind=kind,
     )

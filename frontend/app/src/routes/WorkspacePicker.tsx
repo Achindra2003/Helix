@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { useNavigate } from "react-router-dom";
+import { motion, useReducedMotion } from "framer-motion";
 import { createWorkspace, acceptInvite, listWorkspaces, leaveWorkspace } from "@/lib/api";
 import type { Workspace } from "@/lib/types";
 import { useSession } from "@/store/session";
@@ -15,6 +16,7 @@ import s from "./picker.module.css";
 
 export function WorkspacePicker() {
   const nav = useNavigate();
+  const reduce = useReducedMotion();
   const { push } = useToast();
   const { user, workspaces, setWorkspaces, setActiveWorkspace, logout } = useSession();
   const [dialog, setDialog] = useState<null | "create" | "invite">(null);
@@ -43,11 +45,20 @@ export function WorkspacePicker() {
     finally { setBusy(false); }
   }
 
+  // What people actually have in their clipboard is the link, because that is
+  // what the Team page now hands out — pasting it into a field that wanted a
+  // bare token used to fail with "Invalid invite". Take either.
+  function tokenFrom(input: string): string {
+    const t = input.trim();
+    const m = t.match(/\/invite\/([^/?#\s]+)/);
+    return m ? m[1] : t;
+  }
+
   async function doAccept() {
     if (!text.trim()) return;
     setBusy(true);
     try {
-      const ws = await acceptInvite(text.trim());
+      const ws = await acceptInvite(tokenFrom(text));
       await refresh();
       setDialog(null); setText("");
       enter(ws.id);
@@ -89,13 +100,28 @@ export function WorkspacePicker() {
 
         <div className={s.grid}>
           {workspaces.map((w, i) => (
-            <div key={w.id} className={s.card} role="button" tabIndex={0}
-              style={{ animationDelay: `${Math.min(i, 8) * 55}ms` }}
+            <motion.div key={w.id} className={s.card} role="button" tabIndex={0}
+              initial={{ opacity: 0, y: reduce ? 0 : 16 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: Math.min(i, 8) * 0.05, duration: 0.45, ease: [0.22, 0.61, 0.21, 1] }}
+              whileHover={reduce ? undefined : { y: -4 }}
+              whileTap={{ scale: 0.99 }}
               onClick={() => enter(w.id)}
               onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); enter(w.id); } }}>
               <div className={s.watermark} aria-hidden><Logo size={120} /></div>
               <div className={s.cardMark}>{w.name.charAt(0).toUpperCase()}</div>
               <div className={s.cardName}>{w.name}</div>
+              {/* What is actually in there. A shelf of plates that differ only
+                  by name makes you open each one to find out which is which —
+                  and the counts are also the fastest read of whether a
+                  workspace is a real room or an empty one you made by accident.
+                  Threads are the ones you can open: another member's private
+                  thread is not yours to know about. */}
+              <div className={`mono ${s.cardStat}`}>
+                <span>{w.conversation_count ?? 0} {w.conversation_count === 1 ? "thread" : "threads"}</span>
+                <span aria-hidden>·</span>
+                <span>{w.member_count ?? 1} {w.member_count === 1 ? "member" : "members"}</span>
+              </div>
               <div className={`mono ${s.cardRole}`}>{ROLE_META[w.role].sigil} {w.role}</div>
               <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                 <span className={s.cardGo}>Enter workspace ⟶</span>
@@ -107,7 +133,7 @@ export function WorkspacePicker() {
                   </button>
                 )}
               </div>
-            </div>
+            </motion.div>
           ))}
           <div className={s.actions} style={{ animationDelay: `${Math.min(workspaces.length, 8) * 55}ms` }}>
             <Button variant="primary" onClick={() => { setText(""); setDialog("create"); }}>+ New workspace</Button>
@@ -117,7 +143,7 @@ export function WorkspacePicker() {
 
         {workspaces.length === 0 && (
           <div style={{ color: "var(--ink-3)", fontStyle: "italic", marginTop: 24 }}>
-            You're not in any workspace yet — create one to begin.
+            You're not in any workspace yet — create one, or join with an invite link.
           </div>
         )}
       </div>
@@ -138,7 +164,7 @@ export function WorkspacePicker() {
             <Button variant="ghost" onClick={() => setDialog(null)}>Cancel</Button>
             <Button variant="primary" onClick={doAccept} disabled={busy}>Join</Button>
           </>}>
-          <Input placeholder="Paste invite token" value={text} autoFocus
+          <Input placeholder="Paste the invite link (or just the token)" value={text} autoFocus
             onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && doAccept()} />
         </Dialog>
       )}
@@ -148,7 +174,7 @@ export function WorkspacePicker() {
             <Button variant="ghost" onClick={() => setLeaving(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doLeave} disabled={busy}>Leave workspace</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             You'll lose access to its conversations and prompts until someone invites you back.
             Messages you wrote in shared threads stay part of their conversations.
           </div>

@@ -9,7 +9,15 @@ identical semantics to `InMemoryStore`, just durable.
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import Float, ForeignKey, Integer, String, Text
+from sqlalchemy import (
+    Boolean,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    Text,
+    UniqueConstraint,
+)
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..db import Base
@@ -30,6 +38,22 @@ class ConversationRow(Base):
     visibility: Mapped[str] = mapped_column(String, default="shared")  # shared|private
     default_branch_id: Mapped[str] = mapped_column(String)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    # What the thread concluded. A branch verdict says which exploration won;
+    # this says what the team now believes, which is the thing someone asks for
+    # when they say "so what did we land on?". Empty until a human writes it —
+    # Helix can draft it from the branches, but a draft nobody accepted is not
+    # a conclusion.
+    conclusion: Mapped[str] = mapped_column(Text, default="")
+    concluded_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    concluded_at: Mapped[datetime | None] = mapped_column(nullable=True)
+    # The external artifact this thread is about: a pull request, an issue, a
+    # spec URL. Written for the agent as much as for the reader — a team
+    # discussing "this change" for forty turns never says the number, so an
+    # agent holding a GitHub tool had everything it needed except which PR to
+    # fetch. One free-text field rather than a typed GitHub reference, because
+    # the thing being pointed at is not always a PR and inventing a schema for
+    # every kind would be building for a product we do not have.
+    subject: Mapped[str] = mapped_column(String, default="")
 
 
 class BranchRow(Base):
@@ -39,11 +63,43 @@ class BranchRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id"), index=True
     )
+    # Denormalised from the parent conversation, and the one place to explain
+    # why (the five other tables carrying it point here).
+    #
+    # Row-Level Security needs a tenancy predicate per table. Fourteen tables
+    # already carry `workspace_id` and take a one-line policy; this one and the
+    # branch/node subtree did not, and reached it only by joining — `nodes` at
+    # two hops, `node_citations` at three. `nodes` is the hottest table in the
+    # product, one row per message, so a policy that subqueries three levels up
+    # would run on every read of every thread. Uniform, indexable predicates are
+    # also the ones that stay correct, which matters more than the speed.
+    #
+    # It is redundant by construction, so it is only safe if it cannot drift:
+    # NOT NULL (a write site that forgets fails loudly at commit rather than
+    # writing a row no policy will ever match), and
+    # `test_workspace_id_denormalisation.py` checks every row against its
+    # parent. See `docs/DEPLOY-V1.md` §A5.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     name: Mapped[str] = mapped_column(String, default="main")
     parent_branch_id: Mapped[str | None] = mapped_column(String, nullable=True)
     fork_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     head_node_id: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+    # --- the exploration's own lifecycle -------------------------------------
+    # A branch used to record only where it came from. It could be created and
+    # never finished, which is why a tree of them was a pile of experiments
+    # rather than a decision record. `intent` is what this exploration is
+    # trying (asked at fork time); the resolution fields are what came of it.
+    #
+    # Deliberately NOT enforced: that one branch per fork point is adopted.
+    # Two siblings can both be adopted — a team really can take something from
+    # each — and having the system infer a verdict nobody recorded would defeat
+    # the purpose of recording verdicts.
+    intent: Mapped[str] = mapped_column(Text, default="")
+    status: Mapped[str] = mapped_column(String, default="open")  # open|adopted|abandoned
+    resolution: Mapped[str] = mapped_column(Text, default="")
+    resolved_by: Mapped[str | None] = mapped_column(String, nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(nullable=True)
 
 
 class ConversationReferenceRow(Base):
@@ -61,6 +117,10 @@ class ConversationReferenceRow(Base):
     conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id"), index=True
     )
+    # From the linking conversation, not the referenced one — a reference is a
+    # row *of* the thread that points, and both are in the same workspace
+    # anyway (the route requires it). See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     referenced_conversation_id: Mapped[str] = mapped_column(
         ForeignKey("conversations.id")
     )
@@ -108,6 +168,9 @@ class NodeRow(Base):
 
     id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
     branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), index=True)
+    # Two hops from the workspace without this, and this is the table that
+    # would have paid for it — one row per message. See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
     parent_id: Mapped[str | None] = mapped_column(String, nullable=True)
     seq: Mapped[int] = mapped_column(Integer)
     role: Mapped[str] = mapped_column(String)  # user|assistant|system
@@ -115,3 +178,128 @@ class NodeRow(Base):
     author_id: Mapped[str | None] = mapped_column(String, nullable=True)
     token_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class BranchVoteRow(Base):
+    """One member saying "I'd back this exploration".
+
+    Branching is the product's signature move and it had no counter-move: a
+    team could fork four ways and then had nothing but prose to narrow it
+    again. `resolve_branch` recorded the verdict, but a verdict is the *end* of
+    converging — one person writing down a decision the room never got to
+    express an opinion on.
+
+    Approval voting, deliberately: a member may back any number of branches,
+    and backing one says nothing about the others. Single-choice would force a
+    false precision ("rank these four") when the useful signal is usually
+    "either of these two works, the other two don't" — and it would make the
+    write a read-modify-write across sibling rows instead of one insert.
+
+    A vote is not a verdict and does not resolve anything. It is the reading
+    someone takes *before* deciding, which is why the tally is shown in the
+    adopt dialog rather than driving it.
+    """
+
+    __tablename__ = "branch_votes"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    branch_id: Mapped[str] = mapped_column(ForeignKey("branches.id"), index=True)
+    # See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    user_id: Mapped[str] = mapped_column(String, index=True)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+    __table_args__ = (
+        # One member, one voice per branch. Enforced here rather than by a
+        # read-then-write, which races two clicks from two tabs.
+        UniqueConstraint("branch_id", "user_id", name="uq_branch_votes_branch_user"),
+    )
+
+
+class NodeCitationRow(Base):
+    """One document chunk an assistant node was grounded on.
+
+    A table rather than a JSON column on `NodeRow`, because the question the
+    research room actually asks is "which answers cited this paper?" — that is
+    a query over `document_id`, not a field to render. A blob would answer the
+    render and refuse the query.
+
+    Until this existed, citations lived *only* in the browser: the `grounding`
+    SSE frame reached the client, was held in a module-level record in
+    ChatView, and was gone on the next reload. The reply survived; the evidence
+    for it did not, which is the one thing a grounded answer cannot afford.
+
+    Denormalised on purpose. `filename` and the document's own metadata are
+    copied in at write time so a citation still reads correctly after the
+    document is renamed or deleted — the claim was made against *that* text on
+    *that* day, and a dangling join would quietly rewrite history.
+    """
+
+    __tablename__ = "node_citations"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True, default=_uuid)
+    node_id: Mapped[str] = mapped_column(ForeignKey("nodes.id"), index=True)
+    # Three hops from the workspace without this — the deepest in the schema.
+    # This table is already denormalised on purpose (see the docstring); the
+    # tenancy key is the same bargain. See BranchRow.workspace_id.
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    document_id: Mapped[str] = mapped_column(String, index=True)
+    filename: Mapped[str] = mapped_column(String, default="")
+    # How the source is named in the chip and the export: "Smith et al. (2019)"
+    # once someone has catalogued the document, the filename until then.
+    cite_as: Mapped[str] = mapped_column(String, default="")
+    chunk_index: Mapped[int] = mapped_column(Integer, default=0)
+    score: Mapped[float] = mapped_column(Float, default=0.0)
+    excerpt: Mapped[str] = mapped_column(Text, default="")
+    # Position in the citation list as the retriever ranked it, so the chips
+    # render in relevance order without re-sorting on a float.
+    ordinal: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(default=_now)
+
+
+class ResumableRunRow(Base):
+    """A run that is paused and waiting for a human, held across a restart.
+
+    `deep_runs` is the archive of runs that *finished*; this is the much
+    smaller set that has not. A guided deep run stops at a steer interrupt and
+    an agent turn stops at a sensitive tool call, and both then wait for as
+    long as a person takes — minutes, or overnight. Until this table existed
+    that wait was bounded by the server's uptime: `RunManager` held the handle
+    in a dict, so a deploy or a reboot turned "steer" into a 404 and the work
+    was simply gone.
+
+    Everything here is what it takes to build that run again: `thread_id` is
+    where LangGraph's own checkpoint lives (the reasoning itself), and `events`
+    is the log a reconnecting monitor replays so the trace does not restart
+    blank. Rows are deleted the moment a run reaches a terminal state — a row
+    here means "still owed a human answer", nothing else.
+    """
+
+    __tablename__ = "resumable_runs"
+
+    id: Mapped[str] = mapped_column(String, primary_key=True)  # the run_id
+    kind: Mapped[str] = mapped_column(String)  # deep | agent
+    workspace_id: Mapped[str] = mapped_column(String, index=True)
+    conversation_id: Mapped[str] = mapped_column(String, index=True)
+    branch_id: Mapped[str] = mapped_column(String)
+    author_id: Mapped[str] = mapped_column(String)
+    # Private threads are never relayed to the workspace room; the rebuilt
+    # handle has to remember that or a resume would leak one.
+    shared: Mapped[bool] = mapped_column(Boolean, default=True)
+    # The LangGraph checkpoint key. Without it the engine cannot be told where
+    # to continue from, and every other column here is useless.
+    thread_id: Mapped[str] = mapped_column(String)
+    prompt: Mapped[str] = mapped_column(Text, default="")
+    steerable: Mapped[bool] = mapped_column(Boolean, default=False)
+    # Which reasoning preset the run started under. Rebuilt runs used to take
+    # the instance default, so a paused Explore run came back as Analyze — a
+    # different depth, energy curve and set of four prompts, silently, halfway
+    # through. Empty means "whatever the instance default is", which is what
+    # every row written before this column existed meant.
+    mode: Mapped[str] = mapped_column(String, default="")
+    # Token text streamed before the pause. The final assistant node is built
+    # from every segment's tokens joined, so dropping this would silently
+    # publish a reply missing its first half.
+    answer_parts: Mapped[str] = mapped_column(Text, default="")
+    events: Mapped[str] = mapped_column(Text, default="[]")  # JSON: the log
+    updated_at: Mapped[datetime] = mapped_column(default=_now, onupdate=_now)

@@ -183,8 +183,10 @@ owner can open TEAM → Provider, paste their own API key, pick models, and
 
 **The path today:**
 1. All model calls go through one `LLMProvider` interface
-   (`backend/api/providers/base.py`) with Groq, Ollama,
-   OpenAI-compatible, and a stub (for tests) behind it.
+   (`backend/api/providers/base.py`) with three implementations behind it:
+   Groq, Ollama, and a stub (for tests). The interface is OpenAI-shaped, so
+   a generic OpenAI-compatible endpoint is a contained addition — planned
+   (`LAUNCH-PLAN.md` Phase 1, `base_url` per workspace), not built.
 2. Which provider a call uses is decided per workspace by one pure function:
    `resolve()` in `backend/api/provider_settings.py`. Workspace settings win;
    the server `.env` is the fallback. A hosted instance ships with **no
@@ -385,9 +387,11 @@ map against a real provider.
 What turns it from "finished" into "launchable" is the infra lane
 (`BATON-MANSOOR.md`):
 
-- **P1 — the install.** One production container serving the built frontend
-  from FastAPI; `git clone && docker compose up` → register at
-  `localhost:8000`. CI runs the hermetic suite; images publish to a registry.
+- **P1 — the install (✅ landed July 19, `8d691bc`).** One production container
+  serving the built frontend from FastAPI; `git clone && docker compose up` →
+  register at `localhost:8000`. Still open from the P1 spec: CI running the
+  hermetic suite and publishing images to a registry, plus the slim-image
+  build option the free-tier VM needs.
 - **P2 — secure-by-default.** Refuse to boot on the dev secret; rate limits
   on signup/send/deep/agent/search; caps on workspaces, members, invite uses.
 - **P3 — Alembic baseline** over all six model files, so a hosted instance

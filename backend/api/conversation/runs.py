@@ -17,9 +17,16 @@ nav) cancelled a three-minute run mid-thought. This module inverts that:
   `queued` (a visible event, not a mystery) and start when a slot frees.
 
 Scope note (single-instance by design): handles are in-process, like the
-realtime rooms. A *process restart* still loses in-flight runs — the durable
-record row is the evidence trail; restart-surviving runs need the LangGraph
-sqlite checkpointer plus a persisted run registry, both documented seams.
+realtime rooms, so this manager is one process's view of one process's runs.
+
+What survives a restart, and what does not, is now a real distinction:
+
+- A **paused** run does. It is waiting on a person — steer guidance, or a tool
+  approval — and that wait is human-length, so it is written down and rebuilt
+  on demand (`conversation/resume.py`, `api/checkpointing.py`).
+- A run **mid-execution** does not. Its asyncio task and queue slot die with
+  the process; the durable `deep_runs` row is the evidence trail, and the cost
+  is one re-run.
 """
 from __future__ import annotations
 
@@ -51,6 +58,16 @@ class RunHandle:
     recorder: DeepRunRecorder
     status: str = "queued"  # queued | running | paused | done | error | killed
     events: list[Event] = field(default_factory=list)
+    # What it takes to rebuild this run in another process. `thread_id` is the
+    # LangGraph checkpoint key; the rest is the context the graph does not
+    # carry. Only deep runs are rehydratable today — see conversation/resume.py.
+    kind: str = "deep"
+    thread_id: str = ""
+    prompt: str = ""
+    steerable: bool = False
+    # The reasoning preset this run started under, so a rebuild continues in it
+    # rather than in the instance default. "" = the instance default.
+    mode: str = ""
     kill_requested: bool = False
     ts: float = field(default_factory=time.time)
     _wakeup: asyncio.Event = field(default_factory=asyncio.Event)
@@ -134,9 +151,37 @@ class RunManager:
             handle.status = "paused" if paused else segment_status
             handle.ts = time.time()
             handle._notify()
+            await self._persist(handle)
             wid = handle.workspace_id
             self._active[wid] = max(0, self._active.get(wid, 1) - 1)
             self._promote(wid)
+
+    async def _persist(self, handle: RunHandle) -> None:
+        """A paused run is written down; a finished one is cleared.
+
+        This is what makes the pause outlast the process. It happens here, at
+        the one point every segment ends through, rather than in the endpoints
+        — a run can pause without anyone's request being open.
+        """
+        from . import resume  # local: resume imports RunHandle from here
+
+        if handle.status == "paused" and handle.thread_id:
+            await resume.remember(
+                handle, kind=handle.kind, thread_id=handle.thread_id,
+                prompt=handle.prompt, steerable=handle.steerable,
+                mode=handle.mode,
+            )
+        elif handle.finished:
+            await resume.forget(handle.run_id)
+
+    def adopt(self, handle: RunHandle) -> RunHandle:
+        """Take ownership of a handle rebuilt from storage.
+
+        No slot is consumed and no task starts: an adopted run is paused by
+        definition, and it takes a slot when someone steers it.
+        """
+        self._handles[handle.run_id] = handle
+        return handle
 
     def _promote(self, workspace_id: str) -> None:
         """Start the next queued run in this workspace, if a slot is free."""

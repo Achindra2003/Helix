@@ -20,7 +20,7 @@
   margin: 16px 0 8px;
   color: var(--ink);
 }
-.md h1 { font-size: 21px; }
+.md h1 { font-size: 20px; }
 .md h2 { font-size: 18px; }
 .md h3 { font-size: 16px; }
 .md h4 { font-size: 15px; }
@@ -35,9 +35,13 @@
 .md a { color: var(--oxblood); text-decoration: underline; text-underline-offset: 2px; }
 .md a:hover { color: var(--cinnabar); }
 
+/* A marginal hairline, not a tab. The 2.5px gilt spine is the illuminated
+   leaf's signature and should mean one thing only — a second thick gilt bar
+   inside the leaf reads as a second edge rather than a quotation. A thin rule
+   set further out is also the more manuscript-correct mark. */
 .md blockquote {
-  margin: 0 0 10px; padding: 2px 14px;
-  border-left: 3px solid var(--gilt);
+  margin: 0 0 10px; padding: 2px 0 2px 18px;
+  border-left: 1px solid var(--gilt-1);
   color: var(--ink-2); font-style: italic;
 }
 

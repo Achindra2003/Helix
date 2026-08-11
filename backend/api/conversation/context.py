@@ -77,8 +77,16 @@ REFERENCE_TOKEN_BUDGET = 2500
 _ROLE_MAP = {"user": "user", "assistant": "assistant", "system": "system"}
 
 
-def _est_tokens(text: str) -> int:
-    """Cheap token estimate (~4 chars/token for English); provider-agnostic."""
+def est_tokens(text: str) -> int:
+    """Cheap token estimate (~4 chars/token for English); provider-agnostic.
+
+    Public because the send path stamps it onto each assistant turn as well
+    (`engine.py`). It used to store `len(parts)` there — the number of *stream
+    chunks*, which the UI then displayed as "23 tokens" and the workspace usage
+    endpoint summed into a spend figure. A deep run that surfaced in one chunk
+    read as "1 token" for a 900-character answer. Same estimator everywhere now,
+    so the number a reader sees is the same one the context budget spends.
+    """
     return max(1, (len(text) + 3) // 4)
 
 
@@ -95,7 +103,7 @@ def _token_window(
     kept: list[Node] = []
     used = 0
     for node in reversed(history):
-        cost = _est_tokens(node.content)
+        cost = est_tokens(node.content)
         if kept and (
             (max_turns and len(kept) >= max_turns)
             or (token_budget and used + cost > token_budget)
@@ -198,15 +206,15 @@ def render_references(references: list[ReferenceBlock], *, max_turns: int = 20) 
         transcript = render_transcript(
             ref.history, max_turns=max_turns, max_chars_per_turn=REFERENCE_TURN_CHARS
         )
-        cost = _est_tokens(transcript)
+        cost = est_tokens(transcript)
         if cost > budget:
             # Keep the most recent lines that fit (a transcript truncates cleanly
             # at line boundaries, newest last).
             lines = transcript.splitlines()
-            while lines and _est_tokens("\n".join(lines)) > budget:
+            while lines and est_tokens("\n".join(lines)) > budget:
                 lines.pop(0)
             transcript = "\n".join(lines)
-            cost = _est_tokens(transcript)
+            cost = est_tokens(transcript)
         if not transcript:
             continue
         budget -= cost
@@ -228,6 +236,7 @@ def build_messages(
     references: list[ReferenceBlock] | None = None,
     recalled: str | None = None,
     grounding: str | None = None,
+    subject: str | None = None,
 ) -> list[Message]:
     """Render branch history (root -> head) into role-structured chat messages.
 
@@ -242,12 +251,35 @@ def build_messages(
     ``recalled`` is the recall block precomputed against persisted node vectors
     (the production path — see `EmbeddingIndex.recall_block`); ``None`` falls
     back to inline on-the-fly embedding for direct callers.
+
+    ``subject`` is the external artifact this thread is about — a pull request,
+    an issue, a document URL. It exists for the agent: a team discussing "this
+    change" for forty turns never says the number, so an agent holding a GitHub
+    tool had everything it needed except which PR to fetch. Stated as fact
+    rather than instruction, because it is context, not a command.
     """
+    # Notes are addressed to teammates, not to the model. "No, try the other
+    # way" is coordination, not a prompt: letting it into the context would
+    # change the answers every time a team talked to itself, and would make a
+    # thread's replies depend on who happened to be arguing in it. Filtered
+    # before windowing so they cost no budget either.
+    history = [n for n in history if n.role != "note"]
     turns, elided = _token_window(history, max_turns, token_budget)
 
     messages: list[Message] = []
     if system:
         messages.append({"role": "system", "content": system})
+    if subject:
+        messages.append(
+            {
+                "role": "system",
+                "content": (
+                    f"This thread is about: {subject}\n"
+                    "If you have a tool that can read it, use that reference "
+                    "rather than asking which one is meant."
+                ),
+            }
+        )
     if references:
         block = render_references(references)
         if block:
@@ -298,6 +330,10 @@ def render_transcript(
     max_chars_per_turn: int | None = None,
 ) -> str:
     """A compact plain-text transcript of recent context (for prompts/seeds)."""
+    # Same rule as build_messages: teammate notes are not part of what the
+    # model is reasoning about. This feeds deep-run seeds and reference blocks,
+    # so a leak here would reach the model by the back door.
+    history = [n for n in history if n.role != "note"]
     turns = history[-max_turns:] if max_turns and len(history) > max_turns else history
     lines = []
     for node in turns:

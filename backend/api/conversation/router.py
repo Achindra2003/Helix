@@ -13,6 +13,7 @@ reported as 404 so tenants can't probe for each other's resources.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict
 from datetime import date
 
@@ -29,18 +30,22 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
-from .. import realtime
+from .. import mentions, realtime
 from ..prompts.store import PromptStore
 from ..provider_settings import ResolvedProvider, build_chat_provider, resolve
 from ..models import WorkspaceSettings
+from ..reasoning_llm import make_reachability_probe
 from ..telemetry import make_llm_span_callback, record_llm_call
 from ..tools import bindable, resolve_allowlist
 from ..tools.agent import AgentProducer, build_agent_graph
+from ..tools.telemetry import ToolObserver
+from ..tools.mcp_service import load_mcp_tools
 from ..tools.builtin import make_tools
 from . import engine
 from .context import ReferenceBlock
-from .deep_reasoning import DeepReasoningProducer, build_ouroboros_graph
+from .deep_reasoning import REASONING_MODES, DeepReasoningProducer, build_ouroboros_graph
 from .embeddings import EmbeddingIndex
+from . import reports, resume
 from ..documents.service import DocumentIndex
 from .events import AgentRunRegistered, DeepRunRegistered, to_dict, to_sse
 from .models import DeepRunRow
@@ -84,6 +89,11 @@ def _usage_sink_for(workspace_id: str, provider_name: str):
 # Durable persistence: conversations/branches/nodes survive restarts. The engine
 # is unchanged by this swap — it only ever sees the `ConversationStore` Protocol.
 _store = DbStore(SessionLocal, on_node=_embeddings.ensure_soon)
+
+# How much of each branch the synthesis reads. The comparison needs where a
+# branch *ended up*, not its whole life, and this is the number that decides
+# when one call stops being enough (see POST /synthesize).
+_MAX_TURNS_PER_BRANCH = 8
 _prompts = PromptStore(SessionLocal)
 
 
@@ -103,6 +113,16 @@ class DeepRequest(BaseModel):
     # cycles; the client resumes it (with optional guidance) via
     # POST /conversations/deep/runs/{run_id}/steer.
     steerable: bool = False
+    # Which of the six reasoning modes to run: explore | analyze | create |
+    # solve | philosophize | review. Each carries its own depth, energy curve,
+    # steer interval and four prompts (engine/ouroboros/presets.py).
+    #
+    # Per *run*, not per workspace or per server. Explore-vs-Solve is a property
+    # of the question, and it changes within one team within one afternoon —
+    # "survey what's out there" and "decompose this failure" are different jobs
+    # asked in the same thread. None falls back to the instance default, which
+    # is what every run used to get.
+    mode: str | None = None
 
 
 class SteerRequest(BaseModel):
@@ -112,6 +132,51 @@ class SteerRequest(BaseModel):
 class ForkBranch(BaseModel):
     from_node_id: str
     name: str = "branch"
+    # What this exploration is trying. Optional so existing clients keep
+    # working, but the UI asks for it — a branch whose purpose was never
+    # written down cannot carry a meaningful verdict later.
+    intent: str = ""
+
+
+class ExploreWays(BaseModel):
+    """Several explorations off one message, in one action.
+
+    Forking is the product's signature move and it was priced for decisions:
+    a dialog, an intent, a label, one branch. Right when a team is choosing
+    between two architectures; wrong when someone says "throw four ideas at
+    this and see", which is the other half of what a branch is for. Most of
+    those four get abandoned without ceremony, and ceremony was the whole
+    cost.
+
+    Each angle becomes one branch's `intent` — so a disposable exploration
+    still records what it was trying, and can still carry a verdict if it
+    turns out to be the good one.
+    """
+
+    from_node_id: str
+    # 2..6. One is just a fork; past six nobody reads the comparison, and the
+    # cap keeps a stray client from forking a hundred branches in one call.
+    angles: list[str]
+
+
+class ResolveBranch(BaseModel):
+    status: str  # open | adopted | abandoned
+    resolution: str = ""
+
+
+class PostNote(BaseModel):
+    content: str
+
+
+class Conclude(BaseModel):
+    # Empty clears the conclusion — reopening a thread the team thought it had
+    # settled is a legitimate thing to need.
+    conclusion: str = ""
+
+
+class SetSubject(BaseModel):
+    # Empty clears it. A thread can stop being about a particular change.
+    subject: str = ""
 
 
 class InsertPrompt(BaseModel):
@@ -353,16 +418,76 @@ async def list_branches(
     return {"items": [asdict(b) for b in branches]}
 
 
+async def _export_decision_report(conv, format: str, session: AsyncSession):
+    """Gather the whole conversation and hand it to the report renderer.
+
+    The reading lives here because it needs the store and the session; the
+    shaping and the prose live in `reports.py`, so Markdown and JSON are one
+    report rendered twice rather than two documents that drift.
+    """
+    branches = await _store.list_branches(conv.id)
+    histories = {b.id: await _store.get_history(b.id) for b in branches}
+    runs = (
+        (
+            await session.execute(
+                select(DeepRunRow)
+                .where(DeepRunRow.conversation_id == conv.id)
+                .order_by(DeepRunRow.created_at)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    references = []
+    for ref_id in await _store.list_reference_ids(conv.id):
+        ref = await _store.get_conversation(ref_id)
+        if ref is not None:
+            references.append(ref)
+
+    report = await reports.build_conversation_report(
+        conv=conv,
+        branches=branches,
+        histories=histories,
+        deep_runs=list(runs),
+        references=references,
+        names=reports.Names(session),
+    )
+    stem = reports.filename_stem(conv.title, "conversation")
+    if format == "json":
+        return JSONResponse(
+            content=report,
+            headers={"Content-Disposition": f'attachment; filename="{stem}-report.json"'},
+        )
+    return Response(
+        content=reports.render_conversation_markdown(report),
+        media_type="text/markdown",
+        headers={"Content-Disposition": f'attachment; filename="{stem}-report.md"'},
+    )
+
+
 @router.get("/{conversation_id}/export")
 async def export_conversation(
     conversation_id: str,
-    branch: str,
+    branch: str | None = None,
     format: str = "md",
     user: User = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
 ):
-    """Export a branch's full history (root -> head) as Markdown or JSON (F9)."""
+    """Export this conversation as Markdown or JSON (F9).
+
+    With `branch`, one branch's history root -> head: the fair copy of a single
+    path, which is what a transcript is.
+
+    Without it, the whole conversation as a decision report — every
+    exploration including the abandoned ones, each verdict with its reason and
+    who recorded it, the reasoning runs, and the threads it drew context from.
+    That is the export the product's own claim requires: a branch export shows
+    the road taken, and the road *not* taken is half of why a decision holds.
+    """
     conv = await _require_conversation(conversation_id, user, session)
+    if branch is None:
+        return await _export_decision_report(conv, format, session)
+
     br = await _store.get_branch(branch)
     if br is None or br.conversation_id != conversation_id:
         raise api_error(404, "not_found", "branch not found")
@@ -397,15 +522,67 @@ async def export_conversation(
         "",
         f"*a Helix conversation · branch “{br.name}” · {len(nodes)} nodes*",
         "",
-        "---",
-        "",
     ]
+    # What this thread is about, when it is about something outside Helix — a
+    # pull request, an issue, a document under review. A transcript that
+    # discusses "this change" for forty turns and never names it is readable
+    # today and unusable to the person who finds it next quarter.
+    if conv.subject:
+        lines += [f"**About:** {conv.subject}", ""]
+    # The decision, before the transcript. Someone handed this file is reading
+    # it to find out what was concluded and why; making them infer that from a
+    # transcript is the copy-paste problem this export exists to replace.
+    # The thread's conclusion leads, because it outranks the fate of any single
+    # exploration below it.
+    if conv.conclusion:
+        lines += [f"**Concluded:** {conv.conclusion}", ""]
+        who = await _who(conv.concluded_by) if conv.concluded_by else ""
+        when = conv.concluded_at.date().isoformat() if conv.concluded_at else ""
+        stamp = " · ".join(x for x in (who, when) if x)
+        if stamp:
+            lines += [f"*recorded by {stamp}*", ""]
+    if br.intent:
+        lines += [f"**Exploring:** {br.intent}", ""]
+    if br.status != "open":
+        verdict = f"**{br.status.capitalize()}**"
+        if br.resolution:
+            verdict += f" — {br.resolution}"
+        lines += [verdict, ""]
+        # `_who(None)` answers "Helix", which would be a lie about who decided.
+        who = await _who(br.resolved_by) if br.resolved_by else ""
+        when = br.resolved_at.date().isoformat() if br.resolved_at else ""
+        stamp = " · ".join(x for x in (who, when) if x)
+        if stamp:
+            lines += [f"*recorded by {stamp}*", ""]
+    lines += ["---", ""]
     for n in nodes:
         who = "Helix" if n.role == "assistant" else await _who(n.author_id)
+        if n.role == "note":
+            # A note is addressed to teammates and is filtered out of the model
+            # context. Rendered like a turn it was indistinguishable from a
+            # prompt, so the one artifact that leaves the product could not
+            # tell "what we asked the AI" from "what we said to each other" —
+            # a fidelity bug in exactly the document meant to be trusted later.
+            lines.append(f"> **Note from {who or 'a teammate'}** — written for the team, never sent to the model")
+            lines.append(">")
+            lines += [f"> {line}" for line in n.content.splitlines()]
+            lines.append("")
+            continue
         lines.append(f"**{who}**")
         lines.append("")
         lines.append(n.content)
         lines.append("")
+        # The sources the reply was grounded on, under the claim they support.
+        # A grounded answer whose export drops its citations is an unsourced
+        # assertion wearing the authority of a cited one — which is worse than
+        # never having cited at all.
+        if n.citations:
+            lines.append("*Grounded on:*")
+            for c in n.citations:
+                name = c.get("cite_as") or c.get("filename") or "a document"
+                where = f"{name} §{int(c.get('chunk_index') or 0) + 1}"
+                lines.append(f"- {where}")
+            lines.append("")
     lines += [
         "---",
         "",
@@ -503,7 +680,10 @@ async def fork_branch(
     conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
     try:
         branch = await _store.create_branch(
-            conversation_id=conversation_id, from_node_id=body.from_node_id, name=body.name
+            conversation_id=conversation_id,
+            from_node_id=body.from_node_id,
+            name=body.name,
+            intent=body.intent.strip(),
         )
     except KeyError:
         raise api_error(404, "not_found", "node not found")
@@ -519,7 +699,456 @@ async def fork_branch(
             },
             exclude_user=user.id,
         )
-    return {"branch_id": branch.id, "fork_node_id": branch.fork_node_id, "name": branch.name}
+    return {
+        "branch_id": branch.id,
+        "fork_node_id": branch.fork_node_id,
+        "name": branch.name,
+        "intent": branch.intent,
+    }
+
+
+@router.post("/{conversation_id}/explore")
+async def explore_ways(
+    conversation_id: str,
+    body: ExploreWays,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Fork several explorations off one message at once.
+
+    The counter-move to `resolve`. A team could already converge — back a
+    branch, adopt one with a written reason — but diverging cost a dialog and
+    a naming decision *per branch*, so "let's try four things" was priced like
+    "let's commit to one". This makes the cheap half cheap.
+
+    Branches are created here and left empty; the client sends the turn on
+    each. That is deliberate: a turn is already a streamed, cancellable,
+    budget-accounted thing over `POST /conversations/{branch_id}/messages`,
+    and reproducing it server-side for the fan-out would mean a second
+    implementation of the one path in this product that must never diverge.
+
+    Named from the angle, never asked for separately. A label nobody chose is
+    better than a dialog nobody wanted, and the angle is the honest name.
+    """
+    conv = await _require_conversation(
+        conversation_id, user, session, ROLE_COLLABORATOR
+    )
+    angles = [a.strip() for a in body.angles if a.strip()]
+    if len(angles) < 2:
+        raise api_error(
+            422, "invalid", "Exploring in parallel needs at least two angles."
+        )
+    if len(angles) > 6:
+        raise api_error(422, "invalid", "Six angles at once is the limit.")
+
+    created = []
+    for angle in angles:
+        try:
+            branch = await _store.create_branch(
+                conversation_id=conversation_id,
+                from_node_id=body.from_node_id,
+                name=_branch_label(angle),
+                intent=angle,
+            )
+        except KeyError:
+            raise api_error(404, "not_found", "node not found")
+        created.append(
+            {
+                "branch_id": branch.id,
+                "fork_node_id": branch.fork_node_id,
+                "name": branch.name,
+                "intent": branch.intent,
+            }
+        )
+
+    if conv.visibility == "shared":
+        # One event for the set, not one per branch: four separate
+        # `branch.created` frames would land as four separate surprises in a
+        # teammate's lineage, and they are one act.
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branches.explored",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "branches": created,
+            },
+            exclude_user=user.id,
+        )
+    return {"items": created}
+
+
+def _branch_label(angle: str) -> str:
+    """A short lineage label from the angle, so nobody names a thing twice.
+
+    Same derivation the fork dialog already does client-side; kept here too
+    because this route never asks for a name at all.
+    """
+    words = [w for w in re.split(r"\W+", angle.lower()) if w][:3]
+    return "-".join(words) or "exploration"
+
+
+@router.post("/{branch_id}/notes")
+async def post_note(
+    branch_id: str,
+    body: PostNote,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Say something to your teammates, in the thread, without asking the model.
+
+    Until now every message in Helix was addressed to the LLM. Two people in
+    one thread could watch each other work and fork away from each other, but
+    could not actually speak — so disagreeing meant typing at the model and
+    hoping the other person read it. That is the gap under the whole "shared
+    workspace" claim: a room where nobody can talk is an audience, not a team.
+
+    A note is an ordinary immutable node so it keeps its place in the thread —
+    it appears exactly where it was said, which is the point of saying it
+    there. It is excluded from the model's context (see `build_messages`): a
+    side remark is coordination, not a prompt, and letting it in would make a
+    thread's answers depend on who happened to be arguing in it.
+
+    **This is the one write an Observer has**, and the decision is deliberate.
+
+    An Observer who can only read is a decorative role: the person you invite
+    to observe is usually a supervisor, a reviewer, or a domain expert — which
+    is to say exactly the person who should be able to leave a margin note. A
+    role that cannot say "this citation is wrong" is not really in the room.
+
+    Letting them write *notes and nothing else* is the smallest change that
+    fixes that. It is also safe by construction rather than by policy: a note
+    is excluded from the model's context, so an Observer cannot influence what
+    any reply says, cannot spend the workspace's budget, and cannot alter the
+    thread's lineage. They can address the humans; they still cannot address
+    the model. The considered alternative — a fourth "reviewer" role — would
+    have added a row to every permission matrix, test, and explanation to buy
+    the same capability.
+    """
+    text = body.content.strip()
+    if not text:
+        raise api_error(422, "invalid", "a note needs something in it")
+    # Membership, not Collaborator: the gate above is the whole permission.
+    branch, conv = await _require_branch(branch_id, user, session)
+    node = await _store.add_node(
+        branch_id=branch_id, role="note", content=text, author_id=user.id
+    )
+
+    # `@name` addresses a person. Only in notes, because a note is already the
+    # channel for talking to people rather than to the model — putting mentions
+    # in ordinary messages would mean the model reads a name meant for a human
+    # and answers as if it were part of the question.
+    #
+    # A private conversation still notifies: the recipient is a member of the
+    # workspace but not of that thread, and a notice naming a thread they
+    # cannot open would be a dead end. So mentions resolve against the people
+    # who can actually follow the link.
+    mentioned = []
+    if conv.visibility == "shared":
+        mentioned = await mentions.resolve(
+            session, conv.workspace_id, text, exclude_user_id=user.id
+        )
+        rows = await mentions.notify(
+            session,
+            recipients=mentioned,
+            workspace_id=conv.workspace_id,
+            actor=user,
+            conversation_id=conv.id,
+            branch_id=branch_id,
+            node_id=node.id,
+            text=text,
+        )
+        if rows:
+            await session.commit()
+            for r in rows:
+                await realtime.broadcast(
+                    conv.workspace_id,
+                    {
+                        "kind": "notice.created",
+                        "workspace_id": conv.workspace_id,
+                        "for_user_id": r.user_id,
+                        "notice": mentions.to_dict(r),
+                    },
+                )
+
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "note.posted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "node": asdict(node),
+            },
+            exclude_user=user.id,
+        )
+    return asdict(node)
+
+
+@router.post("/{conversation_id}/subject")
+async def set_conversation_subject(
+    conversation_id: str,
+    body: SetSubject,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Point the thread at the artifact it is about — a PR, an issue, a spec.
+
+    Written for the agent as much as for the reader. A dev team discusses "this
+    change" for forty turns and never says the number, so an agent holding a
+    GitHub tool had everything it needed except which pull request to fetch.
+    With this, "does this match the spec?" resolves without anyone restating
+    what "this" is.
+
+    Free text, not a typed GitHub reference: the thing a thread is about is not
+    always a PR, and a schema per artifact kind would be building for a product
+    we do not have. Collaborator+, the same bar as concluding.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    updated = await _store.set_subject(
+        conversation_id=conv.id, subject=body.subject.strip()[:500]
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "conversation not found")
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.subject",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "subject": updated.subject,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
+
+
+@router.post("/{conversation_id}/conclude")
+async def conclude_conversation(
+    conversation_id: str,
+    body: Conclude,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """What the team now believes, after everything below it.
+
+    A branch verdict says which exploration won; this says what the thread is
+    *for* — the answer to "so what did we land on?". It is written by a human.
+    `POST /synthesize` can draft it from the branches, but a draft nobody
+    accepted is not a conclusion, so the two are separate calls on purpose.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    text = body.conclusion.strip()
+    updated = await _store.set_conclusion(
+        conversation_id=conversation_id, conclusion=text, concluded_by=user.id
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "conversation not found")
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "conversation.concluded",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conversation_id,
+                "title": conv.title,
+                "conclusion": updated.conclusion,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
+
+
+@router.post("/{conversation_id}/synthesize")
+async def synthesize_conversation(
+    conversation_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Draft a conclusion from the explorations. Streams tokens like a turn.
+
+    This is the one genuinely model-shaped operation in the convergence story:
+    reading several branches side by side and saying what they add up to is
+    work a person can do but slowly, and it is exactly what nobody does — which
+    is why threads end without conclusions.
+
+    The draft is never persisted. It streams into the compose box and a human
+    accepts, edits, or discards it; `POST /conclude` is what records anything.
+
+    Implementation note: every branch's tail goes into one call. Summarising
+    each branch separately and reducing (the map-reduce shape) is the named
+    seam for when branches outgrow a context window — worth building when a
+    real workspace hits it, not before. `_MAX_TURNS_PER_BRANCH` is where it
+    starts to bite.
+    """
+    conv = await _require_conversation(conversation_id, user, session, ROLE_COLLABORATOR)
+    resolved = await _workspace_provider(conv.workspace_id, session)
+
+    branches = await _store.list_branches(conversation_id)
+    blocks: list[str] = []
+    for b in branches:
+        history = await _store.get_history(b.id)
+        # Only what is unique to this branch: everything up to the fork point is
+        # shared with its siblings, so including it would make every branch look
+        # alike and drown the differences the comparison exists to find.
+        own = history
+        if b.fork_node_id is not None:
+            for i, n in enumerate(history):
+                if n.id == b.fork_node_id:
+                    own = history[i + 1 :]
+                    break
+        turns = own[-_MAX_TURNS_PER_BRANCH:]
+        header = f"### Branch “{b.name}”"
+        if b.intent:
+            header += f"\nTrying: {b.intent}"
+        if b.status != "open":
+            header += f"\nVerdict: {b.status}"
+            if b.resolution:
+                header += f" — {b.resolution}"
+        body_text = "\n".join(
+            f"{'Q' if n.role == 'user' else 'A'}: {n.content[:1200]}" for n in turns
+        ) or "(no turns of its own yet)"
+        blocks.append(f"{header}\n{body_text}")
+
+    if not blocks:
+        raise api_error(422, "invalid", "nothing to synthesize yet")
+
+    messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are drafting the conclusion of a team's shared thread for "
+                "the record. Compare the branches below: what each tried, what "
+                "it found, and where they genuinely disagree. Then state what "
+                "the thread concluded and why, in at most 150 words of plain "
+                "prose. Ground every claim in the branches — if the evidence "
+                "does not settle the question, say so plainly instead of "
+                "inventing a resolution. Where a branch already carries a "
+                "recorded verdict, respect it. No headings, no bullet lists, "
+                "no preamble: this text goes straight into a record."
+            ),
+        },
+        {
+            "role": "user",
+            "content": f"# Thread: {conv.title}\n\n" + "\n\n".join(blocks),
+        },
+    ]
+    provider = build_chat_provider(resolved)
+
+    def frame(payload: dict) -> str:
+        return "data: " + json.dumps(payload) + "\n\n"
+
+    async def stream():
+        try:
+            async for chunk in provider.stream_messages(messages):
+                yield frame({"kind": "token", "text": chunk})
+        except Exception as exc:  # a failed draft must not look like a verdict
+            yield frame({"kind": "complete", "status": "error", "stop_reason": str(exc)[:200]})
+        else:
+            yield frame({"kind": "complete", "status": "done", "stop_reason": "drafted"})
+        yield "data: [DONE]\n\n"
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
+@router.post("/branches/{branch_id}/resolve")
+async def resolve_branch(
+    branch_id: str,
+    body: ResolveBranch,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Record what came of an exploration — adopted, abandoned, or reopened.
+
+    This is what makes the tree a decision record rather than a pile of
+    experiments. Three rules hold it together:
+
+    · A verdict needs a reason. `resolution` is required to adopt or abandon,
+      because "we chose this" without a why is not defensible six weeks later,
+      which is the entire job this product claims to do.
+    · Nothing is deleted. An abandoned branch stays readable forever — the
+      alternative you rejected is half of the argument for the one you took.
+    · Siblings are untouched. Adopting one branch says nothing about the
+      others; a verdict nobody recorded is not a verdict.
+
+    Collaborator+, same bar as forking one: whoever may explore may conclude.
+    """
+    status = body.status.strip().lower()
+    if status not in {"open", "adopted", "abandoned"}:
+        raise api_error(422, "invalid", "status must be open, adopted or abandoned")
+    resolution = body.resolution.strip()
+    if status != "open" and not resolution:
+        raise api_error(422, "invalid", "say why — a verdict without a reason is not a record")
+
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    updated = await _store.resolve_branch(
+        branch_id=branch_id, status=status, resolution=resolution, resolved_by=user.id
+    )
+    if updated is None:
+        raise api_error(404, "not_found", "branch not found")
+
+    if conv.visibility == "shared":
+        # A decision landing is the most consequential thing that happens in a
+        # workspace — the room should see it without a refresh.
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.resolved",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "status": updated.status,
+                "resolution": updated.resolution,
+                "name": updated.name,
+            },
+            exclude_user=user.id,
+        )
+    return asdict(updated)
+
+
+@router.post("/branches/{branch_id}/vote")
+async def vote_branch(
+    branch_id: str,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Back this exploration, or withdraw backing. Toggles; returns the tally.
+
+    The move the product was missing. Forking was cheap and converging was not:
+    a team could open four branches in a minute and then had only prose to
+    narrow them again, so threads accumulated live alternatives nobody had
+    ruled out. `resolve` records the verdict, but a verdict is the *end* of
+    converging — this is the reading taken before it.
+
+    Approval voting: back as many as you'd accept, and backing one says nothing
+    about the others. The useful signal in a design argument is usually "either
+    of these two works" rather than a ranking, and forcing a ranking would
+    manufacture a precision the room does not have.
+
+    A vote decides nothing on its own. Adopting still requires a member to
+    write down why — the tally is evidence for that reason, never a substitute.
+    Collaborator+, the same bar as forking: whoever may explore may weigh in.
+    """
+    branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
+    backing = await _store.toggle_branch_vote(branch_id=branch_id, user_id=user.id)
+    updated = await _store.get_branch(branch_id)
+    votes = updated.votes if updated else []
+
+    if conv.visibility == "shared":
+        await realtime.broadcast(
+            conv.workspace_id,
+            {
+                "kind": "branch.voted",
+                "workspace_id": conv.workspace_id,
+                "conversation_id": conv.id,
+                "branch_id": branch_id,
+                "votes": votes,
+            },
+            exclude_user=user.id,
+        )
+    return {"branch_id": branch_id, "backing": backing, "votes": votes}
 
 
 async def _reference_summaries(conversation_id: str) -> list[dict]:
@@ -758,12 +1387,42 @@ def _subscription(handle, *, after: int = 0) -> StreamingResponse:
 async def _require_run(
     run_id: str, user: User, session: AsyncSession, min_role: str | None = None
 ):
-    """The live run handle, once the caller may act on its conversation."""
+    """The live run handle, once the caller may act on its conversation.
+
+    Every control path — steer, kill, status, reconnect — comes through here,
+    which is why rehydration lives here too rather than in four endpoints. A
+    miss is not necessarily a dead run: a run paused before a restart is on
+    disk, and rebuilding it is what turns "steer" back into steering instead of
+    a 404 that was never true (see conversation/resume.py).
+    """
     handle = _runs.get(run_id)
     if handle is None:
-        raise api_error(404, "not_found", "deep run not found (finished or expired)")
+        handle = await resume.rehydrate(run_id, _runs)
+    if handle is None:
+        raise api_error(
+            404, "not_found",
+            "this run is no longer available — it finished, was stopped, or "
+            "was an agent turn waiting on approval when the server restarted",
+        )
     await _require_conversation(handle.conversation_id, user, session, min_role)
     return handle
+
+
+@router.get("/deep/modes")
+async def list_reasoning_modes():
+    """The reasoning presets a run may be started in, and which one an
+    unspecified run gets.
+
+    Unauthenticated and static: it describes the build, not any workspace. The
+    UI needs it to label the picker beside the escalate button, and a client
+    hard-coding the list would drift from the engine's presets.
+    """
+    return {
+        "default": settings.deep_reasoning_mode,
+        "modes": [
+            {"id": key, **value} for key, value in REASONING_MODES.items()
+        ],
+    }
 
 
 @router.post("/{branch_id}/deep")
@@ -791,25 +1450,53 @@ async def escalate_deep_reasoning(
     {run_id}/steer — as many times as it pauses.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
-    # Deep Reasoning runs on Groq: the workspace's own Groq key wins, the
-    # server-wide key is the fallback (self-host), no key at all is a clear 503.
+
+    # Checked before the provider, because a malformed request is malformed
+    # whether or not the workspace happens to have a key today — answering 503
+    # to a typo'd mode would send the caller to fix the wrong thing.
+    #
+    # Rejected here rather than inside the engine, which silently substitutes
+    # ANALYZE for anything it doesn't recognise (deep_reasoning.py). A typo
+    # would otherwise run a different kind of reasoning than the one asked for
+    # and say nothing about it.
+    mode = body.mode or settings.deep_reasoning_mode
+    if mode not in REASONING_MODES:
+        raise api_error(
+            400, "bad_request",
+            f"Unknown reasoning mode '{mode}'. "
+            f"Expected one of: {', '.join(REASONING_MODES)}.",
+        )
+
+    # Deep Reasoning follows the workspace's own provider — Groq, a local
+    # Ollama, or any OpenAI-compatible endpoint. Only key-requiring providers
+    # can be unavailable, and that is a clear 503 rather than a failed run.
     resolved = resolve(await session.get(WorkspaceSettings, conv.workspace_id))
-    if not resolved.deep_groq_key:
+    deep_llm = resolved.deep_llm
+    if not deep_llm.api_key:
         raise api_error(
             503,
             "deep_reasoning_unavailable",
-            "Deep Reasoning needs a Groq API key — the workspace owner can add "
-            "one under workspace settings → Provider.",
+            "Deep Reasoning needs a model to call — the workspace owner can add "
+            "an API key, or point the workspace at a local model, under "
+            "workspace settings → Provider.",
         )
 
     run_id = uuid4().hex
     handle_box: list = []  # producer's should_stop closes over the handle
+    # Watches the run from outside the engine, whose nodes swallow LLM errors
+    # and substitute canned text — see make_reachability_probe.
+    reachability = make_reachability_probe()
+
+    # Kept, not inlined: this is the LangGraph checkpoint key, and it is what
+    # lets a paused run be rebuilt in a later process (conversation/resume.py).
+    thread_id = uuid4().hex
 
     graph, graph_config, make_inputs, usage_reader = build_ouroboros_graph(
-        thread_id=uuid4().hex,
-        groq_api_key=resolved.deep_groq_key,
-        groq_model=resolved.resolved_deep_model,
-        mode=settings.deep_reasoning_mode,
+        thread_id=thread_id,
+        groq_api_key=deep_llm.api_key,
+        groq_model=deep_llm.model,
+        base_url=deep_llm.base_url,
+        mode=mode,
         adaptive=settings.deep_reasoning_adaptive,
         compute_budget=settings.deep_reasoning_compute_budget,
         stability_threshold=settings.deep_reasoning_stability_threshold,
@@ -821,8 +1508,9 @@ async def escalate_deep_reasoning(
         extra_callbacks=[
             make_llm_span_callback(
                 workspace_id=conv.workspace_id, run_id=run_id,
-                provider="groq", model=resolved.resolved_deep_model,
-            )
+                provider=resolved.provider or "groq", model=deep_llm.model,
+            ),
+            reachability,
         ],
     )
     producer = DeepReasoningProducer(
@@ -834,6 +1522,7 @@ async def escalate_deep_reasoning(
         deadline_s=settings.deep_reasoning_deadline_s,
         should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
         grounder=_grounder_for(conv.workspace_id),
+        reachability=reachability,
     )
     # Every deep run leaves a durable record (question, signals, outcome, compact
     # trace) — the monitor is ephemeral; DeepRunRow is what you inspect tomorrow.
@@ -846,7 +1535,12 @@ async def escalate_deep_reasoning(
         session_factory=SessionLocal,
         model=resolved.resolved_deep_model,
         provenance={
-            "mode": settings.deep_reasoning_mode,
+            "mode": mode,
+            # What the run was reasoning *about*, when the thread names an
+            # external artifact. A Review run's whole value is that its verdict
+            # can be traced back to the change it judged; without this the
+            # archive holds a review of "this patch" and no way to tell which.
+            "subject": conv.subject,
             "adaptive": settings.deep_reasoning_adaptive,
             "steerable": body.steerable,
             "compute_budget": settings.deep_reasoning_compute_budget,
@@ -873,6 +1567,11 @@ async def escalate_deep_reasoning(
         shared=conv.visibility == "shared",
         run=run,
         recorder=recorder,
+        kind="deep",
+        thread_id=thread_id,
+        prompt=body.prompt,
+        steerable=body.steerable,
+        mode=mode,
     )
     handle_box.append(handle)
     handle.events.append(DeepRunRegistered(run_id=run_id))
@@ -938,50 +1637,62 @@ async def send_agent_message(
     use the same /conversations/deep/runs/{run_id}/* surface deep runs do.
     """
     branch, conv = await _require_branch(branch_id, user, session, ROLE_COLLABORATOR)
-    # Tool calling needs a function-calling model: Groq, same resolution rule
-    # as deep runs (workspace Groq key wins, server key is the self-host
-    # fallback, no key is a clear 503).
+    # Same resolution rule as deep runs: whatever provider the workspace
+    # actually uses. Tool calling additionally needs a *function-calling*
+    # model — most hosted ones qualify, and a local model that does not will
+    # simply never emit tool calls, which reads as a plain answer rather than
+    # an error.
     row = await session.get(WorkspaceSettings, conv.workspace_id)
     resolved = resolve(row)
-    if not resolved.deep_groq_key:
+    deep_llm = resolved.deep_llm
+    if not deep_llm.api_key:
         raise api_error(
             503,
             "agent_unavailable",
-            "Agent runs need a Groq API key — the workspace owner can add one "
-            "under workspace settings → Provider.",
+            "Agent runs need a model to call — the workspace owner can add an "
+            "API key, or point the workspace at a local model, under workspace "
+            "settings → Provider.",
         )
-    model = (
-        resolved.chat_model
-        if resolved.provider == "groq" and resolved.chat_model
-        else settings.groq_model
-    )
+    # The chat model, not the deep one: tool loops want fast and cheap, and the
+    # 70B deep default is neither.
+    model = resolved.chat_model or deep_llm.model
 
     # The allowlist decides what the model's world contains (see api/tools):
     # un-allowed or unavailable tools are never bound, never mentioned.
     allowed = resolve_allowlist(row.tool_allowlist if row else None)
-    tools = bindable(
-        make_tools(
-            workspace_id=conv.workspace_id,
-            viewer_id=user.id,
-            documents=_documents,
-            embeddings=_embeddings,
-            tavily_key=settings.tavily_api_key,
-        ),
-        allowed,
+    catalog = make_tools(
+        workspace_id=conv.workspace_id,
+        viewer_id=user.id,
+        documents=_documents,
+        embeddings=_embeddings,
+        tavily_key=settings.tavily_api_key,
     )
+    # The second source. MCP tools join the same list and are filtered by the
+    # same allowlist — the whole point of mapping them onto `ToolSpec` is that
+    # nothing below this line has to know where a tool came from.
+    catalog += await load_mcp_tools(session, conv.workspace_id)
+    tools = bindable(catalog, allowed)
 
     run_id = uuid4().hex
     handle_box: list = []
     graph, graph_config, make_inputs = build_agent_graph(
         thread_id=uuid4().hex,
         tools=tools,
-        groq_api_key=resolved.deep_groq_key,
+        groq_api_key=deep_llm.api_key,
         groq_model=model,
+        base_url=deep_llm.base_url,
         max_tool_rounds=settings.agent_max_tool_rounds,
+        # Every tool execution and every approval lands in the tool ledger,
+        # attributed to this run and this workspace.
+        observer=ToolObserver(workspace_id=conv.workspace_id, run_id=run_id),
         extra_callbacks=[
             make_llm_span_callback(
                 workspace_id=conv.workspace_id, run_id=run_id,
-                provider="groq", model=model,
+                provider=resolved.provider or "groq", model=model,
+                # The ledger's `kind` was chat|deep, so every token an agent
+                # run spent was invisible in the same table that answers the
+                # budget question.
+                kind="agent",
             )
         ],
     )
@@ -996,6 +1707,7 @@ async def send_agent_message(
         grounder=_grounder_for(conv.workspace_id),
         should_stop=lambda: bool(handle_box and handle_box[0].kill_requested),
         deadline_s=settings.deep_reasoning_deadline_s,
+        subject=conv.subject,
     )
     recorder = DeepRunRecorder(
         run_id=run_id,
@@ -1007,6 +1719,9 @@ async def send_agent_message(
         model=model,
         provenance={
             "kind": "agent",
+            # Same reason as the deep run above: an agent that read a pull
+            # request should leave a record of which one.
+            "subject": conv.subject,
             "tools": [t.name for t in tools],
             "allowlist": allowed,
             "max_tool_rounds": settings.agent_max_tool_rounds,
@@ -1054,7 +1769,10 @@ async def approve_agent_tool(
     )
 
     resume_from = handle.seq
-    _runs.steer(handle, lambda: run.steer("approve" if body.approved else "deny"))
+    # The verdict carries who gave it: the gate is the product's safety story,
+    # and "who let the agent call the web?" must be answerable later.
+    verdict = f"{'approve' if body.approved else 'deny'}:{user.id}"
+    _runs.steer(handle, lambda: run.steer(verdict))
     return _subscription(handle, after=resume_from)
 
 
@@ -1102,6 +1820,11 @@ async def kill_deep_run(
     same as starting one — a runaway run burns the workspace's own key."""
     handle = await _require_run(run_id, user, session, ROLE_COLLABORATOR)
     _runs.kill(handle)
+    if handle.finished:
+        # A queued or paused run is killed synchronously, without going through
+        # the driver that would otherwise clear its row — so clear it here, or
+        # the next restart would offer to resume something already stopped.
+        await resume.forget(run_id)
     return {"run_id": handle.run_id, "status": handle.status}
 
 

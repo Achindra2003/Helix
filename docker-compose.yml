@@ -26,13 +26,15 @@ services:
       # `docker compose down` and image rebuilds.
       DATABASE_URL: sqlite+aiosqlite:////data/helix.db
 
-      # Signs login tokens. The default is a placeholder that MUST be replaced
-      # for any real deployment — generate one with:
-      #     python -c "import secrets; print(secrets.token_urlsafe(32))"
+      # Signs login tokens. Leave it unset and the app generates a unique
+      # secret on first boot and persists it to the data volume (it prints
+      # where). Set it explicitly to control the value or to share one secret
+      # across replicas. It is never the public placeholder: the app refuses
+      # to start on that.
+      #
       # Changing it later logs everyone out and invalidates saved provider
-      # keys (their encryption is derived from it), so set it before inviting
-      # anyone.
-      JWT_SECRET: ${JWT_SECRET:-dev-only-change-me}
+      # keys (their encryption is derived from it).
+      JWT_SECRET: ${JWT_SECRET:-}
 
       # stub = a fake model that echoes back, so the app is fully explorable
       # with no API key. Switch to groq and set GROQ_API_KEY for real replies,

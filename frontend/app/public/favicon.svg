@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 44 44">
+  <title>Helix</title>
+  <rect width="44" height="44" rx="9" fill="#e6dcc2"/>
+  <circle cx="22" cy="22" r="19" fill="none" stroke="#9a7a2c" stroke-width="1.4" stroke-dasharray="100 12" stroke-linecap="round"/>
+  <g fill="none" stroke-width="1.5" stroke-linecap="round">
+    <path d="M22.0 10.0 L24.1 11.0 L25.9 12.0 L27.1 13.0 L27.5 14.0 L27.1 15.0 L25.9 16.0 L24.1 17.0 L22.0 18.0 L19.9 19.0 L18.1 20.0 L16.9 21.0 L16.5 22.0 L16.9 23.0 L18.1 24.0 L19.9 25.0 L22.0 26.0 L24.1 27.0 L25.9 28.0 L27.1 29.0 L27.5 30.0 L27.1 31.0 L25.9 32.0 L24.1 33.0 L22.0 34.0" stroke="#241b12" opacity="0.75"/>
+    <path d="M22.0 10.0 L19.9 11.0 L18.1 12.0 L16.9 13.0 L16.5 14.0 L16.9 15.0 L18.1 16.0 L19.9 17.0 L22.0 18.0 L24.1 19.0 L25.9 20.0 L27.1 21.0 L27.5 22.0 L27.1 23.0 L25.9 24.0 L24.1 25.0 L22.0 26.0 L19.9 27.0 L18.1 28.0 L16.9 29.0 L16.5 30.0 L16.9 31.0 L18.1 32.0 L19.9 33.0 L22.0 34.0" stroke="#8f3e13" opacity="0.8"/>
+    <line x1="25.9" y1="16.0" x2="18.1" y2="16.0" stroke="#6b5316" stroke-width="1" opacity="0.6"/>
+    <line x1="16.5" y1="22.0" x2="27.5" y2="22.0" stroke="#6b5316" stroke-width="1" opacity="0.6"/>
+    <line x1="25.9" y1="28.0" x2="18.1" y2="28.0" stroke="#6b5316" stroke-width="1" opacity="0.6"/>
+  </g>
+  <circle cx="3.5" cy="22" r="2.1" fill="#c0992f"/>
+</svg>

@@ -160,10 +160,15 @@ Every turn — chat *or* deep reasoning — runs through the **same** `send()` l
 4. emit `Done`
 
 `send()` is **producer-agnostic**: it depends only on a `Producer` interface
-(`.run(history) → events`). Two producers satisfy it:
+(`.run(history) → events`). The slogan was coined at two; there are now
+**three** producers satisfying it — which is the point:
 
 - **`ChatProducer`** — streams the provider's tokens straight through.
 - **`DeepReasoningProducer`** — drives Ouroboros and emits the richer trace.
+- **`AgentProducer`** — drives the LangGraph tool loop, emitting tool-ledger
+  frames and pausing on the approval gate (FR-14; see
+  `HELIX-FEATURE-TRACES.md` §10). It arrived *after* this design and needed
+  no changes to `send()`.
 
 They both speak **one event contract** (`events.py`): `UserNode`, `Token`,
 `AssistantNode`, `Done` for any run, plus `Step`, `Budget`, `Waiting`, `Complete`
@@ -385,9 +390,14 @@ production-grade:
   single-pass won the pilot outright (8.83 at 1.6k tokens) — on questions a
   70B model already answers well, extra refinement dilutes more than it
   deepens. So the defensible claim is narrower and better: *if you iterate,
-  converge — don't count*; the next experiment is a question set hard enough
-  that single-pass actually fails (`evals/questions-hard.json` is that set,
-  authored and waiting for its run).
+  converge — don't count*.
+- **And that experiment has since run** (hard set, 8/8 complete July 17 —
+  `FINDINGS.md` §"Remainder run"): on questions engineered so single-pass
+  plausibly fails, **adaptive beat fixed-4 on quality at 48% of its tokens**
+  (8.63 vs 8.13, converging 8/8), which is the claim the pilot could not
+  make. Single-pass still edged it overall (8.75 at 1.7k tokens). **Quote
+  these numbers, not the pilot's** — the pilot is the earlier, easier set,
+  and mixing the two is how two teammates end up citing different figures.
 
 ### The production layer (July 6)
 
@@ -435,6 +445,9 @@ one-paragraph version:
   just needs data volume.
 - **Energy/mood are telemetry theater** — interpretable meters from the
   engine's introspection origins, not measured signals. Say so if asked.
-- **FR-14** is a server-side policy flag today, not a per-role allowlist UI.
+- **FR-14.** *Addressed.* No longer a bare server-side flag: agent mode ships
+  the three-layer policy model — catalog, owner-managed workspace allowlist
+  (enforced at bind time, not call time), and human approval on sensitive
+  calls. See `HELIX-FEATURE-TRACES.md` §10 and `HELIX-GENAI-STUDY.md` ch. 3.
 
 *These are the things to say out loud rather than hide — they're scoped and known.*

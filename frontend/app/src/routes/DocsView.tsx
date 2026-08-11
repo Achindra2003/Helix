@@ -1,14 +1,16 @@
 import { useRef, useState } from "react";
 import { useParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { listDocuments, uploadDocument, deleteDocument, searchDocuments, listMembers } from "@/lib/api";
+import { listDocuments, uploadDocument, deleteDocument, searchDocuments, listMembers, updateDocumentMetadata } from "@/lib/api";
 import type { DocumentSearchHit, WorkspaceDocument } from "@/lib/types";
 import { can } from "@/lib/rbac";
 import { useSession, useEffectiveRole } from "@/store/session";
 import { formatBytes } from "@/lib/format";
+import { PLACE } from "@/lib/glyphs";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
+import { Input, Field } from "@/components/common/Input";
 import { Spinner, EmptyState } from "@/components/common/Feedback";
 import s from "./docs.module.css";
 
@@ -16,7 +18,7 @@ import s from "./docs.module.css";
 // you can scan. Falls back to the knowledge-base mark for odd names.
 function extOf(filename: string): string {
   const ext = filename.includes(".") ? filename.split(".").pop()! : "";
-  return ext && ext.length <= 4 ? ext : "⌘";
+  return ext && ext.length <= 4 ? ext : PLACE.docs;
 }
 
 /** The workspace knowledge base (AI-LANE-CONTRACTS §2.3). Documents uploaded
@@ -33,6 +35,7 @@ export function DocsView() {
   const fileInput = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
   const [confirmDoc, setConfirmDoc] = useState<WorkspaceDocument | null>(null);
+  const [catalogDoc, setCatalogDoc] = useState<WorkspaceDocument | null>(null);
   const [query, setQuery] = useState("");
   const [hits, setHits] = useState<DocumentSearchHit[] | null>(null);
   const [searching, setSearching] = useState(false);
@@ -94,9 +97,9 @@ export function DocsView() {
         <div className={s.headRow}>
           <div>
             <div className="serif-d" style={{ fontSize: 32 }}>Knowledge Base</div>
-            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13.5 }}>
+            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13 }}>
               The workspace's source documents. When a question touches one, the reply grounds
-              itself on it — cited, with ⌘ chips. Unrelated questions leave the shelf alone.
+              itself on it — cited, with page chips. Unrelated questions leave the shelf alone.
             </div>
           </div>
           {canWrite && (
@@ -109,20 +112,24 @@ export function DocsView() {
           <>
             <input
               ref={fileInput} type="file" multiple hidden
-              accept=".txt,.md,.markdown,.pdf,.py,.js,.ts,.tsx,.jsx,.json,.yaml,.yml,.toml,.css,.html,.csv,.rst"
+              accept=".txt,.md,.markdown,.rst,.csv,.json,.yaml,.yml,.toml,.ini,.log,.xml,.html,.css,.pdf,.py,.js,.jsx,.ts,.tsx,.java,.go,.rs,.c,.cpp,.h,.sql"
               onChange={(e) => { if (e.target.files?.length) doUpload(e.target.files); e.target.value = ""; }}
             />
-            <div
+            {/* A real button, not a clickable div: it duplicates the header's
+                "+ Upload", but a keyboard or screen-reader user meets this one
+                first — it is the thing that looks like the way in. */}
+            <button
+              type="button"
               className={`${s.drop} ${dragOver ? s.dropActive : ""}`}
               onClick={() => fileInput.current?.click()}
               onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
               onDragLeave={() => setDragOver(false)}
               onDrop={(e) => { e.preventDefault(); setDragOver(false); if (e.dataTransfer.files.length) doUpload(e.dataTransfer.files); }}
             >
-              <span className={s.dropGlyph}>⌘</span>
+              <span className={s.dropGlyph} aria-hidden>{PLACE.docs}</span>
               <span style={{ fontSize: 14 }}>Drop a document here, or click to browse</span>
               <span className={s.dropHint}>txt · md · code · pdf — up to 8 MB each</span>
-            </div>
+            </button>
           </>
         )}
 
@@ -131,6 +138,7 @@ export function DocsView() {
             <span style={{ color: "var(--ink-faint)" }}>⌕</span>
             <input
               className={s.searchInput}
+              aria-label="Search the knowledge base"
               placeholder="Search the knowledge base — the same ranking chat grounding uses"
               value={query}
               onChange={(e) => { setQuery(e.target.value); if (!e.target.value.trim()) setHits(null); }}
@@ -154,8 +162,8 @@ export function DocsView() {
             ) : hits.map((h, i) => (
               <div key={`${h.document_id}-${h.chunk_index}-${i}`} className={s.hit}>
                 <div className={s.hitHead}>
-                  <span className="mono" style={{ fontSize: 12.5, color: "var(--oxblood)" }}>
-                    ⌘ {h.filename} §{h.chunk_index + 1}
+                  <span className="mono" style={{ fontSize: 12, color: "var(--oxblood)" }}>
+                    {PLACE.docs} {h.filename} §{h.chunk_index + 1}
                   </span>
                   <span className={s.hitScoreBar} title={`relevance ${h.score.toFixed(2)}`}>
                     <span className={s.hitScoreFill} style={{ display: "block", width: `${Math.min(100, Math.round(h.score * 100))}%` }} />
@@ -182,11 +190,18 @@ export function DocsView() {
                   {d.status === "error" ? "✕" : extOf(d.filename)}
                 </div>
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div className={s.docName}>{d.filename}</div>
+                  {/* The catalogued reference leads once it exists, with the
+                      filename demoted to the metadata line. Before that the
+                      filename *is* the name, so nothing looks empty — a card
+                      that reads "Untitled" until someone fills a form is worse
+                      than one that reads what the file is called. */}
+                  <div className={s.docName}>{d.cite_as || d.filename}</div>
                   {d.status === "error" ? (
                     <div className={s.docError}>{d.error || "ingestion failed"}</div>
                   ) : (
                     <div className={s.docMeta}>
+                      {d.cite_as && d.cite_as !== d.filename && <span>{d.filename}</span>}
+                      {d.identifier && <span>{d.identifier}</span>}
                       {d.status === "ready" && <span>{d.chunk_count} chunks</span>}
                       {d.status === "ready" && <span>{d.text_chars.toLocaleString()} chars</span>}
                       <span>{formatBytes(d.size_bytes)}</span>
@@ -195,6 +210,17 @@ export function DocsView() {
                     </div>
                   )}
                 </div>
+                {canWrite && d.status !== "error" && (
+                  // Any collaborator, not just the uploader: cataloguing is
+                  // exactly the work a second person does well, and the server
+                  // agrees. Quiet until it is needed — an uncatalogued
+                  // document says so in the button's own label.
+                  <button className={s.catalogue}
+                    title={d.authors || d.doc_title ? "Edit this reference" : "Describe this source so replies can cite it"}
+                    onClick={() => setCatalogDoc(d)}>
+                    {d.authors || d.doc_title ? "edit ref" : "add ref"}
+                  </button>
+                )}
                 <span className={`${s.status} ${d.status === "ready" ? s.statusReady : d.status === "processing" ? s.statusProcessing : s.statusError}`}>
                   {d.status === "ready" ? "✓ ready" : d.status === "processing" ? "⟳ processing" : "✕ error"}
                 </span>
@@ -207,18 +233,116 @@ export function DocsView() {
         ))}
       </div>
 
+      {catalogDoc && (
+        <CatalogueDialog
+          doc={catalogDoc}
+          wid={wid!}
+          onClose={() => setCatalogDoc(null)}
+          onSaved={() => {
+            setCatalogDoc(null);
+            qc.invalidateQueries({ queryKey: ["documents", wid] });
+            push("Reference updated — new replies will cite it this way");
+          }}
+          onError={(m) => push(m, "error")}
+        />
+      )}
+
       {confirmDoc && (
         <Dialog title="Remove from the knowledge base?" onClose={() => setConfirmDoc(null)}
           footer={<>
             <Button variant="ghost" onClick={() => setConfirmDoc(null)}>Cancel</Button>
             <Button variant="primary" onClick={() => { doDelete(confirmDoc); setConfirmDoc(null); }}>Delete</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)", lineHeight: 1.55 }}>
-            <span className="mono" style={{ color: "var(--oxblood)" }}>⌘ {confirmDoc.filename}</span> and its
+          <div style={{ fontSize: 13, color: "var(--ink-2)", lineHeight: 1.55 }}>
+            <span className="mono" style={{ color: "var(--oxblood)" }}>{PLACE.docs} {confirmDoc.filename}</span> and its
             chunks are removed for the whole workspace. Replies stop citing it on the next send.
           </div>
         </Dialog>
       )}
     </div>
+  );
+}
+
+/** Give a source its bibliographic identity.
+ *
+ * Nothing here is inferred from the file. Pulling an author out of PDF metadata
+ * is wrong often enough that a confident wrong attribution would be worse than
+ * a blank one — and attribution is the field a reader trusts most. So the form
+ * asks, and every field is optional: a partial record beats an empty one, and
+ * someone adding a year six weeks later should not have to retype the authors.
+ */
+function CatalogueDialog({ doc, wid, onClose, onSaved, onError }: {
+  doc: WorkspaceDocument;
+  wid: string;
+  onClose: () => void;
+  onSaved: () => void;
+  onError: (message: string) => void;
+}) {
+  const [authors, setAuthors] = useState(doc.authors ?? "");
+  const [year, setYear] = useState(doc.year ?? "");
+  const [title, setTitle] = useState(doc.doc_title ?? "");
+  const [identifier, setIdentifier] = useState(doc.identifier ?? "");
+  const [saving, setSaving] = useState(false);
+
+  // The same rule the server uses, shown live: what a citation will actually
+  // say. Guessing from a form and finding out later is how you end up with a
+  // knowledge base full of half-filled records.
+  const preview =
+    (authors.trim() && year.trim() && `${authors.trim()} (${year.trim()})`) ||
+    authors.trim() ||
+    (title.trim() && year.trim() && `${title.trim()} (${year.trim()})`) ||
+    title.trim() ||
+    doc.filename;
+
+  async function save() {
+    setSaving(true);
+    try {
+      await updateDocumentMetadata(wid, doc.id, {
+        authors: authors.trim(),
+        year: year.trim(),
+        doc_title: title.trim(),
+        identifier: identifier.trim(),
+      });
+      onSaved();
+    } catch (e: any) {
+      onError(e?.message ?? "Could not save that");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Dialog title="How should this be cited?" onClose={onClose}
+      footer={<>
+        <Button variant="ghost" onClick={onClose}>Cancel</Button>
+        <Button variant="primary" disabled={saving} onClick={save}>Save</Button>
+      </>}>
+      <div style={{ fontSize: 12, color: "var(--ink-3)" }}>
+        <span className="mono">{PLACE.docs} {doc.filename}</span>
+      </div>
+      <Field label="Authors — e.g. Vaswani et al.">
+        <Input value={authors} autoFocus onChange={(e) => setAuthors(e.target.value)}
+          placeholder="Vaswani et al." />
+      </Field>
+      <Field label="Year">
+        <Input value={year} onChange={(e) => setYear(e.target.value)} placeholder="2017" />
+      </Field>
+      <Field label="Title of the work">
+        <Input value={title} onChange={(e) => setTitle(e.target.value)}
+          placeholder="Attention Is All You Need" />
+      </Field>
+      <Field label="DOI, arXiv id, or URL">
+        <Input value={identifier} onChange={(e) => setIdentifier(e.target.value)}
+          placeholder="arXiv:1706.03762" />
+      </Field>
+      <div style={{ fontSize: 12, color: "var(--ink-3)", lineHeight: 1.5 }}>
+        Replies will cite this as{" "}
+        <span className="mono" style={{ color: "var(--gilt-1)" }}>{preview}</span>.
+        <div style={{ marginTop: 2 }}>
+          Answers already written keep the name they were given — a record says
+          what it cited on the day it was written.
+        </div>
+      </div>
+    </Dialog>
   );
 }

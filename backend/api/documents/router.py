@@ -18,8 +18,10 @@ from ..db import SessionLocal, get_session
 from ..deps import get_current_user, get_membership
 from ..errors import api_error
 from ..models import ROLE_COLLABORATOR, ROLE_OWNER, ROLE_RANK, User
-from .models import DocumentChunkRow, DocumentRow
+from .models import DocumentChunkRow, DocumentRow, bump_corpus_revision, cite_as
 from .service import DocumentIndex
+
+_READ_CHUNK = 1024 * 1024  # one MB per read; the cap is checked after each
 
 router = APIRouter(prefix="/api", tags=["documents"])
 
@@ -43,6 +45,15 @@ def _doc_out(d: DocumentRow) -> dict:
         "chunk_count": d.chunk_count,
         "author_id": d.author_id,
         "created_at": d.created_at.isoformat(),
+        "doc_title": d.doc_title,
+        "authors": d.authors,
+        "year": d.year,
+        "identifier": d.identifier,
+        # What a citation should say. Computed here so the chip, the export and
+        # the report cannot drift into three different renderings of the same
+        # reference — and so "no metadata yet" degrades to the filename rather
+        # than to a blank.
+        "cite_as": cite_as(d),
     }
 
 
@@ -64,13 +75,25 @@ async def upload_document(
 ):
     """Accept the file, persist the document row, ingest in the background."""
     await _require_member(workspace_id, user, session, ROLE_COLLABORATOR)
-    data = await file.read()
-    if len(data) > settings.document_max_bytes:
-        raise api_error(
-            413,
-            "too_large",
-            f"File exceeds the {settings.document_max_bytes // (1024 * 1024)} MB limit.",
-        )
+    # Read in chunks and stop at the cap. `await file.read()` pulled the entire
+    # body into memory *before* the size was checked, so the limit protected the
+    # database and not the process — on a small hosted box (the deployment plan
+    # is a 1 GB instance) a couple of oversized uploads is an OOM, not a 413.
+    # Bounded at cap + one chunk now.
+    limit = settings.document_max_bytes
+    buf = bytearray()
+    while True:
+        part = await file.read(_READ_CHUNK)
+        if not part:
+            break
+        buf.extend(part)
+        if len(buf) > limit:
+            raise api_error(
+                413,
+                "too_large",
+                f"File exceeds the {limit // (1024 * 1024)} MB limit.",
+            )
+    data = bytes(buf)
     if not data:
         raise api_error(400, "bad_request", "empty file")
     doc = DocumentRow(
@@ -121,6 +144,48 @@ async def get_document(
     return _doc_out(doc)
 
 
+class DocumentMetadata(BaseModel):
+    """All optional — a partial record is better than a blank one, and a
+    researcher filling in a year six weeks later should not have to re-enter
+    the authors."""
+
+    doc_title: str | None = None
+    authors: str | None = None
+    year: str | None = None
+    identifier: str | None = None
+
+
+@router.patch("/workspaces/{workspace_id}/documents/{document_id}")
+async def update_document_metadata(
+    workspace_id: str,
+    document_id: str,
+    body: DocumentMetadata,
+    user: User = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+):
+    """Give a document its bibliographic identity.
+
+    Any collaborator, not just the uploader — deliberately. Cataloguing is
+    exactly the work a second person does well, and the alternative is a
+    knowledge base where only whoever dropped the file in can make it citable.
+    Deleting stays uploader-or-owner; describing is not destroying.
+
+    Re-ingestion is *not* triggered: this is metadata about the work, not the
+    text retrieval reads, so nothing here changes what any chunk means.
+    """
+    await _require_member(workspace_id, user, session, ROLE_COLLABORATOR)
+    doc = await session.get(DocumentRow, document_id)
+    if doc is None or doc.workspace_id != workspace_id:
+        raise api_error(404, "not_found", "document not found")
+
+    for field in ("doc_title", "authors", "year", "identifier"):
+        value = getattr(body, field)
+        if value is not None:
+            setattr(doc, field, value.strip()[:300])
+    await session.commit()
+    return _doc_out(doc)
+
+
 @router.delete("/workspaces/{workspace_id}/documents/{document_id}")
 async def delete_document(
     workspace_id: str,
@@ -139,6 +204,10 @@ async def delete_document(
     await session.execute(
         delete(DocumentChunkRow).where(DocumentChunkRow.document_id == document_id)
     )
+    # A deleted document must stop grounding answers immediately. Without this
+    # every reader keeps serving the removed chunks from its cached index until
+    # something else happens to change the corpus.
+    await bump_corpus_revision(session, workspace_id)
     await session.delete(doc)
     await session.commit()
     return {"ok": True}

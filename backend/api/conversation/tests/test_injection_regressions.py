@@ -108,7 +108,11 @@ async def test_document_grounding_attack_stays_quoted(attack, tmp_path):
     from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
     from api.db import Base
-    from api.documents.models import DocumentChunkRow, DocumentRow
+    from api.documents.models import (
+        DocumentChunkRow,
+        DocumentRow,
+        bump_corpus_revision,
+    )
     from api.documents.service import DocumentIndex, _pack
 
     engine = create_async_engine(f"sqlite+aiosqlite:///{tmp_path}/inj.db")
@@ -133,9 +137,16 @@ async def test_document_grounding_attack_stays_quoted(attack, tmp_path):
     async with sf() as session:
         session.add(DocumentRow(id="d1", workspace_id="w1", author_id="u",
                                 filename='evil"> doc.md', status="ready"))
+        # Parent before child — see the note in api/documents/tests/test_hybrid.py.
+        await session.flush()
         session.add(DocumentChunkRow(document_id="d1", workspace_id="w1", idx=0,
                                      content=f"Spec text. {attack}",
                                      embedder_version="test", vector=_pack([1.0])))
+        # Retrieval builds its index once per corpus revision, so anything that
+        # writes chunks has to say the corpus changed. `ingest()` does this
+        # itself; fixtures that insert rows behind it must do it by hand or the
+        # workspace reads as empty.
+        await bump_corpus_revision(session, "w1")
         await session.commit()
 
     index = DocumentIndex(sf, memory=Mem())

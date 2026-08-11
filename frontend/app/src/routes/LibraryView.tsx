@@ -12,10 +12,16 @@ import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
 import { Input } from "@/components/common/Input";
 import { Spinner, EmptyState } from "@/components/common/Feedback";
+import { ACTION, ORNAMENT, PLACE } from "@/lib/glyphs";
 import s from "./library.module.css";
 
-// Neutral manuscript ornaments (fleurons), not esoteric sigils.
-const ORNAMENTS = ["❧", "◆", "❖", "✿", "●", "◈"];
+// Purely decorative: it alternates down the list so the cards read as a set of
+// entries rather than a stack of boxes. Six marks used to rotate here, four of
+// them (◆ ● ❖ ◈) marks that carry meaning elsewhere in the product — an owner,
+// a live run, a status. Ornament that borrows a meaningful mark teaches the
+// reader that the mark means nothing, so it is the two fleurons and nothing
+// else. See lib/glyphs.ts.
+const ORNAMENTS = [ORNAMENT.bud, ORNAMENT.leaf];
 
 const STARTERS = [
   { title: "Socratic critique", body: "Interrogate the argument above. Surface its weakest assumption, then steelman the opposite view in three sentences.", tags: ["review", "reasoning"] },
@@ -121,7 +127,7 @@ export function LibraryView() {
         <div className={s.head}>
           <div style={{ flex: 1 }}>
             <div className="serif-d" style={{ fontSize: 32 }}>Prompt Library</div>
-            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13.5 }}>
+            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13 }}>
               The shared record of what works — tagged, searchable, reusable across every conversation.
             </div>
           </div>
@@ -130,31 +136,67 @@ export function LibraryView() {
         <div className="chapter-rule" aria-hidden>❦</div>
 
         <div className={s.search}>
-          <span style={{ color: "var(--oxblood)", fontSize: 15 }}>⌕</span>
-          <input className={s.searchInput} placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)} />
-          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>{filtered.length} prompts</span>
+          <span style={{ color: "var(--oxblood)", fontSize: 15 }} aria-hidden>{PLACE.find}</span>
+          <input className={s.searchInput} aria-label="Search saved prompts"
+            placeholder="Search title, body, or tags…" value={search} onChange={(e) => setSearch(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape") setSearch(""); }} />
+          {/* Says what the number counts. "4 prompts" while a search was active
+              read as the size of the library, so a filter that hid most of it
+              looked like a library that had lost most of it. */}
+          <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
+            {search ? `${filtered.length} of ${prompts.length}` : `${prompts.length} prompts`}
+          </span>
+          {search && (
+            <button className={`icon-act ${s.cardAct}`} title="Clear the search (Esc)"
+              aria-label="Clear the search" onClick={() => setSearch("")}>{ACTION.remove}</button>
+          )}
         </div>
 
         {isLoading || seeding ? <Spinner /> : filtered.length === 0 ? (
-          <EmptyState title="An empty library">Save a winning prompt — a page kept here can be inserted into any thread, by anyone on the team.</EmptyState>
+          /* Two different nothings. The library being empty and the search
+             matching nothing were both "An empty library", which told someone
+             hunting for a prompt that their team's pages were gone. */
+          search ? (
+            <EmptyState title="Nothing matches that">
+              No prompt here mentions “{search}”.{" "}
+              <button className={s.linkAct} onClick={() => setSearch("")}>Clear the search</button>{" "}
+              to see all {prompts.length}.
+            </EmptyState>
+          ) : (
+            <EmptyState title="An empty library">Save a winning prompt — a page kept here can be inserted into any thread, by anyone on the team.</EmptyState>
+          )
         ) : (
           <div className={s.grid}>
             {filtered.map((p, i) => (
               <div key={p.id} className={s.card} style={{ animationDelay: `${Math.min(i, 10) * 45}ms` }}>
                 <div className={s.cardHead}>
-                  <span className={s.sigil}>{ORNAMENTS[i % ORNAMENTS.length]}</span>
+                  <span className={s.sigil} aria-hidden>{ORNAMENTS[i % ORNAMENTS.length]}</span>
                   <div className={s.cardTitle}>{p.title}</div>
                 </div>
                 <div className={s.cardBody}>"{p.body}"</div>
                 <div className={s.cardFoot}>
-                  {(p.tags ?? []).map((t) => <span key={t} className={s.tag}>{t}</span>)}
+                  {/* A tag you can read but not act on is a label; the search
+                      already matches tags, so the tag is the search. */}
+                  {(p.tags ?? []).map((t) => (
+                    <button key={t} className={s.tag} onClick={() => setSearch(search === t ? "" : t)}
+                      aria-pressed={search === t}
+                      title={search === t ? `Stop filtering by ${t}` : `Show only prompts tagged ${t}`}>
+                      {t}
+                    </button>
+                  ))}
                   <div style={{ flex: 1 }} />
-                  {(p.author_id === user?.id || role === "owner") && (
+                  {/* canWrite as well as authorship: a demoted Observer still
+                      authored these, and without the role check their own
+                      prompts kept edit/delete buttons that the server now
+                      refuses. */}
+                  {canWrite && (p.author_id === user?.id || role === "owner") && (
                     <>
-                      <button title="Edit prompt" onClick={() => openEdit(p)}
-                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13 }}>✎</button>
-                      <button title="Delete prompt" onClick={() => setConfirmDel(p)}
-                        style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--oxblood)", fontSize: 13 }}>✕</button>
+                      {/* aria-label as well as title: the button's own text is
+                          a glyph, and text content wins the accessible name. */}
+                      <button className={`icon-act ${s.cardAct}`} title="Edit prompt"
+                        aria-label={`Edit "${p.title}"`} onClick={() => openEdit(p)}>{ACTION.edit}</button>
+                      <button className={`icon-act ${s.cardAct} ${s.cardActDanger}`} title="Delete prompt"
+                        aria-label={`Delete "${p.title}"`} onClick={() => setConfirmDel(p)}>{ACTION.remove}</button>
                     </>
                   )}
                   {can(role, "message.send") && (
@@ -186,7 +228,7 @@ export function LibraryView() {
             <Button variant="ghost" onClick={() => setConfirmDel(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doDelete}>Delete</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             It disappears from the whole team's library. Turns already inserted from it stay in
             their conversations.
           </div>

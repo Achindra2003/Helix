@@ -1,3 +1,13 @@
 # Dev/test dependencies (kept separate from runtime requirements.txt).
 pytest
 pytest-asyncio
+
+# Only api/tests/test_migrations.py needs this, and only when pointed at a
+# Postgres server (MIGRATION_TEST_DATABASE_URL). The app itself talks to
+# Postgres through asyncpg and has no sync driver; Alembic's env.py is async
+# too. But the checks in that file inspect the schema *after* migrating —
+# `sa.inspect`, `MigrationContext`, `compare_metadata` — and those are
+# synchronous. A dev-only sync driver is a smaller price than rewriting four
+# working tests around `run_sync`, and it never ships: it is not in
+# requirements.txt, so it is not in the image.
+psycopg2-binary

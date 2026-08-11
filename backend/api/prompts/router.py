@@ -9,7 +9,7 @@ membership (Observer included), saving needs Collaborator or higher.
 """
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -108,13 +108,28 @@ async def get_prompt(
 async def _require_prompt_author_or_owner(prompt_id: str, user: User, session):
     """The prompt, once the caller may edit/delete it: its author, or a
     workspace owner. Same 404 masking as `get_prompt` — outsiders can't
-    probe ids, and non-authors get an honest 403."""
+    probe ids, and non-authors get an honest 403.
+
+    Authorship is not a standing grant. Creating a prompt needs Collaborator,
+    so an Observer can never author one — but a Collaborator who wrote prompts
+    and was later demoted kept write access to them, which contradicts both the
+    role model and the permission matrix the app shows its users. Demoting
+    someone to Observer has to mean read-only, including over their own past
+    work. The role floor is checked first so the reason in the 403 is the real
+    one.
+    """
     prompt = await _store.get(prompt_id)
     if prompt is None:
         raise api_error(404, "not_found", "prompt not found")
     try:
-        membership = await _require_membership(prompt.workspace_id, user, session)
-    except Exception:
+        membership = await _require_membership(
+            prompt.workspace_id, user, session, ROLE_COLLABORATOR
+        )
+    except Exception as exc:
+        # A 403 from the role floor is a real answer; anything else means the
+        # caller is outside the workspace and must not learn the id exists.
+        if isinstance(exc, HTTPException) and exc.status_code == 403:
+            raise
         raise api_error(404, "not_found", "prompt not found")
     if prompt.author_id != user.id and membership.role != ROLE_OWNER:
         raise api_error(403, "forbidden", "Only the author or an owner can change this prompt.")

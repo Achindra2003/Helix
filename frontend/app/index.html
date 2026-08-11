@@ -3,13 +3,32 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Helix — a collaborative workspace for the recursive mind</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Cinzel:wght@400;500;600;700&family=Cinzel+Decorative:wght@400;700;900&family=IM+Fell+English:ital@0;1&family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap"
-      rel="stylesheet"
-    />
+
+    <!-- Says what it is, in the words a stranger would use. The old title
+         ("a collaborative workspace for the recursive mind") named the
+         mechanism; this names the job, and matches the README's opening line. -->
+    <title>Helix — the AI workspace that remembers what your team figured out</title>
+    <meta name="description" content="A shared, branchable AI workspace. Fork a conversation to try another approach, watch teammates' replies stream in live, ground answers on your own documents, and steer a deep reasoning run while it runs. Open source, self-hosted, bring your own model key." />
+    <meta name="theme-color" content="#e6dcc2" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#292217" media="(prefers-color-scheme: dark)" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+
+    <!-- Link previews. No og:image yet — that needs a real 1200×630 asset, and
+         inventing one here would put a fabricated screenshot on every share. -->
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Helix" />
+    <meta property="og:title" content="Helix — the AI workspace that remembers what your team figured out" />
+    <meta property="og:description" content="Fork a conversation to try another approach, watch teammates' replies stream in live, and steer a deep reasoning run while it runs. Open source and self-hosted." />
+    <meta name="twitter:card" content="summary" />
+    <!-- Typefaces are vendored into public/fonts and declared in
+         src/styles/fonts.css. Self-hosted on purpose: a self-hosted Helix has
+         to render its own typography with no internet, and no visitor's browser
+         should be calling a third party to read this page. The two faces below
+         are the ones the first screen paints in. -->
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/fonts/im-fell-english-400-latin.woff2" />
+    <link rel="preload" as="font" type="font/woff2" crossorigin
+      href="/fonts/cinzel-600-latin.woff2" />
   </head>
   <body>
     <div id="root"></div>

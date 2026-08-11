@@ -1,5 +1,8 @@
+import { motion } from "framer-motion";
 import type { Conversation } from "@/lib/types";
 import { colorFor } from "@/lib/format";
+import { activatable } from "@/lib/a11y";
+import { stagger, rise } from "@/lib/motion";
 import s from "./chat.module.css";
 
 export function ConversationList({
@@ -21,15 +24,21 @@ export function ConversationList({
         <span className="eyebrow">Conversations</span>
         {canCreate && <button className={s.plus} title="New conversation" onClick={onNew}>+</button>}
       </div>
-      <div>
+      <motion.div variants={stagger} initial="hidden" animate="show">
         {conversations.map((c) => (
-          <div key={c.id} className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`} onClick={() => onSelect(c.id)}>
-            <span style={{ fontSize: 13, color: c.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)", marginTop: 1 }}>
-              {c.visibility === "private" ? "◍" : "⊙"}
-            </span>
+          <motion.div key={c.id} variants={rise} whileHover={{ x: 2 }}
+            aria-current={c.id === activeId ? "true" : undefined}
+            className={`${s.convRow} ${c.id === activeId ? s.convOn : ""}`}
+            {...activatable(() => onSelect(c.id))}>
+            {/* The visibility was a glyph *and* the word directly beneath it —
+                and the glyph pair was ◍ / ⊙, two circles no one can tell apart
+                at 13px. The word alone says it, tinted the way the mark was. */}
             <div style={{ minWidth: 0, flex: 1 }}>
               <div className={s.convTitle} style={{ fontWeight: c.id === activeId ? 600 : 400 }}>{c.title}</div>
-              <div className={s.convMeta}>{c.visibility}</div>
+              <div className={s.convMeta}
+                style={{ color: c.visibility === "private" ? undefined : "var(--oxblood)" }}>
+                {c.visibility}
+              </div>
             </div>
             {unread?.[c.id] && c.id !== activeId && (
               <span className={s.rowDot} style={{ background: "var(--oxblood)" }}
@@ -43,14 +52,14 @@ export function ConversationList({
                 title={`${u.email} is reading this`}
               />
             ))}
-          </div>
+          </motion.div>
         ))}
         {conversations.length === 0 && (
           <div style={{ padding: "8px 10px", color: "var(--ink-3)", fontStyle: "italic", fontSize: 13 }}>
             Nothing is written yet.
           </div>
         )}
-      </div>
+      </motion.div>
     </>
   );
 }

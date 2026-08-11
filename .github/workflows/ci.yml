@@ -19,7 +19,7 @@ name: CI
 
 on:
   push:
-    branches: [main, ui-standout, v2-complete]
+    branches: [main, ui-standout, v2-complete, finish]
   pull_request:
 
 # A new push to the same branch cancels the previous run — no point burning
@@ -56,6 +56,78 @@ jobs:
       # SQLite database. If a test ever needs a real key, that test is wrong.
       - name: Run tests
         working-directory: backend
+        run: pytest -q
+
+  # The same suite, against the database production actually uses.
+  #
+  # This job exists because of a real and total failure. The suite hardcoded a
+  # SQLite URL, so all 365 tests had never once touched Postgres — and they
+  # passed against a schema Postgres rejects. Thirteen timestamp columns were
+  # declared without a timezone, and SQLite does not enforce foreign keys
+  # unless asked, so two whole classes of defect were invisible: creating a
+  # conversation, saving a prompt and recording a deep run all failed on
+  # Postgres while CI stayed green.
+  #
+  # Two dialects, one suite. A defect that only one of them has fails a build
+  # here instead of a deploy.
+  backend-postgres:
+    name: Backend tests (Postgres)
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: helix
+          POSTGRES_PASSWORD: helix
+          POSTGRES_DB: helix
+        ports:
+          - 5432:5432
+        # Without this the suite can start before the server accepts
+        # connections, which fails as a flake rather than as a finding.
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-engine.txt
+
+      - name: Install dependencies
+        working-directory: backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-engine.txt -r requirements-dev.txt
+
+      # Two env vars, and they point at the same server for different reasons.
+      #
+      # TEST_DATABASE_URL is what the suite runs against — see
+      # backend/api/conftest.py, which reads it and otherwise defaults to
+      # SQLite. That schema is built by `create_all`.
+      #
+      # MIGRATION_TEST_DATABASE_URL is what api/tests/test_migrations.py uses
+      # to create its own throwaway databases, and it closes the gap the first
+      # one leaves: a hosted deploy applies *migrations*, not `create_all`, and
+      # until now no migration had ever run against a real server. That is
+      # exactly where the naive-timestamp defect lived — it only bit instances
+      # whose schema came from Alembic. Both paths are now checked on the
+      # dialect that can tell them apart.
+      #
+      # Still secret-free: the provider is still the stub.
+      - name: Run tests
+        working-directory: backend
+        env:
+          TEST_DATABASE_URL: postgresql+asyncpg://helix:helix@localhost:5432/helix
+          MIGRATION_TEST_DATABASE_URL: postgresql+asyncpg://helix:helix@localhost:5432/helix
         run: pytest -q
 
   frontend:

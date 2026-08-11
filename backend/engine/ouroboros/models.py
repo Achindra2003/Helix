@@ -20,6 +20,12 @@ class Mode(str, Enum):
     CREATE = "create"
     SOLVE = "solve"
     PHILOSOPHIZE = "philosophize"
+    # Reviewing is a way of thinking, not a second kind of agent: it reads a
+    # thing against what it was meant to do and reports what is wrong, ranked.
+    # A parallel "reviewer agent" would have duplicated the run machinery, the
+    # steer protocol, the budget accounting and the archive to arrive at this
+    # same graph with a different prompt.
+    REVIEW = "review"
 
 
 class OuroborosConfig(BaseModel):

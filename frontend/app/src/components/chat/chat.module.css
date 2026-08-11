@@ -1,4 +1,9 @@
 .grid { flex: 1; min-height: 0; display: grid; grid-template-columns: var(--pane-left) 1fr var(--pane-right); }
+/* Monitor folded to a spine: the stage takes back the width. Wide layouts only
+   — below 1100px the right pane is a drawer over the stage, not a column. */
+@media (min-width: 1101px) {
+  .grid[data-monitor="collapsed"] { grid-template-columns: var(--pane-left) 1fr 46px; }
+}
 
 /* ---- left pane: conversations + lineage ---- */
 .left { background: var(--paper); border-right: 1px solid var(--rule); display: flex; flex-direction: column; min-height: 0; }
@@ -14,7 +19,7 @@
 .convRow { display: flex; gap: 9px; padding: 9px 8px; border-radius: 8px; cursor: pointer; border-left: 2px solid transparent; transition: background 0.12s; }
 .convRow:hover { background: var(--paper-3); }
 .convOn { background: var(--accent-tint); border-left-color: var(--oxblood); }
-.convTitle { font-size: 13.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.convTitle { font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .convMeta { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 2px; }
 /* live presence on a conversation row: a teammate is reading this thread now */
 .rowDot { width: 7px; height: 7px; border-radius: 50%; flex: 0 0 auto; align-self: center; animation: hx-breathe 2.4s ease-in-out infinite; }
@@ -22,40 +27,158 @@
 @media (prefers-reduced-motion: reduce) { .rowDot { animation: none; } }
 .divider { margin: 16px 7px 8px; height: 1px; background: var(--rule-soft); }
 .lineHead { padding: 4px 7px 10px; display: flex; align-items: center; gap: 7px; }
-.branchRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; }
+.branchRow { display: flex; align-items: center; gap: 8px; padding: 6px 8px; border-radius: 7px; cursor: pointer; position: relative; }
 .branchRow:hover { background: var(--paper-3); }
 .branchOn { background: var(--accent-tint); box-shadow: inset 2px 0 0 var(--oxblood); }
 .branchDot { width: 8px; height: 8px; border-radius: 50%; flex: 0 0 auto; }
-.branchName { font-family: var(--font-mono); font-size: 12.5px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
-/* branch housekeeping (rename/delete) — visible only when the row is touched */
-.branchAct {
-  background: none; border: none; color: var(--ink-3); font-size: 11.5px; padding: 0 3px;
-  cursor: pointer; opacity: 0; transition: opacity .15s; flex: 0 0 auto;
+.branchName { font-family: var(--font-mono); font-size: 12px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 1; }
+/* The verdict mark is information, not an action: it stays in the row at rest,
+   because "which of these did we adopt" is the question the lineage exists to
+   answer at a glance. */
+.branchMark { font-family: var(--font-mono); font-size: 11px; flex: 0 0 auto; }
+/* The resolution, readable without hovering. It is the reason a decision holds
+   up later, so it belongs in the record rather than in a tooltip — one quiet
+   line under the name, clipped rather than wrapped so rows stay scannable. */
+.branchWhy {
+  font-size: 11px; color: var(--ink-3); line-height: 1.35;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+  padding-left: 16px; margin-top: -2px; margin-bottom: 2px;
 }
-.branchRow:hover .branchAct { opacity: 1; }
+
+/* The verdict on the branch currently open, in the stage header. */
+.branchVerdict {
+  display: flex; align-items: baseline; gap: 8px;
+  margin-top: 8px; padding: 6px 10px; border-radius: 7px;
+  font-size: 13px; line-height: 1.45; color: var(--ink-2);
+  border: 1px solid var(--rule-soft); background: var(--paper);
+}
+.branchVerdict[data-status="adopted"] { border-color: rgba(70, 98, 76, 0.4); }
+.branchVerdict[data-status="abandoned"] { color: var(--ink-3); }
+.branchVerdict[data-status="adopted"] .verdictMark { color: var(--verde); }
+.branchVerdict[data-status="abandoned"] .verdictMark { color: var(--ink-faint); }
+.verdictMark { font-family: var(--font-mono); font-size: 12px; flex: 0 0 auto; }
+.verdictIntent { color: var(--ink-3); font-style: italic; }
+/* Branch housekeeping (resolve/rename/delete) — revealed only when the row is
+   touched, and lifted OUT of the flex flow so three hidden buttons can't steal
+   width from the name. In-flow they truncated it to "fixed-5…" at this pane's
+   248px. The row's own background sits under them so a long name passing
+   beneath reads as covered rather than as a collision. */
+.branchActs {
+  position: absolute; right: 6px; top: 50%; transform: translateY(-50%);
+  display: flex; align-items: center; gap: 2px;
+  opacity: 0; transition: opacity .15s; pointer-events: none;
+  padding-left: 10px;
+  background: linear-gradient(90deg, transparent, var(--paper-3) 22%);
+  border-radius: 7px;
+}
+.branchRow:hover .branchActs { opacity: 1; pointer-events: auto; }
+.branchOn:hover .branchActs { background: linear-gradient(90deg, transparent, var(--paper-2) 22%); }
+/* The technical reason under a failed run. Mono, quiet, wrapping — it is a
+   forwardable detail, not the message, and a long traceback fragment must not
+   push a horizontal scrollbar across the thread. */
+.runError {
+  font-family: var(--font-mono); font-size: var(--t-micro);
+  color: var(--ink-3); background: var(--hover-tint);
+  border: 1px solid var(--rule-soft); border-radius: 5px;
+  padding: 6px 9px; margin-top: 8px;
+  white-space: pre-wrap; overflow-wrap: anywhere;
+}
+
+.branchAct { color: var(--ink-3); font-size: 11px; flex: 0 0 auto; }
 .branchAct:hover { color: var(--oxblood); }
+
+/* Backing a branch. Quiet by default and hidden until the row is hovered, so
+   an unbacked lineage stays a clean list of names; once anyone has backed a
+   branch the count is permanent, because "which one does the team want" has to
+   be answerable by looking rather than by hovering four rows in turn. */
+.branchVote {
+  flex: 0 0 auto; margin-right: 4px; cursor: pointer;
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.02em;
+  color: var(--ink-3); background: transparent;
+  border: 1px solid var(--rule-soft); border-radius: 5px; padding: 2px 7px;
+  opacity: 0; transition: opacity .15s, color .15s, border-color .15s, background .15s;
+}
+.branchRow:hover .branchVote,
+.branchVote:focus-visible,
+.branchVoteShown { opacity: 1; }
+.branchVote:hover { color: var(--oxblood); border-color: var(--oxblood); }
+/* Your own backing reads as a filled mark rather than a louder one: the gilt
+   is the workspace's "yes", and it must stay distinguishable from the oxblood
+   the adopted verdict uses — a vote is not a decision. */
+.branchVoteOn {
+  color: var(--gilt-1); border-color: var(--gilt);
+  background: var(--accent-tint);
+}
 .leftFoot { padding: 11px 16px; border-top: 1px solid var(--rule-soft); font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); display: flex; align-items: center; gap: 7px; }
 .liveDot { width: 6px; height: 6px; border-radius: 50%; background: var(--verde); }
 
 /* ---- center stage ---- */
-.stage { background: var(--paper-2); display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative; }
+/* warmed, not flat: a soft gilt light spills from the top of the page and the
+   surface deepens toward the fold, so the stage reads as lit parchment */
+.stage {
+  background:
+    radial-gradient(150% 72% at 50% -8%, rgba(154, 122, 44, 0.06), transparent 55%),
+    linear-gradient(180deg, var(--paper), var(--paper-2) 46%);
+  display: flex; flex-direction: column; min-width: 0; min-height: 0; position: relative;
+}
 .stageGeo { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); width: 560px; height: 560px; opacity: .05; pointer-events: none; }
-.stageHead { padding: 16px 26px 13px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; gap: 14px; position: relative; }
+/* Wraps at every width, not just on phones. The header has accumulated
+   controls (replay, two exports, link context, Conclude, Fork) and at ~1280px
+   a nowrap row crushed the conversation title to "CH... STR...". Wrapping
+   costs a line only when it is actually needed; crushing the title costs the
+   one thing in the header nobody can do without. */
+.stageHead { padding: 16px 26px 13px; border-bottom: 1px solid var(--rule-soft); display: flex; align-items: center; gap: 10px 14px; position: relative; flex-wrap: wrap; }
+.stageTitleBlock { flex: 1 1 260px; min-width: 260px; }
 .stageTitle { font-family: var(--font-display); font-size: 24px; line-height: 1.1; }
-.stageMeta { display: flex; align-items: center; gap: 11px; margin-top: 5px; }
+.stageMeta { display: flex; align-items: center; gap: 11px; margin-top: 5px; min-width: 0; }
+/* The change this thread is against. Truncates rather than wraps: a pasted PR
+   URL is long, and the meta row is a single line of small facts — a second line
+   of it would push the conversation itself down the screen. The full value is
+   in the title attribute, and it is set from the thread menu. */
+.stageSubject {
+  font-size: var(--t-small); color: var(--ink-3);
+  min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  border-left: 1px solid var(--rule-soft); padding-left: 11px;
+}
 .chip { font-family: var(--font-mono); font-size: 11px; background: var(--paper); border: 1px solid var(--rule); border-radius: 5px; padding: 2px 7px; display: inline-flex; gap: 5px; align-items: center; color: var(--ink-2); }
 .canvas { flex: 1; overflow-y: auto; padding: 24px 26px 14px; display: flex; flex-direction: column; gap: 20px; position: relative; }
 
 /* message bubble */
-.msg { display: flex; gap: 14px; align-items: flex-start; animation: hx-rise 0.25s ease both; }
+.msg { display: flex; gap: 14px; align-items: flex-start; animation: hx-rise 0.34s var(--ease-quill) both; }
 /* author-colored margin rule on user turns (transparent on assistant turns,
    so every bubble keeps the same left alignment) */
 .msgQuill { border-left: 2px solid transparent; padding-left: 12px; }
-.avatar { width: 34px; height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; color: #f2e8ce; font-family: var(--font-display); }
-.avatarUser { border-radius: 50%; background: var(--gilt); }
-.avatarAsst { border-radius: 9px; background: linear-gradient(135deg, var(--oxblood), #5f2c0a); }
+/* the initial's colour belongs to the fill underneath it, not to .avatar —
+   gilt and the wax seal need opposite ink */
+.avatar { width: 34px; height: 34px; flex: 0 0 auto; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px; font-family: var(--font-display); transition: transform var(--dur-1), box-shadow var(--dur-2); }
+.avatarUser { border-radius: 50%; background: var(--gilt); color: var(--on-gilt); box-shadow: 0 0 0 1px var(--paper-2), 0 2px 6px rgba(36, 27, 18, 0.16); }
+/* the seal tokens, not raw oxblood: oxblood inverts in nocturne and would put
+   the light end of this gradient under the initial */
+.avatarAsst { border-radius: 9px; background: linear-gradient(135deg, var(--seal-from), var(--seal-to)); color: var(--seal-text); box-shadow: 0 0 0 1px var(--paper-2), 0 2px 8px rgba(143, 62, 19, 0.28); }
+/* Helix is thinking: the seal breathes a warm halo while tokens stream in */
+.avatarThinking { animation: asst-think 1.5s ease-in-out infinite; }
+@keyframes asst-think {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(143, 62, 19, 0.0), 0 2px 8px rgba(143, 62, 19, 0.28); }
+  50% { box-shadow: 0 0 0 5px rgba(143, 62, 19, 0.14), 0 2px 8px rgba(143, 62, 19, 0.28); }
+}
+@media (prefers-reduced-motion: reduce) { .avatarThinking { animation: none; } }
+
+/* the assistant's reply as an illuminated leaf — a lit panel with a gilt spine,
+   so the answer reads as a crafted passage rather than floating text. User
+   turns stay as plain questions in the margin, for a question→answer rhythm. */
+.leaf {
+  background: linear-gradient(180deg, var(--paper-0), var(--paper));
+  border: 1px solid var(--rule-soft);
+  border-left: 2.5px solid var(--gilt);
+  border-radius: 12px;
+  padding: 13px 18px 12px;
+  box-shadow: 0 3px 18px rgba(36, 27, 18, 0.07);
+  transition: border-color var(--dur-2), box-shadow var(--dur-2);
+}
+.msg:hover .leaf { box-shadow: 0 5px 22px rgba(36, 27, 18, 0.1); }
+.userBody { padding-top: 3px; }
 .msgHead { display: flex; align-items: baseline; gap: 9px; margin-bottom: 5px; }
-.msgName { font-size: 13.5px; font-weight: 600; }
+.msgName { font-size: 13px; font-weight: 600; }
 .msgTime { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); }
 .msgBody { font-size: 15.5px; line-height: 1.62; color: var(--ink); white-space: pre-wrap; }
 .msgTokens { font-family: var(--font-mono); font-size: 11px; color: var(--ink-3); margin-top: 7px; }
@@ -71,7 +194,7 @@
 /* an always-visible margin mark where branches split off */
 .forkMark {
   font-family: var(--font-mono);
-  font-size: 10.5px;
+  font-size: 10px;
   color: var(--oxblood);
   border: 1px solid rgba(143, 62, 19, 0.38);
   border-radius: 4px;
@@ -96,7 +219,7 @@
   text-align: center;
   margin-top: 12px;
 }
-.forkTag { font-family: var(--font-mono); font-size: 10.5px; color: var(--violet); border: 1px solid rgba(110,90,168,0.4); border-radius: 4px; padding: 1px 6px; }
+.forkTag { font-family: var(--font-mono); font-size: 10px; color: var(--violet); border: 1px solid rgba(110,90,168,0.4); border-radius: 4px; padding: 1px 6px; }
 .cursor { display: inline-block; width: 8px; height: 17px; background: var(--oxblood); margin-left: 3px; vertical-align: text-bottom; animation: hx-blink 1s step-end infinite; }
 .forkHere { background: none; border: 1px solid var(--rule-soft); color: var(--ink-3); border-radius: 5px; font-size: 11px; padding: 1px 7px; opacity: 0; transition: opacity .15s; }
 .msg:hover .forkHere { opacity: 1; }
@@ -104,12 +227,41 @@
 /* composer */
 .composerWrap { padding: 14px 26px 20px; border-top: 1px solid var(--rule-soft); position: relative; }
 /* live attribution while a teammate's turn streams into this thread */
-.remoteBanner { display: flex; align-items: center; gap: 8px; font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-3); margin-bottom: 9px; }
-.remoteBanner .rowDot { width: 8px; height: 8px; }
+/* One strip, one question: has the team been here? Three separate banners
+   (live turn / drafting teammate / already explored) used to stack three-deep
+   above the composer, each with its own border, each shoving the writing area
+   further down. They are one subject at three distances, so they share one
+   surface and the composer stops moving. */
+.teamStrip {
+  border: 1px solid var(--rule-soft); border-radius: 10px;
+  background: var(--paper); margin-bottom: 9px;
+  padding: 2px 0; overflow: hidden;
+}
+.teamRow {
+  display: flex; align-items: center; gap: 8px; flex-wrap: wrap;
+  padding: 6px 11px; font-family: var(--font-mono); font-size: 11px;
+  color: var(--ink-3); line-height: 1.5;
+}
+/* A hairline between rows, never above the first — the strip should read as
+   one object with entries, not as the stack of banners it replaced. */
+.teamRow + .teamRow { border-top: 1px solid var(--rule-soft); }
+.teamRow .rowDot { width: 8px; height: 8px; flex: 0 0 auto; }
+.teamWho { color: var(--ink-2); flex: 0 0 auto; }
+.teamSays { flex: 0 0 auto; }
+.teamClip { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.teamGroup { display: inline-flex; align-items: center; gap: 8px; min-width: 0; }
+.teamMute {
+  border: 0; background: transparent; cursor: pointer; color: var(--ink-3);
+  font-size: 14px; line-height: 1; padding: 0 2px; flex: 0 0 auto;
+}
+.teamMute:hover { color: var(--oxblood); }
 .composer {
-  background: var(--paper); border: 1px solid var(--rule); border-radius: 13px;
+  /* positioning context for the mention menu, which rises out of this box */
+  position: relative;
+  background: linear-gradient(180deg, var(--paper-0), var(--paper));
+  border: 1px solid var(--rule); border-radius: 13px;
   padding: 12px 14px; display: flex; flex-direction: column; gap: 10px;
-  box-shadow: 0 4px 22px rgba(36,27,18,0.10);
+  box-shadow: 0 6px 26px rgba(36, 27, 18, 0.12);
   transition: border-color var(--dur-1), box-shadow var(--dur-2);
 }
 /* the page answers the quill: writing focus warms the frame */
@@ -118,7 +270,60 @@
   box-shadow: 0 6px 26px rgba(36, 27, 18, 0.14), 0 0 0 3px rgba(180, 95, 42, 0.12);
 }
 .ta { background: none; border: none; outline: none; resize: none; color: var(--ink); font-size: 15px; font-family: var(--font-read); line-height: 1.5; width: 100%; }
-.composerRow { display: flex; align-items: center; gap: 10px; }
+/* Two groups, not one flat wrapping row.
+ *
+ * The row used to be flat and `flex-wrap: wrap` — which fixed an older bug (the
+ * keyboard hint being squeezed into a four-line column at 1280px) and created a
+ * worse one: the hint is rendered only while there is text, so *typing* added an
+ * item to a wrapping row and pushed the send button onto a second line. Measured
+ * at 1440 and 1512px the row went 36px → 74px on the first keystroke.
+ *
+ * So the send cluster is its own group and never wraps — the send button cannot
+ * move, whatever else happens. The action buttons wrap among themselves, which
+ * is the give the older fix was after. */
+/* ── @ a teammate ────────────────────────────────────────────────────────
+   Rises from the composer rather than dropping from it: the composer sits at
+   the bottom of the stage, and a menu opening downward would leave the page. */
+.mentionMenu {
+  position: absolute; left: 14px; bottom: calc(100% + 8px); z-index: 30;
+  width: 300px; padding: 5px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 11px;
+  box-shadow: 0 14px 40px rgba(36, 27, 18, 0.18);
+  display: flex; flex-direction: column;
+  animation: hx-rise 0.14s var(--ease-quill) both;
+}
+.mentionItem {
+  display: flex; align-items: center; gap: 9px; width: 100%;
+  padding: 6px 9px; border: none; background: transparent; border-radius: 7px;
+  text-align: left; cursor: pointer;
+}
+.mentionItemOn { background: var(--accent-tint); }
+.mentionAvatar {
+  width: 22px; height: 22px; border-radius: 50%; color: var(--on-author);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11px; flex: 0 0 auto;
+}
+.mentionHandle { font-family: var(--font-mono); font-size: 12px; color: var(--ink); }
+.mentionEmail {
+  font-family: var(--font-mono); font-size: 10px; color: var(--ink-3);
+  margin-left: auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.composerRow { display: flex; align-items: flex-end; gap: 10px; flex-wrap: nowrap; }
+.composerActions { display: flex; align-items: center; gap: 8px 10px; flex-wrap: wrap; flex: 1 1 auto; min-width: 0; }
+.composerActions > * { flex: 0 0 auto; }
+.composerSend { display: flex; align-items: center; gap: 10px; flex: 0 0 auto; flex-wrap: nowrap; }
+/* Always laid out, only faded — so its arrival costs no reflow. It teaches a
+   shortcut you discover by pressing Enter once, and is the first thing to go
+   when space is short (below 1440 it is not rendered at all, which is a
+   constant at that width and so still shifts nothing). */
+.composerHint { white-space: nowrap; opacity: 0; transition: opacity var(--dur-1); }
+.composerHintOn { opacity: 1; }
+/* 1600, not 1440: measured, the row fits on one line at 1440/1512 without the
+   hint and needs a second line with it. Since the hint now always reserves its
+   space (so typing shifts nothing), reserving it at 1440 would cost a permanent
+   second row to teach a shortcut you learn by pressing Enter once. */
+@media (max-width: 1599px) { .composerHint { display: none; } }
 .sendBtn { background: linear-gradient(180deg, var(--seal-from), var(--seal-to)); color: var(--seal-text); border: 1px solid var(--seal-border); border-radius: 8px; width: 36px; height: 36px; cursor: pointer; font-size: 16px; font-weight: 700; display: flex; align-items: center; justify-content: center; box-shadow: inset 0 1px 0 rgba(255,240,215,0.16), 0 2px 9px rgba(143,62,19,0.28); transition: filter 0.15s; }
 .sendBtn:hover:not(:disabled) { filter: brightness(1.12); }
 .sendBtn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -128,7 +333,7 @@
    marginal line per tool call, like an apparatus criticus under the text */
 .toolLedger { display: flex; flex-direction: column; gap: 4px; margin: 2px 0 9px; }
 .toolRow {
-  font-family: var(--font-mono); font-size: 11.5px; color: var(--ink-2);
+  font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
   display: flex; align-items: baseline; gap: 7px;
   border-left: 2px solid var(--rule-soft); padding: 2px 0 2px 9px; min-width: 0;
 }
@@ -142,16 +347,320 @@
   background: var(--paper); border: 1px solid var(--gilt); border-radius: 11px;
 }
 
-@media (max-width: 1100px) {
-  .grid { grid-template-columns: 1fr; }
-  .left, :global(.monitor-pane) { display: none; }
+/* ── the two flanking panes, as drawers ─────────────────────────────────────
+   Below 1100px the three panes no longer sit side by side. They fold out over
+   the stage instead of disappearing: hiding them would take thread switching,
+   the lineage tree and the whole run monitor — Stop included — away with no
+   other route to them. Closed by default, so the stage still opens full-width. */
+/* the bar itself is the gate — wide layouts have both panes in view already,
+   and it stays outside the "a conversation is open" branch so the thread list
+   is reachable from the empty state too */
+.drawerBar { display: none; }
+.drawerBtn {
+  display: inline-flex;
+  align-items: center; justify-content: center; gap: 6px;
+  min-width: 44px; min-height: 44px; padding: 0 11px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 8px;
+  color: var(--ink-2); font-family: var(--font-mono); font-size: 11px;
+  transition: border-color var(--dur-1), background var(--dur-1);
 }
+.drawerBtn:hover { border-color: var(--oxblood); background: var(--hover-tint); }
+.drawerBtnOn { border-color: var(--oxblood); color: var(--oxblood); background: var(--accent-tint); }
+/* a run is live behind the closed drawer — the seal breathes on the toggle */
+.drawerLive { width: 6px; height: 6px; border-radius: 50%; background: var(--oxblood); animation: hx-breathe 2.4s ease-in-out infinite; }
+
+.drawerScrim { display: none; }
+
+/* a live run with the monitor folded away: enough to know it is running, and
+   the two controls that matter — look at it, or stop it. */
+.runStrip { display: none; }
+.runStripDot { width: 7px; height: 7px; border-radius: 50%; background: var(--oxblood); animation: hx-breathe 2.4s ease-in-out infinite; flex: 0 0 auto; }
+.runStripKill {
+  background: none; border: 1px solid var(--oxblood); color: var(--oxblood);
+  border-radius: 7px; font-family: var(--font-mono); font-size: 11px;
+  min-height: 32px; padding: 0 11px; flex: 0 0 auto;
+}
+.runStripKill:hover { background: var(--oxblood); color: var(--seal-text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .drawerLive, .runStripDot { animation: none; }
+  /* hx-blink ends on opacity 0, so a stopped animation would leave the
+     "still writing" caret invisible. Hold it lit instead. */
+  .cursor { animation: none; opacity: 1; }
+}
+
+@media (max-width: 1100px) {
+  .grid { grid-template-columns: 1fr; position: relative; }
+
+  .left,
+  :global(.monitor-pane) {
+    position: absolute; top: 0; bottom: 0; z-index: 30;
+    width: min(340px, 87vw);
+    box-shadow: 0 0 44px rgba(36, 27, 18, 0.3);
+    transition: transform var(--dur-2) var(--ease-quill);
+  }
+  .left { left: 0; transform: translateX(-101%); }
+  :global(.monitor-pane) { right: 0; transform: translateX(101%); }
+  .grid[data-drawer="left"] .left,
+  .grid[data-drawer="monitor"] :global(.monitor-pane) { transform: none; }
+
+  .drawerScrim {
+    display: block; position: absolute; inset: 0; z-index: 25;
+    background: rgba(36, 27, 18, 0.32); border: none; width: 100%;
+    animation: hx-fade var(--dur-1) var(--ease-quill) both;
+  }
+  .drawerBar {
+    display: flex; align-items: center; gap: 9px;
+    padding: 10px 14px; border-bottom: 1px solid var(--rule-soft);
+    position: relative; z-index: 10;
+  }
+
+  .runStrip {
+    display: flex; align-items: center; gap: 9px; margin-bottom: 9px;
+    padding: 8px 12px; border: 1px solid var(--rule); border-radius: 10px;
+    background: var(--paper); font-family: var(--font-mono); font-size: 11px; color: var(--ink-2);
+  }
+}
+
+@keyframes hx-fade { from { opacity: 0; } to { opacity: 1; } }
 
 /* small-screen pass (LAUNCH-PLAN): the stage header wraps instead of clipping,
    and the canvas/composer breathe with tighter gutters */
 @media (max-width: 760px) {
   .stageHead { flex-wrap: wrap; padding: 12px 14px 10px; gap: 9px; }
+  /* The title takes the whole first line so the export and fork controls wrap
+     underneath it. Sharing a line, the title's min-width:0 let it shrink to
+     nothing and the conversation lost its name. */
+  .stageTitleBlock { flex: 1 1 100%; }
+  .stageMeta { flex-wrap: wrap; row-gap: 7px; }
   .canvas { padding: 16px 14px 10px; }
   .composerWrap { padding: 10px 14px 14px; }
   .stageTitle { font-size: 20px; }
+  .runStrip { flex-wrap: wrap; }
+}
+
+/* The thread's own ending, at the top of the stage header. Reading voice and
+   a gilt hairline: it is the one piece of prose in this header, and the thing
+   a person scrolls to the top to find. */
+.conclusion {
+  display: flex; align-items: baseline; gap: 10px;
+  margin-top: 8px; padding: 9px 12px; border-radius: 8px;
+  font-family: var(--font-read); font-size: 14px; line-height: 1.5;
+  color: var(--ink); background: var(--paper);
+  border: 1px solid rgba(154, 122, 44, 0.45);
+}
+.conclusionLabel {
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--gilt-1); font-weight: 600;
+  flex: 0 0 auto; white-space: nowrap;
+}
+/* The word that names a decision is also the way to all of them.
+   The decisions ledger is the payoff of the whole convergence build and it sat
+   behind a mode toggle on the Map, which is not where the question "what did
+   we decide?" occurs to anyone. It occurs here, reading a thread that has
+   already decided something. So the label becomes the door — inheriting its
+   own type so it stays a label, with a dotted rule as the only hint that it
+   leads somewhere. No new chrome: a thread with nothing decided shows no door,
+   because there would be nothing behind it. */
+.toLedger {
+  border: 0; background: transparent; padding: 0; cursor: pointer;
+  font: inherit; color: inherit; letter-spacing: inherit;
+  text-transform: inherit; font-weight: inherit;
+  border-bottom: 1px dotted currentColor;
+}
+.toLedger:hover { color: var(--oxblood); }
+/* The compose box in the conclude dialog — reading voice, because what you
+   write here becomes the record. */
+.concludeBox {
+  width: 100%; resize: vertical; min-height: 120px;
+  background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius);
+  padding: 11px 13px; color: var(--ink); outline: none;
+  font-family: var(--font-read); font-size: 14px; line-height: 1.55;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
+}
+.concludeBox:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
+
+/* A note: one person talking to the room, not to Helix. Deliberately not a
+   bubble — a marginal annotation in the reading voice, so a glance tells you
+   whether a line was said to the model or to the people watching. */
+.note {
+  display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+  margin: -6px 0 -6px 48px; padding: 5px 12px;
+  border-left: 2px solid var(--ink-faint);
+  font-family: var(--font-read); font-size: 14px; line-height: 1.5;
+  color: var(--ink-2); animation: hx-rise 0.34s var(--ease-quill) both;
+}
+.noteWho { font-family: var(--font-mono); font-size: 11px; flex: 0 0 auto; }
+.noteBody { flex: 1; min-width: 0; font-style: italic; }
+/* A name in a note is someone being asked something. Upright inside the note's
+   italic, so it reads as a person rather than as emphasis. */
+.mentionTag {
+  font-style: normal; font-family: var(--font-mono); font-size: 12px;
+  color: var(--oxblood); background: var(--accent-tint);
+  border-radius: 4px; padding: 0 3px;
+}
+.noteAside {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.08em;
+  color: var(--ink-faint); flex: 0 0 auto; text-transform: uppercase;
+}
+
+/* The thread menu: the rare actions, one click away, so the header can rank
+   what it keeps. Nothing left the product — replay, both exports, rename,
+   delete and link-context moved in here. */
+.menuWrap { position: relative; flex: 0 0 auto; }
+.menuBtn {
+  min-width: 30px; height: 30px; border-radius: 8px;
+  border: 1px solid var(--rule); background: var(--paper); color: var(--ink-2);
+  font-size: 15px; line-height: 1; cursor: pointer;
+  display: inline-flex; align-items: center; justify-content: center;
+  transition: border-color var(--dur-1), background var(--dur-1);
+}
+.menuBtn:hover { border-color: var(--ink-faint); background: var(--paper-3); }
+.menuList {
+  position: absolute; right: 0; top: calc(100% + 6px); z-index: 30;
+  min-width: 208px; padding: 5px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 11px;
+  box-shadow: 0 14px 40px rgba(36, 27, 18, 0.18);
+  display: flex; flex-direction: column;
+  animation: hx-rise 0.16s var(--ease-quill) both;
+}
+.menuItem {
+  display: flex; align-items: center; gap: 10px; width: 100%;
+  padding: 8px 10px; border: none; background: transparent; border-radius: 7px;
+  font-family: var(--font-ui); font-size: 13px; color: var(--ink);
+  text-align: left; cursor: pointer; transition: background var(--dur-1);
+}
+.menuItem:hover { background: var(--hover-tint); }
+.menuItemDanger { color: var(--oxblood); }
+.menuGlyph { font-family: var(--font-mono); font-size: 12px; color: var(--ink-3); flex: 0 0 auto; width: 14px; }
+.menuItemDanger .menuGlyph { color: var(--oxblood); }
+
+/* ── escalate: a split button ────────────────────────────────────────────────
+   The face runs; the caret chooses how to reason. Built as a split rather than
+   a button plus a picker because the composer row was already the most crowded
+   strip in the product — this way five modes and the guided toggle arrive while
+   the row loses a control. */
+.deepWrap { position: relative; display: inline-flex; flex: 0 0 auto; }
+.deepFace, .deepCaret {
+  border: 1px solid var(--oxblood); background: var(--paper); color: var(--oxblood);
+  font-family: var(--font-ui); font-size: 12px; cursor: pointer;
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background var(--dur-1);
+}
+.deepFace { padding: 6px 11px; border-radius: 8px 0 0 8px; border-right: none; }
+/* The caret needs its own room: at 8px either side of a 7px glyph the arrow
+   sat almost on the button's edge. */
+.deepCaret { padding: 6px 11px; border-radius: 0 8px 8px 0; font-size: 11px; }
+.deepFace:hover:not(:disabled), .deepCaret:hover { background: var(--accent-tint); }
+.deepFace:disabled { opacity: 0.45; cursor: not-allowed; }
+/* Which mode the face would run, so the choice is legible without opening the
+   menu — the whole complaint about this feature was not knowing how to use it. */
+.deepMode {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.04em;
+  color: var(--ink-3); padding-left: 7px; border-left: 1px solid var(--rule-soft);
+}
+
+.deepMenu {
+  position: absolute; left: 0; bottom: calc(100% + 7px); z-index: 30;
+  width: 320px; padding: 5px;
+  background: var(--paper); border: 1px solid var(--rule); border-radius: 11px;
+  box-shadow: 0 14px 40px rgba(36, 27, 18, 0.18);
+  display: flex; flex-direction: column;
+  animation: hx-rise 0.16s var(--ease-quill) both;
+}
+.deepMenuHead {
+  font-family: var(--font-mono); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--ink-3); padding: 8px 10px 6px;
+}
+.deepItem {
+  display: flex; flex-direction: column; gap: 2px; width: 100%;
+  padding: 8px 10px; border: none; background: transparent; border-radius: 7px;
+  text-align: left; cursor: pointer; transition: background var(--dur-1);
+}
+.deepItem:hover { background: var(--hover-tint); }
+.deepItemOn { background: var(--accent-tint); }
+.deepItemLabel { font-family: var(--font-ui); font-size: 13px; color: var(--ink); display: block; }
+.deepItemOn .deepItemLabel { color: var(--oxblood); }
+.deepItemDesc { font-size: 11px; line-height: 1.45; color: var(--ink-3); display: block; }
+.deepGuided {
+  display: flex; align-items: flex-start; gap: 9px; cursor: pointer;
+  padding: 9px 10px; margin-top: 4px; border-top: 1px solid var(--rule-soft);
+  user-select: none;
+}
+
+/* Replay is a mode, so its scrubber appears only while it is on — it used to
+   sit in the stage header permanently, costing prime space for a control most
+   sessions never touch. */
+.replayBar {
+  display: flex; align-items: center; gap: 12px;
+  padding: 8px 26px; border-bottom: 1px solid var(--rule-soft);
+  background: var(--accent-tint);
+}
+.replayLabel {
+  font-family: var(--font-display); font-size: 10px; letter-spacing: 0.14em;
+  text-transform: uppercase; color: var(--oxblood); font-weight: 600; flex: 0 0 auto;
+}
+
+/* ── comparing explorations side by side ─────────────────────────────────────
+   Helix's signature move is branching, and until this you could only read one
+   branch at a time — fine for "continue this", useless for "which of these is
+   best?", which is the question a brainstorm actually asks.
+
+   It takes the whole stage rather than opening as a dialog: the columns *are*
+   the content, and a modal wide enough to hold four of them is a stage with a
+   border around it. */
+.compareWrap {
+  position: absolute; inset: 0; z-index: 20;
+  display: flex; flex-direction: column;
+  background: var(--paper);
+  animation: hx-rise 0.2s var(--ease-quill) both;
+}
+.compareHead {
+  display: flex; align-items: flex-start; justify-content: space-between; gap: 16px;
+  padding: 16px 26px 12px; border-bottom: 1px solid var(--rule-soft);
+}
+.compareTitle { font-family: var(--font-display); font-size: var(--t-title); color: var(--ink); }
+.compareSub { font-size: var(--t-small); color: var(--ink-3); margin-top: 3px; }
+
+/* Equal columns, and they scroll independently: one long answer must not set
+   the height of the row, or three short answers sit in a sea of whitespace
+   while the fourth needs a scrollbar nobody can see. */
+.compareCols {
+  flex: 1; min-height: 0; display: grid; gap: 14px;
+  grid-auto-flow: column; grid-auto-columns: minmax(260px, 1fr);
+  overflow-x: auto; padding: 16px 26px 20px;
+}
+.compareCol {
+  display: flex; flex-direction: column; min-width: 0;
+  border: 1px solid var(--rule); border-radius: var(--radius);
+  background: var(--paper-0); overflow: hidden;
+}
+.compareColHead {
+  padding: 11px 13px; border-bottom: 1px solid var(--rule-soft); background: var(--paper);
+}
+/* The angle, not the slug: the sentence is what you are judging. */
+.compareAngle {
+  font-family: var(--font-read); font-size: var(--t-body); color: var(--ink); line-height: 1.4;
+}
+.compareName { font-size: var(--t-micro); color: var(--ink-3); margin-top: 4px; }
+.compareBody {
+  flex: 1; min-height: 0; overflow-y: auto; padding: 13px;
+  font-size: var(--t-body); line-height: 1.6; color: var(--ink-2);
+}
+.compareWaiting { font-style: italic; color: var(--ink-3); font-size: var(--t-small); }
+.compareActs {
+  display: flex; align-items: center; gap: 8px;
+  padding: 9px 13px; border-top: 1px solid var(--rule-soft); background: var(--paper);
+}
+.compareLink {
+  border: none; background: transparent; cursor: pointer;
+  font-family: var(--font-mono); font-size: var(--t-micro); color: var(--ink-3);
+}
+.compareLink:hover { color: var(--oxblood); }
+
+/* Below this the columns stop being a comparison and start being a queue, so
+   they stack and the row scrolls vertically like everything else. */
+@media (max-width: 760px) {
+  .compareCols { grid-auto-flow: row; grid-auto-columns: auto; overflow-x: hidden; overflow-y: auto; }
+  .compareCol { min-height: 220px; }
 }

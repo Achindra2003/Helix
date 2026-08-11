@@ -208,3 +208,91 @@ async def test_delete_last_turn_blocked_once_something_has_forked_from_it(store)
     n4 = await store.add_node(branch_id=b, role="assistant", content="D", author_id=None)
     removed = await store.delete_last_turn(branch_id=b, user_id="u1")
     assert set(removed) == {n3.id, n4.id}
+
+
+# --- how the spine is read (segment fetch, not one query per node) ------------
+
+async def test_history_is_correct_through_nested_forks(store):
+    """A fork of a fork of a fork. Each branch must see exactly its ancestors'
+    turns and none of its siblings'.
+
+    This is the contract the segment-wise read has to preserve: it fetches the
+    spine one branch at a time rather than one node at a time, and crossing
+    between segments is where it could plausibly drop or duplicate a turn.
+    """
+    conv = await _conv(store)
+    root = conv.default_branch_id
+    a = await store.add_node(branch_id=root, role="user", content="A", author_id="u1")
+    b = await store.add_node(branch_id=root, role="assistant", content="B", author_id=None)
+
+    f1 = await store.create_branch(conversation_id=conv.id, from_node_id=b.id, name="f1")
+    c = await store.add_node(branch_id=f1.id, role="user", content="C", author_id="u1")
+    await store.add_node(branch_id=f1.id, role="assistant", content="D", author_id=None)
+
+    f2 = await store.create_branch(conversation_id=conv.id, from_node_id=c.id, name="f2")
+    await store.add_node(branch_id=f2.id, role="user", content="E", author_id="u1")
+
+    f3 = await store.create_branch(conversation_id=conv.id, from_node_id=a.id, name="f3")
+    await store.add_node(branch_id=f3.id, role="user", content="F", author_id="u1")
+
+    assert [n.content for n in await store.get_history(root)] == ["A", "B"]
+    assert [n.content for n in await store.get_history(f1.id)] == ["A", "B", "C", "D"]
+    # f2 forked at C, so it inherits C but not its sibling D.
+    assert [n.content for n in await store.get_history(f2.id)] == ["A", "B", "C", "E"]
+    # f3 forked at A, above B entirely.
+    assert [n.content for n in await store.get_history(f3.id)] == ["A", "F"]
+
+
+async def test_history_after_a_deleted_tail_still_reads(store):
+    """delete_last_turn moves the head backwards, leaving rows on the branch
+    that are no longer on its spine. The segment read builds a map of the whole
+    branch, so those rows are present in the map — and must stay unvisited."""
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    await store.add_node(branch_id=b, role="user", content="A", author_id="u1")
+    await store.add_node(branch_id=b, role="assistant", content="B", author_id=None)
+    await store.add_node(branch_id=b, role="user", content="C", author_id="u1")
+    await store.add_node(branch_id=b, role="assistant", content="D", author_id=None)
+    await store.delete_last_turn(branch_id=b, user_id="u1")
+    assert [n.content for n in await store.get_history(b)] == ["A", "B"]
+
+
+async def test_reading_history_does_not_issue_a_query_per_turn():
+    """The point of the change. One `session.get` per node made a long thread
+    cost one network round trip per turn, on every send — fine against SQLite's
+    page cache, expensive against Postgres.
+
+    DB-only: the in-memory store has no queries to count.
+    """
+    from sqlalchemy import event
+    from api.conversation import models  # noqa: F401
+    from api.db import Base
+
+    engine = create_async_engine(
+        "sqlite+aiosqlite://",
+        poolclass=StaticPool,
+        connect_args={"check_same_thread": False},
+    )
+    async with engine.begin() as conn:
+        await conn.run_sync(Base.metadata.create_all)
+    store = DbStore(async_sessionmaker(engine, expire_on_commit=False))
+
+    conv = await _conv(store)
+    b = conv.default_branch_id
+    for i in range(40):
+        await store.add_node(branch_id=b, role="user", content=f"m{i}", author_id="u1")
+
+    statements = 0
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _count(conn, cursor, statement, params, context, executemany):
+        nonlocal statements
+        statements += 1
+
+    history = await store.get_history(b)
+    assert len(history) == 40
+    # One for the branch, one for its nodes. The ceiling is deliberately loose
+    # — what it forbids is a count that tracks the 40 turns.
+    assert statements <= 6, f"{statements} statements for a 40-turn branch"
+
+    await engine.dispose()

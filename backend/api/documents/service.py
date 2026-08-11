@@ -6,10 +6,24 @@ hashed-BoW fallback in minimal installs — both are vector-shaped, so one code
 path). The vectorless alternatives were considered and rejected for this
 scale: BM25 adds an index dependency to win exact-term lookups that the
 lexical fallback already approximates, and an LLM-as-retriever spends tokens
-per send on the workspace's own key. Chunks live in the ordinary DB; cosine
-over a workspace's chunks in Python is microseconds up to ~10⁵ chunks, which
-is far past a team workspace's realistic document pool. Revisit (pgvector)
-only past that.
+per send on the workspace's own key.
+
+Chunks live in the ordinary DB — no vector server. This file used to claim
+that scoring them "is microseconds up to ~10⁵ chunks"; it was not, and the
+number was never measured. Scoring every chunk with a Python generator
+expression and rebuilding BM25 per query cost **1.28 s at 10,000 chunks**,
+per grounded send.
+
+What made that claim true instead of merely optimistic: the workspace's
+vectors are held as one float32 matrix and scored with a single matrix
+product, BM25 keeps postings so it only visits documents that contain a query
+term, and both are built once and reused until the corpus changes
+(`_WorkspaceIndex`, invalidated by `CorpusRevisionRow`). The same query is
+**7 ms at 10,000** and 34 ms at 50,000 — past a serious literature review,
+in-process, with no extra infrastructure.
+
+The next step up is an approximate index (pgvector/FAISS), and it is a real
+step: it trades exactness for sublinear search. Nothing here needs it yet.
 
 Grounding at send time is *relevance-gated*: chunks below the floor stay out,
 so an unrelated question doesn't drag the knowledge base into every prompt.
@@ -21,18 +35,26 @@ from __future__ import annotations
 import asyncio
 import io
 from array import array
+from dataclasses import dataclass
 
+import numpy as np
 from sqlalchemy import delete, select
 
 from ..config import settings
-from .models import DocumentChunkRow, DocumentRow
+from .models import (
+    CorpusRevisionRow,
+    DocumentChunkRow,
+    DocumentRow,
+    bump_corpus_revision,
+    cite_as,
+)
 
 # --- extraction ---------------------------------------------------------------
 
 # Extensions treated as plain text (decoded, never rejected).
 _TEXTY = (
     ".txt", ".md", ".markdown", ".rst", ".csv", ".json", ".yaml", ".yml",
-    ".py", ".js", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
+    ".py", ".js", ".jsx", ".ts", ".tsx", ".java", ".go", ".rs", ".c", ".cpp", ".h",
     ".sql", ".html", ".css", ".xml", ".toml", ".ini", ".log",
 )
 
@@ -53,7 +75,19 @@ def extract_text(filename: str, data: bytes) -> str:
         if not text.strip():
             raise ValueError("PDF contains no extractable text (scanned images?)")
         return text
-    if name.endswith(_TEXTY) or "." not in name:
+    if name.endswith(_TEXTY):
+        return data.decode("utf-8", errors="replace")
+    if "." not in name:
+        # Extensionless files are usually real text (README, Makefile,
+        # Dockerfile), so they stay welcome — but the name proves nothing, and
+        # decoding a binary with errors="replace" would ingest a wall of
+        # replacement characters that grounding could then cite. A NUL byte in
+        # the head is the cheap, reliable tell that this is not text.
+        if b"\x00" in data[:8192]:
+            raise ValueError(
+                "unsupported file type — this looks like binary data; "
+                "give it a .txt/.md/code extension if it really is text"
+            )
         return data.decode("utf-8", errors="replace")
     raise ValueError(
         "unsupported file type — upload text/markdown/code files or PDFs"
@@ -99,12 +133,43 @@ def _unpack(blob: bytes) -> list[float]:
 # --- the index -------------------------------------------------------------------
 
 
+@dataclass
+class _WorkspaceIndex:
+    """One workspace's chunks, prepared for scoring rather than for storage.
+
+    Both retrieval arms used to be rebuilt from scratch on every query: the
+    dense arm decoded every stored vector into a Python list and scored it with
+    a generator expression, and BM25 re-tokenised the entire corpus. That is
+    ~1.3 s for one grounded send at 10,000 chunks, measured — which is the size
+    a literature review reaches, and it is paid *per message*.
+
+    Here the per-query work is a single matrix product. The rest is built once
+    and reused until the corpus changes.
+    """
+
+    #: The corpus revision this was built from. See `CorpusRevisionRow`.
+    fingerprint: int
+    #: Rebuilt from scratch when the embedder changes under us, because every
+    #: vector is then in the wrong space and comparing them is meaningless.
+    embedder_version: str
+    chunks: list
+    #: (n, dim) float32. Rows are in `chunks` order.
+    matrix: object
+    bm25: object
+
+
 class DocumentIndex:
     """Ingest documents and retrieve grounding chunks for a workspace."""
 
     def __init__(self, session_factory, *, memory=None) -> None:
         self._sf = session_factory
         self._memory = memory  # injectable for tests; default = engine embedder
+        # Per workspace, and per instance rather than module-global: the two
+        # long-lived instances (grounding at send time, and the search
+        # endpoint) each hold their own, which costs a second copy of the
+        # matrix — 15 MB per 10,000 chunks — and keeps tests that build their
+        # own index from inheriting another test's corpus.
+        self._cache: dict[str, _WorkspaceIndex] = {}
 
     def _mem(self):
         if self._memory is None:
@@ -160,6 +225,9 @@ class DocumentIndex:
                 doc.error = ""
                 doc.text_chars = len(text)
                 doc.chunk_count = len(chunks)
+                # Same transaction as the chunks: every reader's cached index
+                # is now stale, and this is what tells them.
+                await bump_corpus_revision(session, doc.workspace_id)
                 await session.commit()
         except Exception as exc:
             async with self._sf() as session:
@@ -186,6 +254,56 @@ class DocumentIndex:
                 )
             )
             return list(result.scalars())
+
+    async def _revision(self, workspace_id: str) -> int:
+        """This workspace's corpus revision — one primary-key lookup.
+
+        See `CorpusRevisionRow` for why this is a counter rather than the
+        obvious COUNT/MAX probe over the chunks themselves.
+        """
+        async with self._sf() as session:
+            row = await session.get(CorpusRevisionRow, workspace_id)
+            return row.revision if row else 0
+
+    async def _index_for(self, workspace_id: str) -> _WorkspaceIndex | None:
+        """The workspace's scoring index, built once and reused.
+
+        Returns None for an empty workspace, which is the common case on a new
+        instance and must not cost a matrix allocation.
+        """
+        revision = await self._revision(workspace_id)
+        if revision == 0:
+            self._cache.pop(workspace_id, None)
+            return None
+
+        version = self.version
+        cached = self._cache.get(workspace_id)
+        if (
+            cached is not None
+            and cached.fingerprint == revision
+            and cached.embedder_version == version
+        ):
+            return cached
+
+        from .lexical import BM25
+
+        chunks = await self._workspace_chunks(workspace_id)
+        if not chunks:
+            self._cache.pop(workspace_id, None)
+            return None
+        vectors = await self._current_vectors(chunks)
+        # float32, not float64: these came from a float32 store, the extra
+        # precision is invented, and it doubles both the memory and the time.
+        matrix = np.asarray([vectors[c.id] for c in chunks], dtype=np.float32)
+        index = _WorkspaceIndex(
+            fingerprint=revision,
+            embedder_version=version,
+            chunks=chunks,
+            matrix=matrix,
+            bm25=BM25([c.content for c in chunks]),
+        )
+        self._cache[workspace_id] = index
+        return index
 
     async def _current_vectors(
         self, chunks: list[DocumentChunkRow]
@@ -225,7 +343,7 @@ class DocumentIndex:
         are chosen from that harness's report, not vibes.
         """
         from ..telemetry import tracer
-        from .lexical import BM25, rrf_fuse, squash
+        from .lexical import rrf_fuse, squash
 
         if not query.strip():
             return []
@@ -236,21 +354,27 @@ class DocumentIndex:
             span.set_attribute("retrieval.k", k)
             span.set_attribute("retrieval.floor", floor)
             span.set_attribute("retrieval.mode", mode)
-            chunks = await self._workspace_chunks(workspace_id)
-            span.set_attribute("retrieval.candidates", len(chunks))
-            if not chunks:
+            index = await self._index_for(workspace_id)
+            if index is None:
+                span.set_attribute("retrieval.candidates", 0)
                 return []
+            chunks = index.chunks
+            span.set_attribute("retrieval.candidates", len(chunks))
 
             n = len(chunks)
             dense = [0.0] * n
             if mode != "lexical":
-                vecs = await self._current_vectors(chunks)
                 query_vec = (await self._embed([query[:2000]]))[0]
-                cosine = self._mem().cosine_similarity
-                dense = [float(cosine(query_vec, vecs[c.id])) for c in chunks]
+                # A dot product, not a normalised cosine: the embedders emit
+                # unit vectors and `memory.cosine_similarity` is itself a plain
+                # dot. Normalising here would silently move every score and
+                # invalidate the measured relevance floors.
+                dense = (
+                    index.matrix @ np.asarray(query_vec, dtype=np.float32)
+                ).tolist()
             lex = [0.0] * n
             if mode != "dense":
-                lex = [squash(s) for s in BM25([c.content for c in chunks]).scores(query)]
+                lex = [squash(s) for s in index.bm25.scores(query)]
 
             # Relevance gate: either signal clearing its floor admits a chunk.
             # The dense floor's calibration story lives in config.py; the
@@ -281,18 +405,31 @@ class DocumentIndex:
                 span.set_attribute("retrieval.top_score", round(float(picked[0][0]), 4))
         if not picked:
             return []
-        # Filenames for citations, one read.
+        # Identities for citations, one read.
         async with self._sf() as session:
             result = await session.execute(
                 select(DocumentRow).where(
                     DocumentRow.id.in_({c.document_id for _, c in picked})
                 )
             )
-            names = {d.id: d.filename for d in result.scalars()}
+            docs = {d.id: d for d in result.scalars()}
         return [
             {
                 "document_id": c.document_id,
-                "filename": names.get(c.document_id, "document"),
+                "filename": (
+                    docs[c.document_id].filename
+                    if c.document_id in docs
+                    else "document"
+                ),
+                # How this source should be *named*: "Smith et al. (2019)" once
+                # someone has catalogued it, the filename until then. Carried
+                # alongside the filename rather than replacing it, because the
+                # file is still what a reader opens.
+                "cite_as": (
+                    cite_as(docs[c.document_id])
+                    if c.document_id in docs
+                    else "document"
+                ),
                 "chunk_index": c.idx,
                 "score": round(float(s), 4),
                 "content": c.content,
@@ -321,7 +458,13 @@ class DocumentIndex:
         sections = [_DATA_NOT_INSTRUCTIONS]
         citations = []
         for hit in hits:
-            label = _sanitize_title(f"{hit['filename']} (part {hit['chunk_index'] + 1})")
+            # The model is shown the citable name, not the filename: when it
+            # says "according to the spec" in its reply, it should be able to
+            # say "according to Smith et al. (2019)" instead — which is the
+            # whole reason a research team catalogues anything.
+            label = _sanitize_title(
+                f"{hit.get('cite_as') or hit['filename']} (part {hit['chunk_index'] + 1})"
+            )
             excerpt = hit["content"][: settings.grounding_chunk_chars]
             sections.append(
                 f'<quoted-context source="document: {label}">\n'
@@ -331,6 +474,7 @@ class DocumentIndex:
                 {
                     "document_id": hit["document_id"],
                     "filename": hit["filename"],
+                    "cite_as": hit.get("cite_as") or hit["filename"],
                     "chunk_index": hit["chunk_index"],
                     "score": hit["score"],
                     "excerpt": excerpt[:200],

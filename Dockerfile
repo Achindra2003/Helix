@@ -98,6 +98,25 @@ USER helix
 # compose overrides this for the Postgres setup.
 ENV DATABASE_URL=sqlite+aiosqlite:////data/helix.db
 
+# Where to persist an auto-generated signing secret when the operator has not
+# set JWT_SECRET. On the data volume, so it survives restarts and image
+# rebuilds — a secret regenerated per boot would log everyone out every time.
+# This is what keeps `docker compose up` a single command while still giving
+# every install its own unique secret instead of the public placeholder.
+ENV JWT_SECRET_FILE=/data/.jwt_secret
+
+# Where a paused run waits. A guided deep run stopped for steering, or an agent
+# turn stopped for tool approval, lives in this file until someone comes back
+# to it — so it belongs on the volume for the same reason the secret does.
+#
+# Stated rather than derived. api/checkpointing.py can put it "beside the
+# application database" only when that database is a file; against Postgres it
+# has nowhere to derive from and falls back to a path relative to the working
+# directory, which here is /app — the image layer, wiped by every container
+# replacement. Both compose files mount the volume at /data, so this is correct
+# for either database, and for SQLite it is the same path the derivation picks.
+ENV CHECKPOINT_PATH=/data/helix-checkpoints.db
+
 EXPOSE 8000
 
 # Lets Docker distinguish "running" from "alive". A hung app now shows as
@@ -110,4 +129,18 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=40s --retries=3 \
 # development convenience and a production liability.
 # --host 0.0.0.0 is required — the default 127.0.0.1 would only accept
 # connections from *inside* the container, making the published port useless.
-CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000"]
+#
+# --workers 1 is stated rather than left to the default, which is also 1. The
+# number is a memory decision, not a throughput one: the measured resident set
+# is ~570 MB once MiniLM has run, against 1 GB on the target instance, so a
+# second worker does not fit — it would be OOM-killed, not slow. Anyone raising
+# this has to size the box first, and saying it here is what makes that the
+# obvious next thought.
+#
+# It is also load-bearing for correctness, not only for memory. Presence and
+# fan-out are an in-process dict, and RunManager — which owns "stop this run",
+# the per-workspace concurrency cap and the live monitor — is a module
+# singleton. Two workers would serve those from whichever process took the
+# request, so the app would look like it scaled and fail at the interesting
+# moment. See docs/DEPLOY-V1.md on why Redis is deferred rather than added.
+CMD ["uvicorn", "api.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "1"]

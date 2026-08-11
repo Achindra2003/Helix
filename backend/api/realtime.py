@@ -27,7 +27,7 @@ from fastapi import APIRouter, Query, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
 
 from .db import SessionLocal
-from .models import Membership, User
+from .models import ROLE_COLLABORATOR, ROLE_RANK, Membership, User
 from .security import decode_token
 
 router = APIRouter(tags=["realtime"])
@@ -43,6 +43,13 @@ def roster(workspace_id: str) -> list[dict]:
     the read loop) — with several tabs, any tab that *is* viewing a branch wins
     over an idle one, so the Map's presence dot doesn't flicker off when a
     second tab opens.
+
+    `drafting_conversation` is the shared conversation this user is composing a
+    question in right now, and `drafting_match` is the id of a thread their
+    draft already overlaps. Ids only, never the draft text and never a title:
+    each recipient resolves the id against its own RBAC-scoped conversation
+    list, so a thread the reader cannot see stays a bare id they render nothing
+    for. See the read loop for the visibility gate on the drafting side.
     """
     seen: dict[str, dict] = {}
     for info in _rooms.get(workspace_id, {}).values():
@@ -52,12 +59,38 @@ def roster(workspace_id: str) -> list[dict]:
             "email": info["email"],
             "viewing": info.get("viewing"),
             "viewing_conversation": info.get("viewing_conversation"),
+            "drafting_conversation": info.get("drafting_conversation"),
+            "drafting_match": info.get("drafting_match"),
         }
         if entry["viewing"] is None and prev and prev["viewing"] is not None:
             entry["viewing"] = prev["viewing"]
             entry["viewing_conversation"] = prev["viewing_conversation"]
+        # a tab that is actively drafting wins over an idle one, same as viewing
+        if entry["drafting_conversation"] is None and prev and prev["drafting_conversation"]:
+            entry["drafting_conversation"] = prev["drafting_conversation"]
+            entry["drafting_match"] = prev["drafting_match"]
         seen[info["user_id"]] = entry
     return sorted(seen.values(), key=lambda u: u["email"])
+
+
+async def _is_shared_conversation(workspace_id: str, conversation_id: str) -> bool:
+    """Is this a shared thread of this workspace? Gate for the drafting signal.
+
+    The client reports what it is drafting in, and a client can lie, so the
+    server decides whether that fact may enter the roster at all. A private
+    thread never announces itself.
+
+    Reads through the conversation store rather than the ORM directly, so the
+    gate holds for whichever store is configured — the same source of truth the
+    HTTP routes use for every other visibility decision. Imported inside the
+    function because the conversation router imports this module.
+    """
+    from .conversation.router import _store
+
+    conv = await _store.get_conversation(conversation_id)
+    return bool(
+        conv and conv.workspace_id == workspace_id and conv.visibility == "shared"
+    )
 
 
 async def broadcast(
@@ -112,7 +145,15 @@ async def workspace_room(
         return
 
     await ws.accept()
-    _rooms[workspace_id][ws] = {"user_id": user.id, "email": user.email}
+    # The role is kept on the socket so the drafting gate can check it without
+    # a second read: an Observer may watch the room but may never send a
+    # message, so announcing that they are "drafting" would be telling the
+    # team about work that cannot happen.
+    _rooms[workspace_id][ws] = {
+        "user_id": user.id,
+        "email": user.email,
+        "role": member.role,
+    }
     await _broadcast_presence(workspace_id)
 
     try:
@@ -138,6 +179,38 @@ async def workspace_room(
                     conv_id if isinstance(conv_id, str) and info["viewing"] else None
                 )
                 await _broadcast_presence(workspace_id)
+            elif isinstance(msg, dict) and msg.get("kind") == "drafting":
+                # "Someone is composing a question here, and it overlaps that
+                # thread." Two ids and a boolean — no draft text is ever sent,
+                # so the room learns that work is happening without reading
+                # what has not been said yet.
+                info = _rooms[workspace_id][ws]
+                conv_id = msg.get("conversation_id")
+                active = bool(msg.get("active")) and isinstance(conv_id, str)
+                # An Observer can never send the message they would be drafting,
+                # so the room must not be told they are composing one. Checked
+                # first: it is free, and it short-circuits the store read below.
+                if ROLE_RANK[info["role"]] < ROLE_RANK[ROLE_COLLABORATOR]:
+                    active = False
+                if active and conv_id != info.get("_drafting_checked"):
+                    # One DB read per conversation per socket, not per keystroke:
+                    # the client debounces, and the answer cannot change while
+                    # the same thread stays on screen.
+                    info["_drafting_ok"] = await _is_shared_conversation(
+                        workspace_id, conv_id
+                    )
+                    info["_drafting_checked"] = conv_id
+                allowed = active and info.get("_drafting_ok")
+                match_id = msg.get("match_conversation_id")
+                new_conv = conv_id if allowed else None
+                new_match = match_id if allowed and isinstance(match_id, str) else None
+                if (new_conv, new_match) != (
+                    info.get("drafting_conversation"),
+                    info.get("drafting_match"),
+                ):
+                    info["drafting_conversation"] = new_conv
+                    info["drafting_match"] = new_match
+                    await _broadcast_presence(workspace_id)
     except WebSocketDisconnect:
         pass
     finally:

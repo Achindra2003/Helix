@@ -20,6 +20,12 @@ export interface RoomUser {
   // draw dots from it.
   viewing?: string | null;
   viewing_conversation?: string | null;
+  // A shared conversation this user is composing a question in, and a thread
+  // that draft already overlaps. Ids only — never the draft text, never a
+  // title. Resolve them against your own conversation list and render nothing
+  // for an id you cannot see; that is what keeps this channel safe.
+  drafting_conversation?: string | null;
+  drafting_match?: string | null;
 }
 
 export type RoomEvent =
@@ -36,8 +42,20 @@ export type RoomEvent =
   | { kind: "conversation.updated"; workspace_id: string; conversation_id: string; title: string }
   | { kind: "conversation.deleted"; workspace_id: string; conversation_id: string }
   | { kind: "branch.created"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
+  // A fan-out is one act, so it is one event: four separate branch.created
+  // frames would land in a teammate's lineage as four separate surprises.
+  | { kind: "branches.explored"; workspace_id: string; conversation_id: string; branches: { branch_id: string; name: string; intent: string }[] }
   | { kind: "branch.updated"; workspace_id: string; conversation_id: string; branch_id: string; name: string }
   | { kind: "branch.deleted"; workspace_id: string; conversation_id: string; branch_id: string }
+  // One human talking to the room rather than to Helix. Relayed live because
+  // the entire point is that a teammate reads it while the work is happening.
+  | { kind: "note.posted"; workspace_id: string; conversation_id: string; branch_id: string; node: any }
+  // A verdict landing on an exploration. Carried to the room because a
+  // decision is the most consequential thing that happens in a workspace —
+  // and because a teammate still exploring an abandoned branch should find
+  // that out without a refresh.
+  | { kind: "branch.resolved"; workspace_id: string; conversation_id: string; branch_id: string; status: string; resolution: string; name: string }
+  | { kind: "branch.voted"; workspace_id: string; conversation_id: string; branch_id: string; votes: string[] }
   | { kind: "messages.deleted"; workspace_id: string; conversation_id: string; branch_id: string; node_ids: string[] }
   | { kind: "references.updated"; workspace_id: string; conversation_id: string }
   | { kind: "prompt.saved"; workspace_id: string; prompt: Record<string, any> }
@@ -60,6 +78,29 @@ export function sendViewing(branchId: string | null, conversationId: string | nu
   if (socket && socket.readyState === WebSocket.OPEN) {
     socket.send(JSON.stringify({ kind: "viewing", branch_id: branchId, conversation_id: conversationId }));
   }
+}
+
+/**
+ * Tell the room that a question is being composed here, and which existing
+ * thread it already overlaps.
+ *
+ * Deliberately just two ids and a flag. The draft itself never leaves the
+ * composer — a draft is not a commitment, and people type and delete things
+ * they never meant to say. The server drops the signal entirely if the
+ * conversation is private.
+ */
+export function sendDrafting(
+  conversationId: string | null,
+  active: boolean,
+  matchConversationId: string | null = null,
+) {
+  if (!socket || socket.readyState !== WebSocket.OPEN) return;
+  socket.send(JSON.stringify({
+    kind: "drafting",
+    conversation_id: conversationId,
+    active,
+    match_conversation_id: matchConversationId,
+  }));
 }
 
 export function onRoomEvent(fn: Listener): () => void {

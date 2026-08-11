@@ -34,6 +34,7 @@ from ..conversation.events import (
 )
 from ..conversation.producer import Grounder, Recaller
 from . import ToolSpec, openai_schema
+from .telemetry import NULL_OBSERVER, STATUS_ERROR as TOOL_ERROR, ToolObserver
 
 # Tool-result previews on the event stream stay short; the model sees the
 # full result inside the graph state.
@@ -66,6 +67,9 @@ class AgentProducer:
         grounder: Grounder | None = None,
         should_stop: Callable[[], bool] | None = None,
         deadline_s: float | None = None,
+        # The artifact this thread is about (a PR, an issue, a spec URL). The
+        # agent is the producer that can act on it — it is the one with tools.
+        subject: str = "",
     ) -> None:
         self._graph = graph
         self._graph_config = graph_config
@@ -76,6 +80,7 @@ class AgentProducer:
         self._grounder = grounder
         self._should_stop = should_stop
         self._deadline_s = deadline_s
+        self._subject = subject
         self._streamed = False  # any messages-mode token reached the client
         self._final = ""  # last no-tool-call AI content (non-streaming fallback)
 
@@ -91,17 +96,29 @@ class AgentProducer:
             references=self._references,
             recalled=recalled,
             grounding=grounding_block or None,
+            subject=self._subject or None,
         )
         async for event in self._drive(self._make_inputs(messages)):
             yield event
 
     async def resume(self, decision: str) -> AsyncIterator[Event]:
-        """Resume an approval-paused run. `decision` is "approve" or "deny";
-        anything else counts as deny — the safe reading of an unclear answer."""
+        """Resume an approval-paused run.
+
+        `decision` is "approve" or "deny", optionally suffixed with the
+        deciding member's id as "approve:<user_id>" — anything else counts as
+        deny, the safe reading of an unclear answer. The id rides on the same
+        string because `ResumableRun.steer` takes one, and widening that seam
+        would touch the deep-run path this shares with for no gain.
+        """
         update = getattr(self._graph, "aupdate_state", None)
         if update is not None:
-            verdict = "approve" if decision.strip().lower() == "approve" else "deny"
-            await update(self._graph_config, {"decision": verdict})
+            # Partition before lowering: the verdict is case-insensitive, the
+            # id is not ours to normalise.
+            verdict, _, who = decision.strip().partition(":")
+            verdict = "approve" if verdict.strip().lower() == "approve" else "deny"
+            await update(
+                self._graph_config, {"decision": verdict, "decided_by": who}
+            )
         async for event in self._drive(None):  # None -> continue the checkpoint
             yield event
 
@@ -195,10 +212,17 @@ def build_agent_graph(
     tools: list[ToolSpec],
     groq_api_key: str = "",
     groq_model: str = "llama-3.3-70b-versatile",
+    # "" keeps the client on Groq's own API; any other value points the same
+    # OpenAI-compatible client at whatever the workspace actually runs, so an
+    # agent run works on a local Ollama exactly as a deep run does.
+    base_url: str = "",
     temperature: float = 0.3,
     max_tool_rounds: int = 5,
     llm: Any = None,
     extra_callbacks: list | None = None,
+    # Where tool spans and ledger rows go. Defaults to the silent observer so a
+    # test driving a fake LLM needs no telemetry wiring at all.
+    observer: ToolObserver | None = None,
 ):
     """Construct the real agent graph. Returns ``(graph, graph_config,
     make_inputs)``.
@@ -232,17 +256,17 @@ def build_agent_graph(
         SystemMessage,
         ToolMessage,
     )
-    from langgraph.checkpoint.memory import MemorySaver
     from langgraph.graph import END, START, StateGraph
     from langgraph.graph.message import add_messages
 
     if llm is None:
-        from langchain_groq import ChatGroq
+        from ..reasoning_llm import build_reasoning_llm
 
-        llm = ChatGroq(
-            model=groq_model, temperature=temperature, api_key=groq_api_key or None
+        llm = build_reasoning_llm(
+            model=groq_model, api_key=groq_api_key, base_url=base_url, temperature=temperature
         )
 
+    obs = observer or NULL_OBSERVER
     specs = {t.name: t for t in tools}
     model = llm.bind_tools([openai_schema(t) for t in tools]) if tools else llm
 
@@ -258,6 +282,11 @@ def build_agent_graph(
             "messages": Annotated[list, add_messages],
             # human verdict injected while paused at the gate
             "decision": str,
+            # *who* injected it. Carried in state rather than on the observer
+            # alone because the checkpoint is what survives a restart — a run
+            # resumed in a later process must still know whose approval it is
+            # acting on.
+            "decided_by": str,
         },
     )
 
@@ -280,9 +309,22 @@ def build_agent_graph(
         sends them to `tools`); denial answers each call with a denial
         ToolMessage, so the model must respond without the tool — and can say
         what it couldn't check.
+
+        Every verdict is recorded. The gate is the product's whole safety
+        claim, and until this it left no trace at all: a call was approved or
+        refused and the only evidence was a frame on a stream nobody kept.
         """
-        if state.get("decision") == "approve":
+        approved = state.get("decision") == "approve"
+        obs.decided_by = state.get("decided_by") or None
+        for call in _calls_of(state["messages"][-1]):
+            obs.record_decision(
+                name=call.get("name", ""),
+                approved=approved,
+                decided_by=obs.decided_by,
+            )
+        if approved:
             return {"decision": ""}
+        obs.decided_by = None  # nothing will execute; don't carry the name on
         denials = [
             ToolMessage(
                 content=(
@@ -311,12 +353,30 @@ def build_agent_graph(
             if spec is None:  # model hallucinated a tool name
                 content = f"Tool '{call['name']}' does not exist."
                 status = "error"
+                # Recorded like any other call. A model repeatedly reaching for
+                # a tool that does not exist is a real signal — usually a stale
+                # allowlist or a prompt naming something it can't have — and it
+                # is invisible if only successful executions are logged.
+                with obs.call(
+                    name=call["name"], args=call.get("args"), sensitive=False,
+                    source="unknown",
+                ) as rec:
+                    rec.status = TOOL_ERROR
+                    rec.error = "NoSuchTool: not in this workspace's catalog"
             else:
-                try:
-                    content = await spec.handler(**(call.get("args") or {}))
-                except Exception as exc:  # a broken tool is a result, not a crash
-                    content = f"Tool error ({type(exc).__name__}): {exc}"
-                    status = "error"
+                with obs.call(
+                    name=call["name"],
+                    args=call.get("args"),
+                    sensitive=spec.sensitive,
+                    source=getattr(spec, "source", "builtin"),
+                ) as rec:
+                    try:
+                        content = await spec.handler(**(call.get("args") or {}))
+                        rec.result_chars = len(str(content))
+                    except Exception as exc:  # a broken tool is a result, not a crash
+                        content = f"Tool error ({type(exc).__name__}): {exc}"
+                        status = "error"
+                        rec.failed(exc)
             results.append(
                 ToolMessage(
                     content=str(content),
@@ -325,6 +385,9 @@ def build_agent_graph(
                     status=status,
                 )
             )
+        # The human's name belongs to the approval that just happened, not to
+        # whatever the model asks for next.
+        obs.decided_by = None
         return {"messages": results}
 
     g = StateGraph(AgentState)
@@ -337,10 +400,12 @@ def build_agent_graph(
     )
     g.add_conditional_edges("gate", route_gate, {"tools": "tools", "agent": "agent"})
     g.add_edge("tools", "agent")
-    # MemorySaver: in-process checkpoints, same lifetime as the RunManager
-    # handles that own these runs. The restart-surviving SQL checkpointer is
-    # the documented seam (checkpointer= here).
-    graph = g.compile(checkpointer=MemorySaver(), interrupt_before=["gate"])
+    # The shared, process-lifetime checkpointer. This was a per-graph
+    # MemorySaver, which made a tool-approval pause survive exactly as long as
+    # the process did — and the pause is the whole point of the gate.
+    from ..checkpointing import checkpointer
+
+    graph = g.compile(checkpointer=checkpointer(), interrupt_before=["gate"])
 
     graph_config = {
         "configurable": {"thread_id": thread_id},
@@ -358,6 +423,7 @@ def build_agent_graph(
                 for m in messages
             ],
             "decision": "",
+            "decided_by": "",
         }
 
     return graph, graph_config, make_inputs

@@ -1,3 +1,4 @@
+import mimetypes
 from contextlib import asynccontextmanager
 from pathlib import Path
 
@@ -6,21 +7,41 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 
-from . import db, telemetry
-from .config import settings
+from . import checkpointing, db, monitoring, rate_limit, telemetry
+from .config import secure_jwt_secret, settings
 from .conversation.map import router as map_router
 from .conversation.router import router as conversation_router
 from .documents.router import router as documents_router
 from .prompts.router import router as prompts_router
 from .realtime import router as realtime_router
-from .routers import auth, workspaces
+from .routers import auth, notices, workspaces
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
+    # First, before anything else starts: resolve a safe token-signing secret,
+    # or refuse to run. Raising here means the process never listens.
+    # Assigned back onto `settings` because security.py and provider_settings.py
+    # read `settings.jwt_secret` at call time.
+    settings.jwt_secret = secure_jwt_secret()
+    # Crash reporting first, so a failure during the rest of startup is itself
+    # reported. No-op unless SENTRY_DSN is set.
+    monitoring.init_monitoring()
     telemetry.init_telemetry()  # no-op unless an OTLP endpoint is configured
     await db.connect()
+    # One connection for the life of the process: a run paused by this request
+    # is resumed by a later one, so a per-run context manager would be closed
+    # by the time it mattered.
+    await checkpointing.connect()
     yield
+    # Embed-on-write is fire-and-forget, so at this moment there may be writes
+    # in flight. Let them land before the database goes: closing the loop
+    # underneath a half-written transaction leaves a lock behind, and on SQLite
+    # the next process to start inherits it.
+    from .conversation.router import _embeddings
+
+    await _embeddings.drain()
+    await checkpointing.disconnect()
     await db.disconnect()
 
 
@@ -33,6 +54,95 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+# --- Request size caps (P2) --------------------------------------------------
+# Enforced here rather than per-route so nothing can be added later that
+# forgets them, and so an oversized body is rejected before any handler,
+# database session, or model call is entered.
+#
+# Two tiers: prompt-carrying routes get a tight text-sized cap, everything else
+# gets a global ceiling that still admits document uploads
+# (settings.document_max_bytes, 8 MB by default).
+_PROMPT_PATH_MARKERS = ("/messages", "/deep", "/agent", "/steer", "/from-prompt")
+
+
+def _body_limit_for(path: str) -> int:
+    """The cap that applies to a path, in bytes."""
+    if path.startswith("/conversations") and any(
+        marker in path for marker in _PROMPT_PATH_MARKERS
+    ):
+        return settings.max_message_bytes
+    return settings.max_request_bytes
+
+
+@app.middleware("http")
+async def limit_request_size(request: Request, call_next):
+    """Reject oversized bodies up front, by Content-Length.
+
+    Trusting the declared length is deliberate: it is what lets the request be
+    refused *before* the body is read, which is the whole point — streaming
+    gigabytes into memory to then reject them is the attack, not the defence.
+    A client that lies about the length still cannot exceed the server's own
+    body handling, and uvicorn caps what it will buffer.
+
+    Note this is a byte cap, not a character count: a prompt of multi-byte
+    characters hits it sooner than an ASCII one. That is the correct thing to
+    bound here, since bytes are what cost storage and bandwidth.
+    """
+    limit = _body_limit_for(request.url.path)
+    if limit > 0:
+        declared = request.headers.get("content-length")
+        if declared is not None:
+            try:
+                size = int(declared)
+            except ValueError:
+                size = 0
+            if size > limit:
+                return JSONResponse(
+                    status_code=413,
+                    content={
+                        "error": {
+                            "code": "payload_too_large",
+                            "message": (
+                                f"Request body is {size} bytes; the limit for "
+                                f"this endpoint is {limit}."
+                            ),
+                        }
+                    },
+                )
+    return await call_next(request)
+
+
+@app.middleware("http")
+async def enforce_rate_limits(request: Request, call_next):
+    """Throttle account creation, logins, messages, and runs (P2).
+
+    Registered after the size cap (middleware runs bottom-up in Starlette, so
+    this one is entered first): a request should be counted against its budget
+    before its body is examined, or an attacker gets unlimited attempts as long
+    as each one is oversized.
+    """
+    window = rate_limit.limit_for(request.method, request.url.path)
+    if window is not None:
+        retry_after = window.hit(rate_limit.identity_for(request))
+        if retry_after is not None:
+            return JSONResponse(
+                status_code=429,
+                # Retry-After is what makes a 429 actionable rather than a
+                # mystery: clients (and humans) learn when to come back.
+                headers={"Retry-After": str(max(1, int(retry_after) + 1))},
+                content={
+                    "error": {
+                        "code": "rate_limited",
+                        "message": (
+                            f"Too many requests. Try again in "
+                            f"{max(1, int(retry_after) + 1)}s."
+                        ),
+                    }
+                },
+            )
+    return await call_next(request)
 
 
 # --- Uniform error shape: { "error": { "code", "message" } }  (contract §1) ---
@@ -55,6 +165,7 @@ async def validation_handler(_: Request, exc: RequestValidationError):
 
 app.include_router(auth.router)
 app.include_router(workspaces.router)
+app.include_router(notices.router)
 app.include_router(conversation_router)
 app.include_router(map_router)
 app.include_router(prompts_router)
@@ -64,9 +175,45 @@ app.include_router(realtime_router)
 
 @app.get("/health")
 async def health():
-    """Proves all three tiers: process up, DB round-trips, provider selected."""
+    """Proves all three tiers: process up, DB round-trips, provider selected.
+
+    `durable_runs` says whether a paused run would survive a restart of this
+    process. An operator should be able to find that out without pausing a run
+    and rebooting to see what happens — the checkpointer falls back to memory
+    silently when its driver is missing, and this is where that shows.
+    """
     db_time = await db.db_ping()
-    return {"status": "ok", "db_time": db_time, "provider": settings.llm_provider}
+    return {
+        "status": "ok",
+        "db_time": db_time,
+        "provider": settings.llm_provider,
+        "durable_runs": checkpointing.is_durable(),
+    }
+
+
+@app.get("/api/public-config")
+async def public_config():
+    """The few settings the UI needs before anyone has logged in.
+
+    Unauthenticated on purpose: the notice belongs on the login screen, which is
+    the one page a prospective user sees before deciding to trust the instance
+    with a password. That also makes this endpoint a standing invitation to leak
+    something — so it returns exactly the notice and nothing else. Anything
+    added here is readable by the entire internet.
+
+    Empty `notice` (the default) means self-hosted: no banner, because on your
+    own instance a warning about data being wiped would simply be false.
+
+    `registration_open` is safe to publish for the same reason it is useful:
+    anyone can discover it by posting to /auth/register once. Saying so up front
+    only spares a visitor the trouble of filling in a form that was never going
+    to be accepted.
+    """
+    return {
+        "notice": settings.public_notice,
+        "notice_link": settings.public_notice_link,
+        "registration_open": settings.allow_registration,
+    }
 
 
 # --- Serve the built frontend (production image only) -------------------------
@@ -79,6 +226,12 @@ async def health():
 # Registered last, on purpose: every API router above is matched first, so the
 # catch-all can never shadow a real endpoint.
 _STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
+
+# The bundle ships self-hosted webfonts, and Python's mimetypes table has no
+# entry for woff/woff2 through 3.11 — without this, FileResponse serves them
+# with no content type and browsers log a warning on every page load.
+mimetypes.add_type("font/woff2", ".woff2")
+mimetypes.add_type("font/woff", ".woff")
 
 if _STATIC_DIR.is_dir():
 

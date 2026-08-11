@@ -10,15 +10,18 @@
 // tree, rows by node seq, conversations flowing left→right. Node payloads are
 // lean (no content); hover fetches the branch history lazily for an excerpt.
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useNavigate, useParams } from "react-router-dom";
+import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import { getWorkspaceMap, getHistory } from "@/lib/api";
+import { getWorkspaceMap, getHistory, downloadWorkspaceReport } from "@/lib/api";
 import { onRoomEvent } from "@/lib/realtime";
 import { usePresenceStore } from "@/store/presence";
 import { useSession } from "@/store/session";
-import type { MapConversation, MapNode, Node } from "@/lib/types";
+import type { Branch, MapConversation, MapNode, Node } from "@/lib/types";
 import { colorFor } from "@/lib/format";
 import { Frontispiece } from "@/components/brand/Frontispiece";
+import { DecisionLedger } from "@/components/map/DecisionLedger";
+import { ACTION, ORNAMENT } from "@/lib/glyphs";
+import { useToast } from "@/components/common/Toast";
 import s from "./map.module.css";
 
 // --- deterministic stemma layout ------------------------------------------
@@ -46,6 +49,12 @@ interface LaidBranch {
   yFirst: number;  // y of its first own node (or ghost)
   yLast: number;
   ghost: boolean;  // forked but no own turns yet
+  // The verdict, carried through the layout so the Map can show which
+  // explorations were adopted and which were abandoned. This is what turns
+  // the stemma from a diagram of shape into a record of decisions.
+  status: Branch["status"];
+  intent: string;
+  resolution: string;
 }
 
 interface LaidConv {
@@ -105,6 +114,7 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
     if (root) visit(root);
 
     const rowOf = new Map<string, number>(); // node id -> row
+    const ghostRows = new Map<string, number>(); // fork node id -> empty forks placed
     const convNodes: LaidNode[] = [];
     const forkIds = new Set(
       conv.branches.map((b) => b.fork_node_id).filter(Boolean) as string[],
@@ -136,8 +146,16 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
       }
 
       const ghost = own.length === 0 && b.fork_node_id != null;
-      const ghostRow =
-        b.fork_node_id != null ? (rowOf.get(b.fork_node_id) ?? 0) + 1 : 0;
+      // Siblings forked from the same node used to land on the same row, so
+      // their labels drew straight over each other — and forking twice from
+      // one point to compare two approaches is the whole reason this view
+      // exists. Each empty sibling steps down a row so both stay readable.
+      let ghostRow = b.fork_node_id != null ? (rowOf.get(b.fork_node_id) ?? 0) + 1 : 0;
+      if (ghost) {
+        const taken = ghostRows.get(b.fork_node_id!) ?? 0;
+        ghostRow += taken;
+        ghostRows.set(b.fork_node_id!, taken + 1);
+      }
       const yFirst = ys[0] ?? TITLE_H + ghostRow * ROWH;
       const yLast = ys[ys.length - 1] ?? yFirst;
       if (ghost) maxRow = Math.max(maxRow, ghostRow);
@@ -149,6 +167,9 @@ function layoutWorkspace(conversations: MapConversation[]): Layout {
         yFirst,
         yLast,
         ghost,
+        status: b.status ?? "open",
+        intent: b.intent ?? "",
+        resolution: b.resolution ?? "",
       });
 
       // Fork edge: from the divergence node over to this branch's first turn.
@@ -209,9 +230,23 @@ interface Hover {
 
 export function MapView() {
   const { wid } = useParams();
+  // "structure" is the stemma; "decisions" is the ledger of recorded verdicts.
+  //
+  // In the URL rather than in component state, because a mode nothing can link
+  // to is a mode nothing will send you to. The ledger is the answer to "what
+  // did we decide?", and the places that question occurs to people — a
+  // concluded thread, a branch with a verdict on it — are elsewhere in the app.
+  // They can now point here.
+  const [params, setParams] = useSearchParams();
+  const mode = params.get("view") === "decisions" ? "decisions" : "stemma";
+  const setMode = (next: "stemma" | "decisions") =>
+    // replace: flipping a view is not a place you want the back button to
+    // walk through on the way out of the Map.
+    setParams(next === "decisions" ? { view: "decisions" } : {}, { replace: true });
   const nav = useNavigate();
   const qc = useQueryClient();
   const user = useSession((st) => st.user);
+  const { push } = useToast();
   const presence = usePresenceStore((st) => st.users);
 
   const { data } = useQuery({
@@ -229,6 +264,7 @@ export function MapView() {
         if (
           ev.kind === "conversation.created" ||
           ev.kind === "branch.created" ||
+          ev.kind === "branch.resolved" ||
           ev.kind === "references.updated" ||
           (ev.kind === "run_event" && ev.event?.kind === "done")
         ) {
@@ -341,9 +377,34 @@ export function MapView() {
     <div className={`${s.wrap} folio`}>
       <div className={s.toolbar}>
         <div className={s.title}>The Map</div>
+        {/* Two readings of the same record: the shape the thinking took, and
+            what it concluded. A mode here rather than a seventh rail item —
+            both answer "what has this team been doing", and the ledger would
+            be undiscoverable anywhere else. */}
+        <div className={s.modes} role="tablist" aria-label="Map view">
+          <button role="tab" aria-selected={mode === "stemma"}
+            className={`${s.modeBtn} ${mode === "stemma" ? s.modeOn : ""}`}
+            onClick={() => setMode("stemma")}><span aria-hidden>{ACTION.fork}</span> structure</button>
+          <button role="tab" aria-selected={mode === "decisions"}
+            className={`${s.modeBtn} ${mode === "decisions" ? s.modeOn : ""}`}
+            onClick={() => setMode("decisions")}><span aria-hidden>{ACTION.verdict}</span> decisions</button>
+        </div>
         <span className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
-          drag to pan · scroll to zoom · click a node to enter
+          {mode === "stemma"
+            ? "drag to pan · scroll to zoom · click a node to enter"
+            : "what the team decided, and why · newest first"}
         </span>
+        {/* Rendered conditionally, not `hidden`: .legend sets display:flex,
+            which outranks the UA stylesheet's [hidden] { display: none }. */}
+        {mode === "decisions" && (
+          <button className={s.exportLedger}
+            title="Every decision here, as a document you can hand to someone who wasn't there"
+            onClick={() => downloadWorkspaceReport(wid!, "md")
+              .catch(() => push("Export failed", "error"))}>
+            <span aria-hidden>{ORNAMENT.bud}</span> export decisions
+          </button>
+        )}
+        {mode === "stemma" && (
         <div className={s.legend}>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--ink-2)" /></svg> you ask</span>
           <span><svg width="12" height="12"><circle cx="6" cy="6" r="4.5" fill="var(--paper)" stroke="var(--ink-2)" strokeWidth="1.5" /></svg> Helix answers</span>
@@ -351,9 +412,12 @@ export function MapView() {
           <span><svg width="22" height="12"><path d="M 2 6 L 20 6" stroke="var(--gilt)" strokeWidth="1.5" strokeDasharray="4 4" /></svg> reference</span>
           <span><svg width="12" height="12" className={s.presenceDot}><circle cx="6" cy="6" r="4" fill="var(--verde)" /></svg> teammate here</span>
         </div>
+        )}
       </div>
 
-      {isEmpty ? (
+      {mode === "decisions" ? (
+        <DecisionLedger wid={wid!} />
+      ) : isEmpty ? (
         <div className={s.empty}>
           <div>
             <Frontispiece size={280} animate={false} />
@@ -378,6 +442,7 @@ export function MapView() {
         >
           <svg className={s.svg}>
             <g transform={`translate(${view.x} ${view.y}) scale(${view.k})`}>
+              <g className={s.mapEnter}>
               {/* gilt reference threads first, behind everything */}
               {layout.refEdges.map((d, i) => (
                 <path key={`ref-${i}`} className={s.refEdge} d={d} />
@@ -385,14 +450,32 @@ export function MapView() {
 
               {layout.convs.map(({ conv, x, w }) => (
                 <g key={conv.id} transform={`translate(${x} 0)`}>
+                  {/* The cartouche is the Map's way in — one per thread, and
+                      the only control here that has to be reachable without a
+                      mouse. (The nodes stay pointer-only on purpose: a tab stop
+                      per turn would be hundreds of stops to cross one map, and
+                      every thread is already reachable through its cartouche.)
+                      The ◍ / ⊙ pair that used to prefix the title is gone: two
+                      circles nobody can tell apart at 11px, explained in no
+                      legend on this page. Visibility now rides the label. */}
                   <g
                     className={s.cartouche}
+                    role="button"
+                    tabIndex={0}
+                    aria-label={`Open ${conv.title}${conv.visibility === "private" ? " (private)" : ""}`}
                     onClick={() => openBranch(conv.id, conv.default_branch_id)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" || e.key === " ") {
+                        e.preventDefault();
+                        openBranch(conv.id, conv.default_branch_id);
+                      }
+                    }}
                   >
+                    <title>{conv.visibility === "private" ? "Private to you" : "Shared with the workspace"}</title>
                     <rect className={s.cartoucheBox} x={-10} y={-2} width={w + 20} height={30} rx={7} />
-                    <text className={s.cartoucheText} x={w / 2} y={17} textAnchor="middle">
-                      {conv.visibility === "private" ? "◍ " : "⊙ "}
-                      {conv.title.length > 24 ? conv.title.slice(0, 23) + "…" : conv.title}
+                    <text className={s.cartoucheText} x={w / 2} y={17} textAnchor="middle"
+                      opacity={conv.visibility === "private" ? 0.72 : undefined}>
+                      {conv.title.length > 26 ? conv.title.slice(0, 25) + "…" : conv.title}
                     </text>
                   </g>
                 </g>
@@ -407,8 +490,17 @@ export function MapView() {
 
               {/* branch name labels + ghost stubs for empty forks */}
               {layout.branches.map((b) =>
-                b.name === "main" && !b.ghost ? null : (
+                // A resolved main spine still earns a label — "we adopted the
+                // original approach" is a decision worth seeing on the Map.
+                b.name === "main" && !b.ghost && b.status === "open" ? null : (
                   <g key={`bl-${b.id}`}>
+                    {(b.intent || b.resolution) && (
+                      <title>
+                        {[b.intent && `Trying: ${b.intent}`,
+                          b.resolution && `${b.status}: ${b.resolution}`]
+                          .filter(Boolean).join("\n")}
+                      </title>
+                    )}
                     {b.ghost && (
                       <circle
                         cx={b.x} cy={b.yFirst} r={R - 1.5}
@@ -417,8 +509,21 @@ export function MapView() {
                         onClick={() => openBranch(b.convId, b.id)}
                       />
                     )}
-                    <text className={s.branchLabel} x={b.x + 9} y={b.yFirst + 3.5}>
-                      ⎇ {b.name}
+                    <text
+                      className={s.branchLabel}
+                      x={b.x + 9}
+                      y={b.yFirst + 3.5}
+                      // Adopted reads as settled, abandoned recedes without
+                      // vanishing — it stays on the Map because it is the
+                      // evidence behind whatever was adopted instead.
+                      fill={b.status === "adopted" ? "var(--verde)" : undefined}
+                      opacity={b.status === "abandoned" ? 0.45 : undefined}
+                      style={b.status === "abandoned" ? { textDecoration: "line-through" } : undefined}
+                    >
+                      {b.status === "adopted" ? `${ACTION.confirm} `
+                        : b.status === "abandoned" ? `${ACTION.remove} `
+                        : `${ACTION.fork} `}
+                      {b.name}
                     </text>
                   </g>
                 ),
@@ -451,13 +556,17 @@ export function MapView() {
                   <title>{d.email} is reading here</title>
                 </circle>
               ))}
+              </g>
             </g>
           </svg>
 
           <div className={s.zoomCtl}>
-            <button onClick={() => zoomCenter(1.3)} title="Zoom in">＋</button>
-            <button onClick={() => zoomCenter(1 / 1.3)} title="Zoom out">−</button>
-            <button onClick={fit} title="Fit the whole map">◱</button>
+            {/* aria-label on each: the button's text is a glyph, and text
+                content wins the accessible-name computation over title — so
+                these announced as "＋", "−" and "◱". */}
+            <button onClick={() => zoomCenter(1.3)} title="Zoom in" aria-label="Zoom in">＋</button>
+            <button onClick={() => zoomCenter(1 / 1.3)} title="Zoom out" aria-label="Zoom out">−</button>
+            <button onClick={fit} title="Fit the whole map" aria-label="Fit the whole map">◱</button>
           </div>
 
           {hover && (

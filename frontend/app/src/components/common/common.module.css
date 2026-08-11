@@ -52,7 +52,42 @@
 }
 .input:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+/* ── select: our caret, not the platform's ───────────────────────────────────
+   The native arrow is painted against the control's right edge whatever
+   padding you set, so it sat almost on the border while the label crowded it
+   from the left — and it kept the light theme's grey in Nocturne, because the
+   OS draws it and CSS cannot reach it.
+   Drawn here instead: the caret is inset by the same 14px as the text, and the
+   select reserves 32px of right padding so a long option can never run under
+   it. `pointer-events: none` keeps the whole control clickable. */
+.selectWrap { position: relative; display: block; width: 100%; }
+.select {
+  appearance: none; -webkit-appearance: none;
+  background: var(--paper-0); border: 1px solid var(--rule); border-radius: var(--radius);
+  padding: 12px 32px 12px 14px; color: var(--ink); font-size: 14px; outline: none; width: 100%;
+  transition: border-color var(--dur-1), box-shadow var(--dur-1);
+  /* Option labels here carry real information ("OpenAI-compatible endpoint
+     (vLLM, OpenRouter…)") and the field can be 200px wide in a fluid grid.
+     Clipping mid-word reads as a rendering fault; an ellipsis reads as more. */
+  text-overflow: ellipsis; white-space: nowrap; overflow: hidden;
+}
+.select:focus { border-color: var(--cinnabar); box-shadow: 0 0 0 3px rgba(180, 95, 42, 0.18); }
+.selectCaret {
+  position: absolute; right: 14px; top: 50%; transform: translateY(-58%);
+  font-size: 12px; line-height: 1; color: var(--ink-3); pointer-events: none;
+}
+/* Inline beside other small controls. Same proportions, one step down. */
+.selectWrapCompact { display: inline-block; width: auto; }
+.selectWrapCompact .selectCaret { right: 10px; font-size: 11px; }
+.selectCompact {
+  background: var(--paper-3); padding: 7px 26px 7px 11px;
+  font-size: 12px; border-radius: 7px; width: auto;
+}
+
+/* min-width:0 so a field can shrink inside a narrow grid or flex track. An
+   input's intrinsic width would otherwise hold the track open and push the
+   control past the edge of its card. */
+.field { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
 
 /* dialog */
 .scrim {
@@ -70,7 +105,7 @@
 /* a single gilt hairline under the title carries the illumination — corner
    brackets fought the border radius and read as stray marks, so they're gone */
 .dialogTitle {
-  font-family: var(--font-display); font-size: var(--t-card); color: var(--ink);
+  font-family: var(--font-display); font-size: var(--t-title); color: var(--ink);
   padding-bottom: 10px; border-bottom: 1px solid rgba(154, 122, 44, 0.4);
 }
 .dialogRow { display: flex; justify-content: flex-end; gap: 10px; }
@@ -79,13 +114,20 @@
 .spinner { display: block; }
 .spinSlow { animation: hx-spin-rev 4.2s linear infinite; }
 .spinFast { animation: hx-spin 1.4s linear infinite; }
+/* A loading indicator that has stopped moving reads as hung, so this one is
+   given an alternative rather than switched off: opacity carries the "still
+   working" signal without anything travelling. !important because the global
+   reduced-motion rule caps every animation, and this is the exception. */
+@media (prefers-reduced-motion: reduce) {
+  .spinSlow, .spinFast { animation: hx-breathe 1.8s ease-in-out infinite !important; }
+}
 
 /* empty state */
 .empty {
   margin: auto; text-align: center; color: var(--ink-3); max-width: 380px;
   display: flex; flex-direction: column; align-items: center; gap: 12px; padding: 40px;
 }
-.emptyTitle { font-family: var(--font-display); font-size: var(--t-card); color: var(--ink-2); }
+.emptyTitle { font-family: var(--font-display); font-size: var(--t-title); color: var(--ink-2); }
 
 /* toasts */
 .toastWrap {
@@ -93,8 +135,43 @@
   z-index: 60; display: flex; flex-direction: column; gap: 8px; align-items: center;
 }
 .toast {
-  background: #15110b; color: #ede3c8; border: 1px solid var(--gilt);
+  background: var(--char); color: var(--on-char); border: 1px solid var(--gilt);
   border-radius: var(--radius); padding: 10px 16px; font-size: 13px;
   box-shadow: 0 8px 28px rgba(0, 0, 0, 0.35); animation: hx-rise 0.2s ease both; max-width: 460px;
 }
 .toastErr { border-color: var(--oxblood); }
+
+/* the error boundary — the screen that replaced a white page */
+.boundary {
+  margin: auto; max-width: 520px; padding: 56px 32px; text-align: center;
+  display: flex; flex-direction: column; align-items: center; gap: 14px;
+  min-height: 100vh; justify-content: center;
+}
+.boundaryMark { opacity: 0.5; }
+.boundaryTitle {
+  font-family: var(--font-display); font-size: var(--t-title);
+  color: var(--ink); font-weight: 500; margin: 0;
+}
+.boundaryBody {
+  font-family: var(--font-read); font-size: var(--t-prose);
+  color: var(--ink-3); line-height: 1.6; margin: 0;
+}
+/* The error text itself: mono, quiet, and allowed to wrap — a long React
+   message must not push a horizontal scrollbar onto the page that exists to
+   apologise for a layout going wrong. */
+.boundaryDetail {
+  font-family: var(--font-mono); font-size: var(--t-label);
+  color: var(--ink-3); background: var(--hover-tint);
+  border: 1px solid var(--rule-soft); border-radius: var(--radius);
+  padding: 10px 12px; margin: 4px 0 0; max-width: 100%;
+  white-space: pre-wrap; overflow-wrap: anywhere; text-align: left;
+}
+.boundaryActs { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center; }
+.boundaryBtn {
+  font-family: var(--font-ui); font-size: var(--t-instrument); font-weight: 600;
+  padding: 9px 18px; border-radius: var(--radius); cursor: pointer;
+  background: var(--oxblood); color: var(--on-accent); border: 1px solid var(--oxblood);
+}
+.boundaryBtnQuiet {
+  background: transparent; color: var(--ink-2); border-color: var(--rule);
+}

@@ -3,25 +3,26 @@ import { useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listConversations, createConversation, listBranches, getHistory, forkBranch, getHealth, downloadExport,
-  listReferences, addReference, removeReference, listMembers, getProviderSettings, getDeepRunStatus,
+  listReferences, addReference, removeReference, listMembers, getProviderSettings, downloadReport,
   deleteLastMessage, renameConversation, deleteConversation, renameBranch, deleteBranch, getToolSettings,
-  searchWorkspace,
+  searchWorkspace, resolveBranch, voteBranch, exploreWays, concludeConversation, setConversationSubject, postNote,
 } from "@/lib/api";
-import { streamSSE, attachSSE } from "@/lib/sse";
-import { onRoomEvent, sendViewing } from "@/lib/realtime";
-import type { Branch, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
+import { streamSSE } from "@/lib/sse";
+import { onRoomEvent, sendViewing, sendDrafting } from "@/lib/realtime";
+import type { Branch, BranchStatus, Conversation, ConversationRef, GroundingItem, Node, RunEvent, WorkspaceSearchHit } from "@/lib/types";
 import { useSession, useEffectiveRole } from "@/store/session";
+import { STATE } from "@/lib/glyphs";
 import { useMonitor } from "@/store/monitor";
 import { usePendingInsert } from "@/store/insert";
 import { usePresenceStore } from "@/store/presence";
-import { useNotifications } from "@/store/notifications";
 import { useUnread } from "@/store/unread";
 import { can } from "@/lib/rbac";
+import { activatable } from "@/lib/a11y";
 import { colorFor, nowTime } from "@/lib/format";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
-import { Input } from "@/components/common/Input";
+import { Input, Field } from "@/components/common/Input";
 import { EmptyState } from "@/components/common/Feedback";
 import { Frontispiece } from "@/components/brand/Frontispiece";
 import { ConversationList } from "@/components/chat/ConversationList";
@@ -30,29 +31,29 @@ import { MessageList, type ChatMessage, type ToolActivity } from "@/components/c
 import { Composer } from "@/components/chat/Composer";
 import { DeepReasoningMonitor } from "@/components/monitor/DeepReasoningMonitor";
 import { ReplayBar } from "@/components/chat/ReplayBar";
+import { TeamStrip } from "@/components/chat/TeamStrip";
+import { type ThreadAction } from "@/components/chat/ThreadMenu";
+import { StageHeader } from "@/components/chat/StageHeader";
+import { useAgentRun, compactArgs } from "@/components/chat/useAgentRun";
+import { ForkDialog, ExploreDialog, ConcludeDialog, ResolveDialog, LinkContextDialog, SubjectDialog } from "@/components/chat/dialogs";
+import { ExploreCompare } from "@/components/chat/ExploreCompare";
+import { useDeepRun, pickText } from "@/components/chat/useDeepRun";
 import s from "@/components/chat/chat.module.css";
 
-// Deep runs execute server-side and outlive the tab: remember the in-flight
-// run so a reload can reattach to its stream instead of showing a dead monitor.
-const deepKey = (wid: string) => `helix:deeprun:${wid}`;
-interface SavedDeepRun {
-  runId: string; conversationId: string; branchId: string; question: string; guided: boolean;
-}
-
-// Grounding citations live only in the stream (nodes don't persist them), but
-// history reloads happen after every turn — remember which sources each
-// assistant node cited so the chips survive the round-trip for this session.
+// Citations are persisted on the node now and arrive with the history, so the
+// server is the source of truth. This map survives as a *live overlay only*:
+// during a run the sources are announced before the assistant node exists, so
+// there is a window with chips on screen and no node to hang them on. Once the
+// node arrives its own `citations` win.
+//
+// It used to be the only place citations existed anywhere — which meant a
+// reload silently dropped the evidence for every grounded answer in the thread.
 const groundingByNode: Record<string, GroundingItem[]> = {};
 // Same deal for the agent tool ledger (FR-14): which tools each reply used.
 const toolsByNode: Record<string, ToolActivity[]> = {};
-
-// One line of "what the model asked the tool for" — enough to judge a call.
-function compactArgs(args: Record<string, unknown>): string {
-  return Object.entries(args)
-    .map(([k, v]) => `${k}: ${typeof v === "string" ? `"${v}"` : JSON.stringify(v)}`)
-    .join(", ")
-    .slice(0, 140);
-}
+// Whether the Deep Reasoning pane is unfolded. Per browser, not per workspace:
+// it's a preference about how you like the stage laid out.
+const MONITOR_PREF = "helix.monitorOpen";
 
 function nodeToMsg(
   n: Node,
@@ -69,10 +70,13 @@ function nodeToMsg(
     authorColor: n.role === "assistant" ? undefined : colorFor(email ?? n.author_id ?? "?"),
     body: n.content,
     time: "",
-    tokens: n.token_count ? `${n.token_count} tokens` : undefined,
+    // "~" because it is a ~4-chars-per-token estimate, not a tokenizer count —
+    // the same estimator the context budget spends. Stating a measured-looking
+    // number we did not measure is the kind of small lie a record shouldn't tell.
+    tokens: n.token_count ? `~${n.token_count} tokens` : undefined,
     forkPoint: !!forkNodeId && n.id === forkNodeId,
     forkChildren: forkMap?.[n.id],
-    grounding: groundingByNode[n.id],
+    grounding: n.citations?.length ? n.citations : groundingByNode[n.id],
     tools: toolsByNode[n.id],
   };
 }
@@ -89,6 +93,9 @@ export function ChatView() {
 
   const canSend = can(role, "message.send");
   const canFork = can(role, "branch.fork");
+  // The one write an Observer has. True for everyone, so it never gates the
+  // full composer — it only decides whether the read-only view gets one too.
+  const canNote = can(role, "note.write");
 
   const [activeConvId, setActiveConvId] = useState<string | null>(null);
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -97,10 +104,42 @@ export function ChatView() {
   const [busy, setBusy] = useState(false);
   const [provider, setProvider] = useState("groq");
   const [forkDlg, setForkDlg] = useState<{ nodeId: string } | null>(null);
+  // Diverging: the dialog that collects angles, then the side-by-side view of
+  // what came back. `ask` distinguishes a fresh fan-out (send each branch its
+  // angle) from re-opening the comparison later (read what is already there).
+  const [exploreDlg, setExploreDlg] = useState<{ nodeId: string } | null>(null);
+  const [compare, setCompare] = useState<{ branchIds: string[]; ask: boolean } | null>(null);
   const [newDlg, setNewDlg] = useState(false);
   const [draftTitle, setDraftTitle] = useState("");
   const [draftVis, setDraftVis] = useState<"shared" | "private">("shared");
   const [replay, setReplay] = useState<number | null>(null);
+  // Below 1100px the flanking panes fold out over the stage instead of being
+  // hidden; one at a time, since they enter from opposite edges.
+  const [drawer, setDrawer] = useState<"left" | "monitor" | null>(null);
+  // Wide layouts: the monitor folds to a spine so the stage takes back its
+  // width. Remembered, because a pane that reopens itself every visit is a pane
+  // you have to dismiss every visit.
+  //
+  // It starts folded. Open was the old default, and it meant a fifth of the
+  // workspace was reserved, permanently, for a pane that reads "The monitor is
+  // quiet" in every session where nobody escalates anything — which is most of
+  // them. Folded it is still a labelled spine carrying the run's status, so the
+  // feature is not hidden, and the effect below opens it the instant a run
+  // starts, which is the only moment the pane has something to say.
+  const [monitorOpen, setMonitorOpen] = useState(() => {
+    try { return localStorage.getItem(MONITOR_PREF) === "1"; } catch { return false; }
+  });
+  useEffect(() => {
+    try { localStorage.setItem(MONITOR_PREF, monitorOpen ? "1" : "0"); } catch { /* private mode */ }
+  }, [monitorOpen]);
+  // A run the reader cannot see is the one thing folding must never cause —
+  // including a teammate's run arriving over the room socket, which is exactly
+  // the moment this product exists for.
+  const st = monitor.run?.status;
+  const monitorRunning = st === "queued" || st === "live" || st === "waiting";
+  useEffect(() => {
+    if (monitorRunning) setMonitorOpen(true);
+  }, [monitorRunning]);
   const [linkDlg, setLinkDlg] = useState(false);
   // "Edit last message" hand-off: the removed message's text, waiting in the
   // composer for the author to revise and resend.
@@ -108,6 +147,10 @@ export function ChatView() {
   // Conversation/branch housekeeping dialogs.
   const [renameDlg, setRenameDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
   const [deleteDlg, setDeleteDlg] = useState<{ kind: "conversation" | "branch"; id: string; name: string } | null>(null);
+  // Recording what came of an exploration (adopted / abandoned / reopened).
+  const [resolveDlg, setResolveDlg] = useState<Branch | null>(null);
+  const [concludeDlg, setConcludeDlg] = useState(false);
+  const [subjectDlg, setSubjectDlg] = useState(false);
 
   // The thread on screen is by definition read — keep its unread marker clear
   // even as live turns stream into it.
@@ -190,21 +233,28 @@ export function ChatView() {
     if (!toolSettings) return undefined;
     const usable = toolSettings.items.filter((t) => t.allowed && t.available);
     if (usable.length === 0) {
-      return "Agent: no tools enabled in this workspace — owners can enable them under TEAM → Agent tools";
+      return "Agent: no tools enabled in this workspace — owners can enable them under SETUP → Agent tools";
     }
     const names = usable.map((t) => t.name).join(", ");
     return `Agent: Helix may use ${names}${usable.some((t) => t.sensitive) ? " — sensitive calls pause for your approval" : ""}`;
   }, [toolSettings]);
 
-  // The in-flight agent turn: its stream comes in segments (each approval
-  // pause ends one, each verdict opens the next), so the accumulating message
-  // state lives in a ref that every segment's handler shares.
-  const agentRunRef = useRef<{
-    runId: string; userMsg: ChatMessage; asst: ChatMessage; acc: string;
-    branchId: string; paused: boolean;
-  } | null>(null);
-  // A sensitive tool call holding for a human verdict (the banner + buttons).
-  const [approval, setApproval] = useState<{ runId: string; calls: ToolActivity[] } | null>(null);
+  // The agent turn lives in its own controller — it is the most stateful thing
+  // this surface does, and it kept the interesting parts of this file buried.
+  const { approval, runAgent, decideApproval } = useAgentRun({
+    setMessages, scrollDown, setBusy,
+    onSettled: () => {
+      if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+      qc.invalidateQueries({ queryKey: ["conversations", wid] });
+    },
+    groundingByNode, toolsByNode,
+  });
+
+  async function onAgent(text: string) {
+    const branchId = await ensureConversation();
+    if (!branchId) return;
+    await runAgent(text, branchId, colorFor(user?.email ?? "?"), nowTime());
+  }
 
   // Proactive resurfacing: while a question is being typed, quietly check
   // whether the workspace has already explored it — the product's whole
@@ -223,8 +273,14 @@ export function ChatView() {
   const resurfaceTimer = useRef<number | null>(null);
   const resurfaceSeq = useRef(0);
   useEffect(() => () => { if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current); }, []);
-  // A new thread on screen is a new question context — reset the strip.
-  useEffect(() => { setResurfaced([]); setResurfaceMuted(false); }, [activeConvId]);
+  // A new thread on screen is a new question context — reset the strip, and
+  // stop telling the room I am drafting in the thread I just left.
+  useEffect(() => {
+    setResurfaced([]);
+    setResurfaceMuted(false);
+    sendDrafting(null, false);
+    return () => sendDrafting(null, false);
+  }, [activeConvId]);
 
   function onDraftChange(text: string) {
     if (resurfaceTimer.current) window.clearTimeout(resurfaceTimer.current);
@@ -234,6 +290,7 @@ export function ChatView() {
       // and un-mute for the next question.
       setResurfaced([]);
       setResurfaceMuted(false);
+      sendDrafting(null, false);
       return;
     }
     resurfaceTimer.current = window.setTimeout(async () => {
@@ -249,6 +306,12 @@ export function ChatView() {
           seen.add(h.conversation_id);
           return true;
         }).slice(0, 3));
+        // Tell the room the same thing this strip just told me: a question is
+        // being composed here, and it overlaps that thread. Ids only, and only
+        // once the draft is long enough to have crossed the same relevance bar
+        // the strip uses — the room should not light up for every keystroke.
+        const top = r.items.find((h) => h.score >= RESURFACE_FLOOR && h.conversation_id !== activeConvRef.current);
+        sendDrafting(activeConvRef.current, true, top?.conversation_id ?? null);
       } catch { /* resurfacing is an enhancement, never an error */ }
     }, 700);
   }
@@ -263,6 +326,33 @@ export function ChatView() {
     }
     return map;
   }, [presenceUsers, user?.id]);
+
+  // The room dock: teammates composing a question right now, in a thread I can
+  // see. The socket carries ids only, so a title appears here only because it
+  // is already in MY conversation list — a thread I cannot see resolves to
+  // nothing and the line is dropped rather than half-rendered.
+  const roomDrafts = useMemo(() => {
+    const byId = new Map(conversations.map((c) => [c.id, c]));
+    return presenceUsers.flatMap((u) => {
+      if (u.user_id === user?.id || !u.drafting_conversation) return [];
+      const where = byId.get(u.drafting_conversation);
+      if (!where) return [];
+      const match = u.drafting_match ? byId.get(u.drafting_match) ?? null : null;
+      return [{ email: u.email, where, match }];
+    });
+  }, [presenceUsers, conversations, user?.id]);
+
+  // Link the overlapping thread onto the conversation THEY are drafting in, so
+  // the context is already folded in when they press send. This is the whole
+  // point of the dock: the answer to "has someone been here before" arrives
+  // before the question is asked, not after.
+  async function doLinkFor(targetConvId: string, refId: string) {
+    try {
+      await addReference(targetConvId, refId);
+      await qc.invalidateQueries({ queryKey: ["references", targetConvId] });
+      push("Linked for them — their next reply draws on that thread");
+    } catch (e: any) { push(e?.message ?? "Link failed", "error"); }
+  }
 
   // While a teammate's turn streams into the open branch, name them above the
   // composer ("you can see each other think").
@@ -349,7 +439,7 @@ export function ChatView() {
       await qc.invalidateQueries({ queryKey: ["conversations", wid] });
       setActiveConvId(r.conversation_id);
       setActiveBranchId(r.branch_id);
-      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null }]);
+      setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null, votes: [] }]);
       setMessages([]);
     } catch (e: any) { push(e?.message ?? "Create failed", "error"); }
   }
@@ -361,7 +451,7 @@ export function ChatView() {
     await qc.invalidateQueries({ queryKey: ["conversations", wid] });
     setActiveConvId(r.conversation_id);
     setActiveBranchId(r.branch_id);
-    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null }]);
+    setBranches([{ id: r.branch_id, conversation_id: r.conversation_id, name: "main", parent_branch_id: null, fork_node_id: null, head_node_id: null, intent: "", status: "open", resolution: "", resolved_by: null, resolved_at: null, votes: [] }]);
     return r.branch_id;
   }
 
@@ -386,7 +476,7 @@ export function ChatView() {
           acc += ev.text; asstMsg.body = acc; setMessages((m) => [...m]); scrollDown();
         } else if (ev.kind === "assistant_node") {
           asstMsg.id = ev.node.id; asstMsg.typing = false;
-          asstMsg.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ☁ ${provider}` : undefined;
+          asstMsg.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ${provider}` : undefined;
           if (asstMsg.grounding) groundingByNode[ev.node.id] = asstMsg.grounding;
         }
       });
@@ -415,116 +505,6 @@ export function ChatView() {
     await streamTurn(branchId, `/conversations/${branchId}/messages/from-prompt`, { prompt_id: promptId });
   }
 
-  // --- Agent turns (FR-14): chat with hands. Same bubble, plus a tool
-  // ledger; a sensitive call ends the stream segment on waiting(approval)
-  // and the verdict endpoint streams the continuation.
-  function handleAgentEvent(ev: RunEvent) {
-    const run = agentRunRef.current;
-    if (!run) return;
-    if (ev.kind === "agent_run") {
-      run.runId = ev.run_id;
-    } else if (ev.kind === "user_node") {
-      run.userMsg.id = ev.node.id;
-      run.userMsg.body = ev.node.content;
-      setMessages((m) => [...m]);
-    } else if (ev.kind === "grounding") {
-      run.asst.grounding = ev.items;
-      setMessages((m) => [...m]);
-    } else if (ev.kind === "token") {
-      run.acc += ev.text;
-      run.asst.body = run.acc;
-      setMessages((m) => [...m]);
-      scrollDown();
-    } else if (ev.kind === "tool_call") {
-      (run.asst.tools ??= []).push({
-        id: ev.id, name: ev.name, args: compactArgs(ev.arguments),
-        sensitive: ev.sensitive, status: ev.sensitive ? "pending" : "running",
-      });
-      setMessages((m) => [...m]);
-      scrollDown();
-    } else if (ev.kind === "tool_result") {
-      const t = run.asst.tools?.find((x) => x.id === ev.id && (x.status === "running" || x.status === "pending"));
-      if (t) {
-        t.status = ev.status;
-        t.preview = ev.content;
-        setMessages((m) => [...m]);
-      }
-    } else if (ev.kind === "waiting") {
-      run.paused = true;
-      setApproval({ runId: run.runId, calls: (run.asst.tools ?? []).filter((t) => t.status === "pending") });
-    } else if (ev.kind === "complete") {
-      if (ev.status === "error" && !run.acc) {
-        run.asst.body = `[${ev.stop_reason}]`;
-        setMessages((m) => [...m]);
-      }
-    } else if (ev.kind === "assistant_node") {
-      run.asst.id = ev.node.id;
-      run.asst.typing = false;
-      run.asst.tokens = ev.node.token_count ? `${ev.node.token_count} tokens · ⚒ agent` : undefined;
-      if (run.asst.grounding) groundingByNode[ev.node.id] = run.asst.grounding;
-      if (run.asst.tools?.length) toolsByNode[ev.node.id] = run.asst.tools;
-      setMessages((m) => [...m]);
-    }
-  }
-
-  /** Await one SSE segment of an agent run. Paused-for-approval keeps the
-   *  composer busy (the banner owns the next step); anything else finishes
-   *  the turn. */
-  async function finishAgentSegment(done: Promise<void>) {
-    const run = agentRunRef.current;
-    try {
-      await done;
-    } catch (e: any) {
-      if (run) {
-        run.asst.body = run.acc + (run.acc ? "\n" : "") + `[stream error: ${e?.message ?? e}]`;
-        run.paused = false;
-      }
-    }
-    if (agentRunRef.current?.paused) return;
-    if (run) {
-      run.asst.typing = false;
-      setMessages((m) => [...m]);
-    }
-    agentRunRef.current = null;
-    setApproval(null);
-    setBusy(false);
-    if (activeConvId) listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
-    qc.invalidateQueries({ queryKey: ["conversations", wid] });
-  }
-
-  async function onAgent(text: string) {
-    const branchId = await ensureConversation();
-    if (!branchId) return;
-    setBusy(true);
-    const userMsg: ChatMessage = {
-      id: "tmp-u", role: "user", authorName: "You",
-      authorColor: colorFor(user?.email ?? "?"), body: text, time: nowTime(),
-    };
-    const asst: ChatMessage = {
-      id: "tmp-agent", role: "assistant", authorName: "Helix",
-      body: "", time: nowTime(), typing: true, tools: [],
-    };
-    setMessages((m) => [...m, userMsg, asst]);
-    scrollDown();
-    agentRunRef.current = { runId: "", userMsg, asst, acc: "", branchId, paused: false };
-    const h = streamSSE(`/conversations/${branchId}/agent`, { prompt: text }, handleAgentEvent);
-    await finishAgentSegment(h.done);
-  }
-
-  async function decideApproval(approved: boolean) {
-    const run = agentRunRef.current;
-    if (!run?.runId) return;
-    setApproval(null);
-    run.paused = false;
-    if (approved) {
-      // Denials resolve via the gate's tool_result frames; approvals start
-      // executing now — say so.
-      for (const t of run.asst.tools ?? []) if (t.status === "pending") t.status = "running";
-      setMessages((m) => [...m]);
-    }
-    const h = streamSSE(`/conversations/agent/runs/${run.runId}/approve`, { approved }, handleAgentEvent);
-    await finishAgentSegment(h.done);
-  }
 
   // consume a pending "insert from library" once we're in chat
   useEffect(() => {
@@ -571,15 +551,143 @@ export function ChatView() {
     if (await removeLastTurn()) setComposerDraft(text);
   }
 
-  async function doFork(nodeId: string, name: string) {
+  async function doFork(nodeId: string, name: string, intent: string) {
     if (!activeConvId) return;
     try {
-      const r = await forkBranch(activeConvId, nodeId, name || "experiment");
+      const r = await forkBranch(activeConvId, nodeId, name || "experiment", intent);
       const tree = await listBranches(activeConvId);
       setBranches(tree.items);
       setActiveBranchId(r.branch_id);
       push(`Forked → ${r.name}`);
     } catch (e: any) { push(e?.message ?? "Fork failed", "error"); }
+  }
+
+  async function doExplore(nodeId: string, angles: string[]) {
+    if (!activeConvId) return;
+    try {
+      const r = await exploreWays(activeConvId, nodeId, angles);
+      // Refetch rather than append: the tree carries fork points and tallies
+      // the compare view reads, and the server is the one that assigned them.
+      const tree = await listBranches(activeConvId);
+      setBranches(tree.items);
+      setCompare({ branchIds: r.items.map((b: { branch_id: string }) => b.branch_id), ask: true });
+    } catch (e: any) { push(e?.message ?? "Could not explore", "error"); }
+  }
+
+  async function doNote(text: string) {
+    const branchId = await ensureConversation();
+    if (!branchId) return;
+    try {
+      const node = await postNote(branchId, text);
+      setMessages((m) => [...m, nodeToMsg(node, user?.id, null, emailOf, forkSourceMap)]);
+      scrollDown();
+    } catch (e: any) { push(e?.message ?? "Could not post that", "error"); }
+  }
+
+  // What moved out of the stage header. Replay is a *mode*, so it earns space
+  // only while it is on; the exports and the housekeeping are rare enough that
+  // one click is the right price for a header you can read.
+  const threadActions: ThreadAction[] = useMemo(() => {
+    if (!activeConv) return [];
+    const out: ThreadAction[] = [];
+    if (messages.length > 0) {
+      out.push({
+        key: "replay", glyph: "▷", label: "Replay this thread",
+        onPick: () => setReplay(1),
+      });
+      // The report first, and named for what it answers. It is the whole
+      // thread — every exploration including the abandoned ones, each verdict
+      // with its reason — where the two below are one branch's transcript.
+      // Someone who wants "what did we decide, and why" wants this one, and
+      // before it existed the only thing they could take away was a single
+      // path with the alternative missing.
+      out.push({
+        key: "report", glyph: "❧", label: "Export decision report",
+        onPick: () => downloadReport(activeConv.id, "md")
+          .catch(() => push("Export failed", "error")),
+      });
+      out.push({
+        key: "md", glyph: "↓", label: "Export this branch (Markdown)",
+        onPick: () => downloadExport(activeConv.id, activeBranchId!, "md")
+          .catch(() => push("Export failed", "error")),
+      });
+      out.push({
+        key: "json", glyph: "↓", label: "Export this branch (JSON)",
+        onPick: () => downloadExport(activeConv.id, activeBranchId!, "json")
+          .catch(() => push("Export failed", "error")),
+      });
+    }
+    if (canSend) {
+      out.push({
+        key: "link", glyph: STATE.linked, label: "Link another thread's context",
+        onPick: () => setLinkDlg(true),
+      });
+      out.push({
+        key: "subject", glyph: STATE.linked,
+        label: activeConv.subject ? "Change what this thread is about" : "Say what this thread is about",
+        onPick: () => setSubjectDlg(true),
+      });
+    }
+    if (activeConv.author_id === user?.id || role === "owner") {
+      out.push({
+        key: "rename", glyph: "✎", label: "Rename conversation",
+        onPick: () => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title }),
+      });
+      out.push({
+        key: "delete", glyph: "✕", label: "Delete conversation", danger: true,
+        onPick: () => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title }),
+      });
+    }
+    return out;
+  }, [activeConv, activeBranchId, messages.length, canSend, role, user?.id]);
+
+  async function doSubject(subject: string) {
+    if (!activeConvId) return;
+    try {
+      await setConversationSubject(activeConvId, subject);
+      await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      push(subject ? "Thread pointed at its subject" : "Subject cleared");
+    } catch (e: any) { push(e?.message ?? "Could not save that", "error"); }
+  }
+
+  async function doConclude(text: string) {
+    if (!activeConvId) return;
+    try {
+      await concludeConversation(activeConvId, text);
+      await qc.invalidateQueries({ queryKey: ["conversations", wid] });
+      push(text ? "Conclusion recorded" : "Conclusion cleared — the question is open again");
+    } catch (e: any) { push(e?.message ?? "Could not record that", "error"); }
+  }
+
+  async function doResolve(branchId: string, status: BranchStatus, resolution: string) {
+    try {
+      await resolveBranch(branchId, status, resolution);
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+      push(status === "open" ? "Reopened — verdict cleared" : `Recorded as ${status}`);
+    } catch (e: any) { push(e?.message ?? "Could not record that", "error"); }
+  }
+
+  async function doVote(branchId: string) {
+    // Optimistic: backing a branch is a one-click opinion, and a chip that
+    // waits for a round trip before filling reads as an unregistered click.
+    // The server's tally replaces this either way, so a failed request
+    // self-corrects on the refetch below.
+    const me = user?.id;
+    if (me) {
+      setBranches((bs) => bs.map((b) => b.id !== branchId ? b : {
+        ...b,
+        votes: b.votes?.includes(me)
+          ? b.votes.filter((v) => v !== me)
+          : [...(b.votes ?? []), me],
+      }));
+    }
+    try {
+      await voteBranch(branchId);
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+    } catch (e: any) {
+      if (activeConvId) setBranches((await listBranches(activeConvId)).items);
+      push(e?.message ?? "Could not record that", "error");
+    }
   }
 
   async function doRename() {
@@ -623,161 +731,19 @@ export function ChatView() {
     } catch (e: any) { push(e?.message ?? "Delete failed", "error"); }
   }
 
-  function handleDeepEvent(ev: import("@/lib/types").RunEvent) {
-    const run = useMonitor.getState().run;
-    if (!run) return;
-    if (ev.kind === "deep_run") {
-      monitor.patch({ runId: ev.run_id });
-      if (wid) {
-        const saved: SavedDeepRun = {
-          runId: ev.run_id, conversationId: run.conversationId ?? "", branchId: run.branchId ?? "",
-          question: run.question, guided: !!run.onSteer,
-        };
-        sessionStorage.setItem(deepKey(wid), JSON.stringify(saved));
-      }
-    } else if (ev.kind === "queued") {
-      // Waiting behind the workspace's concurrency cap — say so instead of stalling.
-      monitor.patch({ status: "queued", queuePosition: ev.position });
-    } else if (ev.kind === "step") {
-      const p = ev.payload ?? {};
-      const num = (k: string, d: number) => (typeof p[k] === "number" ? (p[k] as number) : d);
-      // Convergence viz: collect each cycle's stability reading (and the run's
-      // resolved halting threshold) for the sparkline + closing ring.
-      const stabNow = typeof p.stability === "number" ? (p.stability as number) : null;
-      const thr = typeof p.stability_threshold === "number" ? (p.stability_threshold as number) : undefined;
-      monitor.patch({
-        depth: ev.depth ?? run.depth,
-        energy: ev.energy ?? run.energy,
-        loopGuard: num("loop_guard", run.loopGuard),
-        stability: num("stability", run.stability),
-        confidence: num("confidence", run.confidence),
-        ...(stabNow !== null && stabNow !== run.stabilityHistory[run.stabilityHistory.length - 1]
-          ? { stabilityHistory: [...run.stabilityHistory, stabNow] } : {}),
-        ...(thr !== undefined ? { threshold: thr } : {}),
-        // A queued run has started; a replayed pause has been steered past.
-        ...(run.status === "queued" || run.status === "waiting" ? { status: "live" as const } : {}),
-      });
-      const stab = typeof p.stability === "number" ? ` · stab ${(p.stability as number).toFixed(2)}` : "";
-      monitor.addStep({ kind: ev.node, meta: `step ${ev.idx} · depth ${ev.depth}${stab}`, text: pickText(p) });
-    } else if (ev.kind === "budget") {
-      monitor.patch({ budgetPct: Math.round(ev.pct <= 1 ? ev.pct * 100 : ev.pct), tokensUsed: ev.tokens_used ?? run.tokensUsed });
-    } else if (ev.kind === "token") {
-      monitor.patch({ answer: ((useMonitor.getState().run?.answer ?? "") + ev.text).replace(/^\s*\[answer\]\s*/i, "") });
-    } else if (ev.kind === "waiting") {
-      monitor.addStep({ kind: "steer", meta: "paused for guidance", text: "The loop is holding — steer it, or let it continue." });
-      monitor.patch({ status: "waiting" });
-    } else if (ev.kind === "complete") {
-      monitor.patch({ status: ev.status === "killed" ? "killed" : ev.status === "error" ? "error" : "done", stopReason: ev.stop_reason });
-      if (wid) sessionStorage.removeItem(deepKey(wid));
-      // Your own run finished while you weren't looking (backgrounded tab):
-      // a bell notice, plus a browser notification if permission was granted.
-      if (document.hidden) {
-        useNotifications.getState().add({
-          text: `Your deep run ${ev.status === "done" ? "finished" : ev.status} (${ev.stop_reason})`,
-          conversationId: run.conversationId,
-        });
-        if (typeof Notification !== "undefined" && Notification.permission === "granted") {
-          try {
-            new Notification("Helix — deep run finished", { body: run.question.slice(0, 120) });
-          } catch { /* notification is an enhancement, never an error */ }
-        }
-      }
-    } else if (ev.kind === "assistant_node") {
-      const cur = useMonitor.getState().run;
-      if (cur && !cur.answer && ev.node.content) monitor.patch({ answer: ev.node.content });
-    }
-  }
-
-  /** Await one SSE segment of a deep run; a guided run has several (each pause
-   *  ends the stream, each steer opens the next). History refreshes only when
-   *  the run truly finishes — a paused run has no assistant reply yet. */
-  async function finishDeepSegment(done: Promise<void>, branchId: string) {
-    try {
-      await done;
-      const cur = useMonitor.getState().run;
-      if (cur && cur.status === "live") monitor.patch({ status: "done", stopReason: cur.stopReason || "ended" });
-    } catch (e: any) {
-      const cur = useMonitor.getState().run;
-      if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
-    }
-    const status = useMonitor.getState().run?.status;
-    if (status !== "waiting" && status !== "live" && status !== "queued" && wid) {
-      // Terminal on this client — a reload should not reattach to it.
-      sessionStorage.removeItem(deepKey(wid));
-    }
-    if (status !== "waiting" && activeBranchRef.current === branchId) {
-      getHistory(branchId).then((r) => setMessages(r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)))).catch(() => {});
-    }
-  }
-
-  async function steerRun(guidance: string) {
-    const cur = useMonitor.getState().run;
-    if (!cur?.runId || !cur.branchId || cur.status !== "waiting") return;
-    monitor.patch({ status: "live" });
-    monitor.addStep({ kind: "steer", meta: "human guidance", text: guidance || "(continue unchanged)" });
-    const h = streamSSE(`/conversations/deep/runs/${cur.runId}/steer`, { guidance }, handleDeepEvent);
-    monitor.patch({ abort: h.abort });
-    await finishDeepSegment(h.done, cur.branchId);
-  }
-
-  async function onDeep(text: string, guided: boolean) {
-    const branchId = await ensureConversation();
-    if (!branchId || !activeConvId) return;
-    // Deep runs take minutes and survive the tab — ask (once, lazily) to be
-    // allowed to notify when one finishes in the background. Denial is fine.
-    if (typeof Notification !== "undefined" && Notification.permission === "default") {
-      Notification.requestPermission().catch(() => {});
-    }
-    const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided }, handleDeepEvent);
-    monitor.start({
-      status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
-      stabilityHistory: [],
-      budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
-      abort: h.abort, conversationId: activeConvId, branchId,
-      canControl: can(role, "run.control"),
-      onSteer: guided ? (g) => { steerRun(g); } : undefined,
-    });
-    await finishDeepSegment(h.done, branchId);
-  }
-
-  // Reconnect-on-load (AI-LANE-CONTRACTS §2.2): if this workspace has an
-  // in-flight deep run from a previous page load, reattach to its stream —
-  // replaying the event log from 0 rebuilds the whole monitor (gauges, trace,
-  // sparkline), then follows live. A finished/expired run just clears itself.
-  useEffect(() => {
-    if (!wid) return;
-    const raw = sessionStorage.getItem(deepKey(wid));
-    if (!raw) return;
-    let saved: SavedDeepRun;
-    try { saved = JSON.parse(raw); } catch { sessionStorage.removeItem(deepKey(wid)); return; }
-    if (!saved?.runId) { sessionStorage.removeItem(deepKey(wid)); return; }
-    (async () => {
-      try {
-        const st = await getDeepRunStatus(saved.runId);
-        if (st.status === "done" || st.status === "error" || st.status === "killed") {
-          sessionStorage.removeItem(deepKey(wid));
-          return;
-        }
-        monitor.start({
-          status: st.status === "queued" ? "queued" : "live",
-          question: saved.question, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
-          stabilityHistory: [], budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
-          conversationId: saved.conversationId, branchId: saved.branchId, runId: saved.runId,
-          queuePosition: st.queue_position ?? undefined,
-          canControl: can(role, "run.control"),
-          onSteer: saved.guided ? (g) => { steerRun(g); } : undefined,
-        });
-        const h = attachSSE(`/conversations/deep/runs/${saved.runId}/stream?after=0`, handleDeepEvent);
-        monitor.patch({ abort: h.abort });
-        await finishDeepSegment(h.done, saved.branchId);
-      } catch {
-        // 404: the run finished and its live handle expired — the assistant
-        // node is already in history, nothing to reattach to.
-        sessionStorage.removeItem(deepKey(wid));
-      }
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [wid]);
+  // Deep Reasoning's whole lifecycle — segmented streams, steering, killing,
+  // and reattaching to a run that outlived the last page load. The view keeps
+  // ownership of the transcript, so the hook asks for a refresh rather than
+  // learning how to build one.
+  const { onDeep, stopRun } = useDeepRun({
+    wid, role, activeConvId, ensureConversation,
+    isViewing: (branchId) => activeBranchRef.current === branchId,
+    refreshHistory: (branchId) => {
+      getHistory(branchId).then((r) => setMessages(
+        r.nodes.map((n) => nodeToMsg(n, user?.id, activeBranch?.fork_node_id ?? null, emailOf, forkSourceMap)),
+      )).catch(() => {});
+    },
+  });
 
   // --- Live fan-out (FR-5): teammates' activity arrives over the workspace
   // room. A turn streaming on the branch I'm viewing renders in place,
@@ -798,9 +764,42 @@ export function ChatView() {
           setActiveConvId(null);
           setActiveBranchId(null);
         }
+      } else if (ev.kind === "branches.explored") {
+        // No toast per branch, and no view change: someone else diverging is
+        // information, not an interruption. The lineage grows; if they want
+        // you to look, that is what a mention is for.
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+          push(`${ev.branches.length} new explorations`);
+        }
       } else if (ev.kind === "branch.created" || ev.kind === "branch.updated") {
         if (ev.conversation_id === activeConvId) {
           listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+        }
+      } else if (ev.kind === "note.posted") {
+        if (ev.branch_id === activeBranchId) {
+          setMessages((m) => m.some((x) => x.id === ev.node.id)
+            ? m
+            : [...m, nodeToMsg(ev.node, user?.id, null, emailOf, forkSourceMap)]);
+          scrollDown();
+        }
+      } else if (ev.kind === "branch.resolved") {
+        if (ev.conversation_id === activeConvId) {
+          listBranches(activeConvId).then((r) => setBranches(r.items)).catch(() => {});
+          // Say it out loud when it lands on the branch someone is reading:
+          // continuing to explore something the team just abandoned is exactly
+          // the wasted work this product exists to prevent.
+          if (ev.branch_id === activeBranchId && ev.status !== "open") {
+            push(`“${ev.name}” was ${ev.status} — ${ev.resolution}`);
+          }
+        }
+      } else if (ev.kind === "branch.voted") {
+        // No toast. A vote is a small, frequent signal — announcing each one
+        // would make converging noisier than the forking it exists to settle.
+        // The tally updating in place is the whole notification.
+        if (ev.conversation_id === activeConvId) {
+          setBranches((bs) => bs.map((b) =>
+            b.id === ev.branch_id ? { ...b, votes: ev.votes ?? [] } : b));
         }
       } else if (ev.kind === "branch.deleted") {
         if (ev.conversation_id === activeConvId) {
@@ -881,7 +880,7 @@ export function ChatView() {
           if (!run.watching && (!cur || cur.status !== "live")) {
             run.watching = true;
             monitor.start({
-              status: "live", question: `👁 watching ${ev.author_id}'s deep run`,
+              status: "live", question: `${STATE.watching} watching ${ev.author_id}'s deep run`,
               depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
               stabilityHistory: [],
               budgetPct: 0, tokensUsed: 0, steps: [], answer: "", stopReason: "",
@@ -917,7 +916,7 @@ export function ChatView() {
           run.asst.id = e.node.id;
           run.asst.typing = false;
           run.asst.body = e.node.content || run.acc;
-          run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ☁ ${provider}` : undefined;
+          run.asst.tokens = e.node.token_count ? `${e.node.token_count} tokens · ${provider}` : undefined;
           if (run.asst.grounding) groundingByNode[e.node.id] = run.asst.grounding;
           if (run.asst.tools?.length) toolsByNode[e.node.id] = run.asst.tools;
           setMessages((m) => [...m]);
@@ -937,24 +936,47 @@ export function ChatView() {
     [messages, replay],
   );
 
+  // Escape closes an open drawer — the same reflex a dialog earns.
+  useEffect(() => {
+    if (!drawer) return;
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setDrawer(null); };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [drawer]);
+
+  const runLive = monitor.run?.status === "live" || monitor.run?.status === "waiting";
+
+  /** Same contract as the monitor's Stop: the run lives server-side, so the
+   *  local stream being aborted is the fallback, not the mechanism. */
   return (
-    <div className={`${s.grid} folio`}>
+    <div className={`${s.grid} folio`} data-drawer={drawer ?? undefined}
+      data-monitor={monitorOpen ? undefined : "collapsed"}>
       {/* LEFT */}
-      <div className={s.left}>
+      <div className={s.left} id="chat-threads">
         <div className={s.scrollList}>
           <ConversationList
             conversations={conversations}
             activeId={activeConvId}
             canCreate={canSend}
-            onSelect={setActiveConvId}
-            onNew={() => { setDraftTitle(""); setNewDlg(true); }}
+            onSelect={(id) => { setActiveConvId(id); setDrawer(null); }}
+            onNew={() => { setDraftTitle(""); setNewDlg(true); setDrawer(null); }}
             viewers={conversationViewers}
             unread={unreadIds}
           />
           {activeConv && branches.length > 0 && (
-            <BranchTree branches={branches} activeId={activeBranchId} onSelect={setActiveBranchId}
+            <BranchTree branches={branches} activeId={activeBranchId} meId={user?.id}
+              onSelect={(id) => { setActiveBranchId(id); setDrawer(null); }}
               onRename={canFork ? (b) => setRenameDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
-              onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined} />
+              onDelete={canFork ? (b) => setDeleteDlg({ kind: "branch", id: b.id, name: b.name }) : undefined}
+              onResolve={canFork ? (b) => setResolveDlg(b) : undefined}
+              onVote={canFork ? (b) => doVote(b.id) : undefined}
+              onCompare={() => setCompare({
+                // The forks, not main: main is the thread these diverged
+                // from, so putting it in the comparison would ask you to
+                // weigh the question against its own answers.
+                branchIds: branches.filter((b) => b.parent_branch_id).map((b) => b.id),
+                ask: false,
+              })} />
           )}
         </div>
         <div className={s.leftFoot}><span className={s.liveDot} /> live · server-ordered log</div>
@@ -963,6 +985,45 @@ export function ChatView() {
       {/* STAGE */}
       <div className={s.stage}>
         <div className={s.stageGeo}><Frontispiece size={560} animate={false} /></div>
+
+        {/* Diverging takes the whole stage while it is happening: the columns
+            *are* the content, and a modal wide enough for four of them is a
+            stage with a border round it. It sits inside the stage rather than
+            over the app so the rail and the lineage stay reachable. */}
+        {compare && (
+          <ExploreCompare
+            branches={branches.filter((b) => compare.branchIds.includes(b.id))}
+            ask={compare.ask}
+            meId={user?.id}
+            canWrite={canFork}
+            onClose={() => setCompare(null)}
+            onOpen={(id) => { setActiveBranchId(id); setCompare(null); }}
+            onResolve={(b) => { setResolveDlg(b); setCompare(null); }}
+            onVoted={(id, votes) =>
+              setBranches((bs) => bs.map((b) => (b.id === id ? { ...b, votes } : b)))}
+          />
+        )}
+
+        {/* The only route to the two panes below 1100px, so it sits outside the
+            "a conversation is open" branch — otherwise the empty state would
+            have no way to reach the thread list. */}
+        <div className={s.drawerBar}>
+          <button
+            className={`${s.drawerBtn} ${drawer === "left" ? s.drawerBtnOn : ""}`}
+            aria-expanded={drawer === "left"} aria-controls="chat-threads"
+            onClick={() => setDrawer((d) => (d === "left" ? null : "left"))}
+          >
+            ⌇ threads
+          </button>
+          <div style={{ flex: 1 }} />
+          <button
+            className={`${s.drawerBtn} ${drawer === "monitor" ? s.drawerBtnOn : ""}`}
+            aria-expanded={drawer === "monitor"} aria-controls="chat-monitor"
+            onClick={() => setDrawer((d) => (d === "monitor" ? null : "monitor"))}
+          >
+            {runLive && <span className={s.drawerLive} />} ⟳ monitor
+          </button>
+        </div>
         {!activeConv ? (
           <EmptyState title="An unopened volume"
             icon={<div style={{ opacity: 0.45 }}><Frontispiece size={130} animate={false} /></div>}>
@@ -975,68 +1036,32 @@ export function ChatView() {
           </EmptyState>
         ) : (
           <>
-            <div className={s.stageHead}>
-              <div style={{ flex: 1, minWidth: 0 }}>
-                <div className={s.stageTitle} style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                  <span style={{ minWidth: 0, overflow: "hidden", textOverflow: "ellipsis" }}>{activeConv.title}</span>
-                  {(activeConv.author_id === user?.id || role === "owner") && (
-                    <>
-                      <button className={s.branchAct} style={{ opacity: 0.6 }} title="Rename conversation"
-                        onClick={() => setRenameDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✎</button>
-                      <button className={s.branchAct} style={{ opacity: 0.6, color: "var(--oxblood)" }} title="Delete conversation"
-                        onClick={() => setDeleteDlg({ kind: "conversation", id: activeConv.id, name: activeConv.title })}>✕</button>
-                    </>
-                  )}
-                </div>
-                <div className={s.stageMeta}>
-                  <span className={s.chip} style={{ color: activeConv.visibility === "private" ? "var(--ink-3)" : "var(--oxblood)" }}>
-                    {activeConv.visibility === "private" ? "◍ private" : "⊙ shared"}
-                  </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>
-                    on <span style={{ color: "var(--oxblood)" }}>{activeBranch?.name ?? "main"}</span>
-                  </span>
-                  <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{messages.length} nodes</span>
-                </div>
-                {(references.length > 0 || canSend) && (
-                  <div className={s.stageMeta} style={{ marginTop: 6, flexWrap: "wrap" }}>
-                    <span className="mono" style={{ fontSize: 11.5, color: "var(--ink-3)" }}>linked context:</span>
-                    {references.length === 0 && (
-                      <span style={{ fontSize: 12.5, color: "var(--ink-3)", fontStyle: "italic" }}>none</span>
-                    )}
-                    {references.map((r) => (
-                      <span key={r.id} className={s.chip} title="Replies here draw on this thread's live context"
-                        style={{ color: "var(--ink-2)", display: "inline-flex", alignItems: "center", gap: 6 }}>
-                        ⛓ {r.title}
-                        {canSend && (
-                          <button onClick={() => doRemoveRef(r.id)} title="Unlink"
-                            style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 13, lineHeight: 1, padding: 0 }}>×</button>
-                        )}
-                      </span>
-                    ))}
-                    {canSend && (
-                      <button onClick={() => setLinkDlg(true)} className={s.chip}
-                        title="Pull another shared thread's context into this conversation"
-                        style={{ cursor: "pointer", border: "1px dashed var(--rule-soft)", background: "transparent", color: "var(--oxblood)" }}>
-                        ＋ link context
-                      </button>
-                    )}
-                  </div>
-                )}
-              </div>
-              {messages.length > 0 && (
-                <>
-                  <ReplayBar total={messages.length} value={replay} onChange={setReplay} />
-                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "md").catch(() => push("Export failed", "error"))} title="Export Markdown" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ md</button>
-                  <button className={s.chip} onClick={() => downloadExport(activeConv.id, activeBranchId!, "json").catch(() => push("Export failed", "error"))} title="Export JSON" style={{ cursor: "pointer", border: "none", background: "transparent", color: "var(--ink-2)" }}>↓ json</button>
-                </>
-              )}
-              {canFork && (
-                <Button onClick={() => activeBranch?.head_node_id ? setForkDlg({ nodeId: activeBranch.head_node_id }) : push("Send a message before forking", "error")}>
-                  <span style={{ color: "var(--oxblood)" }}>⌇</span> Fork
-                </Button>
-              )}
-            </div>
+            <StageHeader
+              conversation={activeConv}
+              branch={activeBranch}
+              references={references}
+              messageCount={messages.length}
+              canSend={canSend}
+              canFork={canFork}
+              threadActions={threadActions}
+              onConclude={() => setConcludeDlg(true)}
+              onResolve={(b) => setResolveDlg(b)}
+              onFork={() => activeBranch?.head_node_id
+                ? setForkDlg({ nodeId: activeBranch.head_node_id })
+                : push("Send a message before forking", "error")}
+              onUnlinkRef={doRemoveRef}
+              onOpenLedger={() => nav(`/w/${wid}/map?view=decisions`)}
+            />
 
+            {replay !== null && (
+              <div className={s.replayBar}>
+                <span className={s.replayLabel}>Replaying</span>
+                <ReplayBar total={messages.length} value={replay} onChange={setReplay} />
+                <div style={{ flex: 1 }} />
+                <button className={s.teamMute} title="Leave replay"
+                  onClick={() => setReplay(null)}>×</button>
+              </div>
+            )}
             <div className={s.canvas} ref={canvasRef}>
               {shownMessages.length === 0 ? (
                 <EmptyState title="A blank page">
@@ -1046,53 +1071,39 @@ export function ChatView() {
               ) : (
                 <MessageList messages={shownMessages}
                   onForkHere={canFork ? (id) => setForkDlg({ nodeId: id }) : undefined}
+                  onExploreHere={canFork ? (id) => setExploreDlg({ nodeId: id }) : undefined}
                   lastTurn={lastTurn ? { userMsgId: lastTurn.id, onDelete: onDeleteLast, onEdit: onEditLast } : undefined} />
               )}
             </div>
 
             <div className={s.composerWrap}>
-              {remoteAuthorId && (
-                <div className={s.remoteBanner}>
-                  <span
-                    className={s.rowDot}
-                    style={{ background: colorFor(emailOf(remoteAuthorId) ?? remoteAuthorId) }}
-                  />
-                  ✒ {emailOf(remoteAuthorId) ?? "a teammate"} is asking Helix…
-                </div>
-              )}
-              {canSend && !busy && !resurfaceMuted && resurfaced.length > 0 && (
-                <div className={s.remoteBanner} style={{ flexWrap: "wrap" }}>
-                  <span style={{ color: "var(--gilt)" }}>✦</span>
-                  <span>explored before —</span>
-                  {resurfaced.map((h) => {
-                    const who = h.role === "assistant" ? "Helix"
-                      : h.author_id === user?.id ? "you" : (emailOf(h.author_id) ?? "a teammate");
-                    return (
-                      <button key={h.node_id} className={s.chip}
-                        title={`${who}: “${h.excerpt}”`}
-                        onClick={() => nav(`/w/${wid}?conv=${h.conversation_id}&branch=${h.branch_id}`)}
-                        style={{ cursor: "pointer", color: "var(--ink-2)", maxWidth: 260 }}>
-                        <span style={{ color: "var(--oxblood)" }}>⊙</span>
-                        <span style={{ overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                          {h.conversation_title}
-                        </span>
-                        <span style={{ color: "var(--ink-3)", flex: "0 0 auto" }}>· {who}</span>
-                      </button>
-                    );
-                  })}
-                  <button onClick={() => setResurfaceMuted(true)} title="Dismiss for this question"
-                    style={{ border: 0, background: "transparent", cursor: "pointer", color: "var(--ink-3)", fontSize: 14, lineHeight: 1, padding: "0 2px" }}>×</button>
-                </div>
-              )}
+              <TeamStrip
+                liveAuthor={remoteAuthorId ? (emailOf(remoteAuthorId) ?? "a teammate") : null}
+                drafts={roomDrafts.map((d) => ({
+                  email: d.email,
+                  where: { id: d.where.id, title: d.where.title },
+                  match: d.match ? { id: d.match.id, title: d.match.title } : null,
+                }))}
+                explored={canSend && !busy && !resurfaceMuted ? resurfaced : []}
+                canSend={canSend}
+                onOpen={(convId, branchId) =>
+                  nav(`/w/${wid}?conv=${convId}` + (branchId ? `&branch=${branchId}` : ""))}
+                onLinkFor={doLinkFor}
+                onMute={() => setResurfaceMuted(true)}
+                whoOf={(h) =>
+                  h.role === "assistant" ? "Helix"
+                    : h.author_id === user?.id ? "you"
+                    : (emailOf(h.author_id) ?? "a teammate")}
+              />
               {approval && (
                 <div className={s.approveBar}>
-                  <span style={{ fontSize: 15, color: "var(--gilt)" }}>⚿</span>
+                  <span style={{ fontSize: 15, color: "var(--gilt)" }} aria-hidden>{STATE.waiting}</span>
                   <span style={{ minWidth: 0 }}>
                     Helix wants to run{" "}
                     {approval.calls.length === 0 ? <strong>a sensitive tool</strong> : approval.calls.map((c, i) => (
                       <span key={c.id}>
                         {i > 0 && ", "}
-                        <strong className="mono" style={{ fontSize: 12.5 }}>{c.name}</strong>
+                        <strong className="mono" style={{ fontSize: 12 }}>{c.name}</strong>
                         {c.args && <span className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>({c.args})</span>}
                       </span>
                     ))}
@@ -1103,23 +1114,62 @@ export function ChatView() {
                   <Button variant="ghost" onClick={() => decideApproval(false)}>Deny</Button>
                 </div>
               )}
+              {/* Went to TEAM, and said SETUP. The provider moved to workspace
+                  settings when the Team page was split, and this banner — the
+                  one thing a workspace with no key can click — kept pointing at
+                  the page it had left. No glyph either: the sentence is the
+                  whole message, and the mark that used to sit here was ⚿, which
+                  renders as an empty box on plenty of machines. */}
               {canSend && providerUnconfigured && (
-                <div className={s.remoteBanner} style={{ cursor: "pointer" }} onClick={() => nav(`/w/${wid}/members`)}>
-                  ⚿ This workspace has no LLM key yet — replies can't stream until one is added.
-                  {" "}<u>Add a key under TEAM → Provider</u> (owners only).
+                <div className={s.remoteBanner} style={{ cursor: "pointer" }}
+                  {...activatable(() => nav(`/w/${wid}/settings`))}>
+                  This workspace has no LLM key yet — replies can't stream until one is added.
+                  {" "}<u>Add a key under SETUP → Provider</u> (owners only).
+                </div>
+              )}
+              {/* With the monitor folded away, a live run still has to be
+                  visible and stoppable from the stage. */}
+              {runLive && (
+                <div className={s.runStrip}>
+                  <span className={s.runStripDot} />
+                  <span style={{ flex: 1, minWidth: 0 }}>
+                    deep run · depth {monitor.run?.depth ?? 0}
+                    {monitor.run?.status === "waiting" ? " · holding for you" : ""}
+                  </span>
+                  <button className={s.drawerBtn} style={{ minHeight: 32 }}
+                    onClick={() => setDrawer("monitor")}>watch</button>
+                  <button className={s.runStripKill} onClick={stopRun}>◼ Stop run</button>
                 </div>
               )}
               {canSend ? (
-                <Composer provider={provider} busy={busy} onSend={onSend} onDeep={onDeep}
-                  onAgent={onAgent} agentHint={agentHint}
+                <Composer provider={provider} busy={busy} wid={wid} onSend={onSend} onDeep={onDeep}
+                  onAgent={onAgent} onNote={doNote} agentHint={agentHint}
                   onLibrary={() => nav(`/w/${wid}/library`)}
                   onDraftChange={onDraftChange}
                   draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
               ) : (
-                <div className={s.readonly}>
-                  <span style={{ fontSize: 16 }}>◉</span>
-                  <span style={{ fontSize: 13.5 }}>You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — read-only. You may watch live conversations and runs, but cannot send, fork, or steer.</span>
-                </div>
+                <>
+                  {/* An Observer is not mute. They cannot address the model —
+                      no sending, forking, escalating or steering — but they can
+                      address the people, because the person you invite to
+                      observe is usually the reviewer or supervisor who most
+                      needs to say "that citation is wrong". */}
+                  <div className={s.readonly}>
+                    <span style={{ fontSize: 16 }} aria-hidden>{STATE.watching}</span>
+                    <span style={{ fontSize: 13 }}>
+                      You are an <strong style={{ color: "var(--ink-2)" }}>Observer</strong> — you
+                      may watch live conversations and runs, and leave notes for the team,
+                      but cannot send to Helix, fork, or steer.
+                    </span>
+                  </div>
+                  {canNote && (
+                    <Composer provider={provider} busy={busy} wid={wid} noteOnly
+                      onSend={onSend} onDeep={onDeep} onAgent={onAgent} onNote={doNote}
+                      onLibrary={() => nav(`/w/${wid}/library`)}
+                      onDraftChange={onDraftChange}
+                      draft={composerDraft} onDraftConsumed={() => setComposerDraft(null)} />
+                  )}
+                </>
               )}
             </div>
           </>
@@ -1127,10 +1177,36 @@ export function ChatView() {
       </div>
 
       {/* RIGHT: monitor */}
-      <DeepReasoningMonitor conversationId={activeConvId} />
+      <DeepReasoningMonitor conversationId={activeConvId} id="chat-monitor"
+        collapsed={!monitorOpen} onToggle={() => setMonitorOpen((v) => !v)} />
 
+      {/* dismisses whichever drawer is open; inert above 1100px, where the CSS
+          keeps it display:none and both panes are in the grid */}
+      {drawer && (
+        <button className={s.drawerScrim} aria-label="Close panel" onClick={() => setDrawer(null)} />
+      )}
+
+      {exploreDlg && (
+        <ExploreDialog onClose={() => setExploreDlg(null)}
+          onConfirm={(angles) => { doExplore(exploreDlg.nodeId, angles); setExploreDlg(null); }} />
+      )}
       {forkDlg && (
-        <ForkDialog onClose={() => setForkDlg(null)} onConfirm={(name) => { doFork(forkDlg.nodeId, name); setForkDlg(null); }} />
+        <ForkDialog onClose={() => setForkDlg(null)}
+          onConfirm={(name, intent) => { doFork(forkDlg.nodeId, name, intent); setForkDlg(null); }} />
+      )}
+      {subjectDlg && activeConv && (
+        <SubjectDialog conv={activeConv} onClose={() => setSubjectDlg(false)}
+          onSave={(v) => { doSubject(v); setSubjectDlg(false); }} />
+      )}
+      {concludeDlg && activeConv && (
+        <ConcludeDialog conv={activeConv} onClose={() => setConcludeDlg(false)}
+          onSave={(t) => { doConclude(t); setConcludeDlg(false); }} />
+      )}
+      {resolveDlg && (
+        <ResolveDialog branch={resolveDlg}
+          siblings={branches.filter((b) => b.id !== resolveDlg.id)}
+          onClose={() => setResolveDlg(null)}
+          onConfirm={(status, resolution) => { doResolve(resolveDlg.id, status, resolution); setResolveDlg(null); }} />
       )}
       {linkDlg && activeConv && (
         <LinkContextDialog
@@ -1158,7 +1234,7 @@ export function ChatView() {
             <Button variant="ghost" onClick={() => setDeleteDlg(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doDelete}>Delete forever</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             {deleteDlg.kind === "conversation"
               ? "Every branch, message and run record in this conversation is removed for the whole workspace — there is no undo."
               : "The branch and its own messages are removed (inherited context belongs to its ancestors and stays). Refused if anything has forked from it."}
@@ -1183,7 +1259,7 @@ export function ChatView() {
                   background: draftVis === v ? "var(--paper-3)" : "transparent",
                   color: draftVis === v ? "var(--oxblood)" : "var(--ink-3)",
                 }}>
-                {v === "shared" ? "⊙ Shared — whole workspace" : "◍ Private — only you"}
+                {v === "shared" ? "Shared — whole workspace" : "Private — only you"}
               </button>
             ))}
           </div>
@@ -1193,60 +1269,10 @@ export function ChatView() {
   );
 }
 
-function ForkDialog({ onClose, onConfirm }: { onClose: () => void; onConfirm: (name: string) => void }) {
-  const [name, setName] = useState("experiment");
-  return (
-    <Dialog title="Fork a new branch" onClose={onClose}
-      footer={<>
-        <Button variant="ghost" onClick={onClose}>Cancel</Button>
-        <Button variant="primary" onClick={() => onConfirm(name.trim())}>Fork</Button>
-      </>}>
-      <div style={{ fontSize: 13, color: "var(--ink-3)" }}>
-        The new branch inherits the shared context up to this point, then diverges on its own.
-      </div>
-      <Input autoFocus value={name} onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === "Enter") onConfirm(name.trim()); }} />
-    </Dialog>
-  );
-}
+// The intent is the field this dialog should always have had. It used to ask
+// only for a name, which is why every branch in every demo was called
+// "experiment" — there was nothing meaningful to write, because the model held
+// no notion of what the branch was for. A verdict recorded later ("we adopted
+// experiment") says nothing; "we adopted 'chunk at 500 with overlap'" is a
+// decision. The name stays, shortened to a label for the lineage.
 
-function LinkContextDialog(
-  { candidates, onClose, onPick }: { candidates: Conversation[]; onClose: () => void; onPick: (id: string) => void },
-) {
-  return (
-    <Dialog title="Link context from another thread" onClose={onClose}
-      footer={<Button variant="ghost" onClick={onClose}>Done</Button>}>
-      <div style={{ fontSize: 13, color: "var(--ink-3)", marginBottom: 4 }}>
-        Pick a shared conversation. Its <strong>live</strong> context is folded into this thread's
-        replies — and stays in sync as that thread grows. This is a reference, not a fork: nothing is copied.
-      </div>
-      {candidates.length === 0 ? (
-        <div style={{ fontSize: 13, color: "var(--ink-3)", fontStyle: "italic" }}>
-          No other shared threads in this workspace to link yet.
-        </div>
-      ) : (
-        <div style={{ display: "flex", flexDirection: "column", gap: 6, maxHeight: 280, overflowY: "auto" }}>
-          {candidates.map((c) => (
-            <button key={c.id} onClick={() => onPick(c.id)}
-              style={{
-                textAlign: "left", padding: "9px 11px", borderRadius: 8, cursor: "pointer",
-                border: "1px solid var(--rule-soft)", background: "transparent", color: "var(--ink-2)", fontSize: 13.5,
-              }}>
-              <span style={{ color: "var(--oxblood)" }}>⊙</span> {c.title}
-            </button>
-          ))}
-        </div>
-      )}
-    </Dialog>
-  );
-}
-
-function pickText(p: Record<string, unknown>): string {
-  if (!p) return "";
-  for (const k of ["thought", "synthesis", "surfaced_insight", "insight", "reflection", "seed"]) {
-    const v = p[k];
-    if (typeof v === "string" && v.trim()) return v;
-  }
-  const v = Object.values(p).find((x) => typeof x === "string" && (x as string).length > 4);
-  return (v as string) ?? "";
-}

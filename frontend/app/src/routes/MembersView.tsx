@@ -4,39 +4,34 @@ import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   listMembers, createInvite, setMemberRole, removeMember,
   listInvites, revokeInvite,
-  renameWorkspace, deleteWorkspace, listWorkspaces,
 } from "@/lib/api";
 import { can, PERMISSION_ROWS, ROLE_META } from "@/lib/rbac";
-import { useEffectiveRole, useActiveWorkspace, useSession } from "@/store/session";
+import { useEffectiveRole, useActiveWorkspace } from "@/store/session";
 import { useToast } from "@/components/common/Toast";
 import { Button } from "@/components/common/Button";
 import { Dialog } from "@/components/common/Dialog";
-import { Input } from "@/components/common/Input";
+import { Select } from "@/components/common/Input";
 import { Spinner } from "@/components/common/Feedback";
 import { initialOf, colorFor } from "@/lib/format";
+import { ROLE_SIGIL } from "@/lib/glyphs";
 import type { Member, Role } from "@/lib/types";
-import { ProviderPanel } from "./ProviderPanel";
-import { ToolsPanel } from "./ToolsPanel";
 import s from "./members.module.css";
 
 const ROLES: Role[] = ["owner", "collaborator", "observer"];
 
 export function MembersView() {
   const { wid } = useParams();
-  const nav = useNavigate();
   const qc = useQueryClient();
   const { push } = useToast();
   const role = useEffectiveRole();
   const ws = useActiveWorkspace();
-  const setWorkspaces = useSession((st) => st.setWorkspaces);
   const canManage = can(role, "member.manage");
-  const canManageWs = can(role, "workspace.manage");
-  const [invite, setInvite] = useState<{ token: string; url: string } | null>(null);
-  const [wsName, setWsName] = useState("");
-  const [wsBusy, setWsBusy] = useState(false);
-  const [confirmDelete, setConfirmDelete] = useState(false);
+  const [invite, setInvite] = useState<{ token: string; url: string; role: Role } | null>(null);
+  // Observers exist to be invited — a stakeholder who should read the record
+  // without being able to spend the workspace's key. Without this the role was
+  // reachable only by inviting someone and then demoting them.
+  const [inviteRole, setInviteRole] = useState<Role>("collaborator");
   const [confirmKick, setConfirmKick] = useState<Member | null>(null);
-  useEffect(() => { setWsName(ws?.name ?? ""); }, [ws?.name]);
 
   // Outstanding invites — owner-only endpoint, so only fetch as one.
   const { data: inviteData } = useQuery({
@@ -52,10 +47,19 @@ export function MembersView() {
     enabled: !!wid,
   });
 
+  // Clipboard writes are refused in some contexts (no permission, insecure
+  // origin). Say so instead of throwing into the void — the link is on screen
+  // either way.
+  function copyLink(url: string) {
+    Promise.resolve(navigator.clipboard?.writeText(url))
+      .then(() => push("Invite link copied"))
+      .catch(() => push("Couldn't copy — select the link above instead", "error"));
+  }
+
   async function doInvite() {
     try {
-      const inv = await createInvite(wid!);
-      setInvite({ token: inv.token, url: inv.url });
+      const inv = await createInvite(wid!, inviteRole);
+      setInvite({ token: inv.token, url: inv.url, role: inviteRole });
       qc.invalidateQueries({ queryKey: ["invites", wid] });
     } catch (e: any) { push(e?.message ?? "Invite failed", "error"); }
   }
@@ -86,45 +90,27 @@ export function MembersView() {
     } catch (e: any) { push(e?.message ?? "Update failed", "error"); }
   }
 
-  async function doRename() {
-    const name = wsName.trim();
-    if (!wid || !name || name === ws?.name) return;
-    setWsBusy(true);
-    try {
-      await renameWorkspace(wid, name);
-      // The name lives in the session's workspace list (TopBar, picker) —
-      // refresh it so the whole shell updates, not just this page.
-      setWorkspaces(await listWorkspaces());
-      push("Workspace renamed");
-    } catch (e: any) { push(e?.message ?? "Rename failed", "error"); }
-    finally { setWsBusy(false); }
-  }
-
-  async function doDeleteWorkspace() {
-    if (!wid) return;
-    setWsBusy(true);
-    try {
-      await deleteWorkspace(wid);
-      setWorkspaces(await listWorkspaces());
-      nav("/workspaces");
-      push("Workspace deleted");
-    } catch (e: any) {
-      push(e?.message ?? "Delete failed", "error");
-      setConfirmDelete(false);
-    } finally { setWsBusy(false); }
-  }
-
   return (
     <div className={`${s.scroll} folio`}>
       <div className={s.inner}>
         <div className={s.headRow}>
           <div>
             <div className="serif-d" style={{ fontSize: 32 }}>Members &amp; Roles</div>
-            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13.5 }}>
+            <div style={{ color: "var(--ink-3)", marginTop: 8, fontSize: 13 }}>
               Owner ⊃ Collaborator ⊃ Observer. Role is legible at a glance — and re-skins the whole workspace.
             </div>
           </div>
-          {canManage && <Button variant="primary" onClick={doInvite}>+ Invite</Button>}
+          {canManage && (
+            <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+              <Select compact className="mono" value={inviteRole}
+                title="What the invited person will be able to do"
+                onChange={(e) => setInviteRole(e.target.value as Role)}>
+                <option value="collaborator">as Collaborator</option>
+                <option value="observer">as Observer</option>
+              </Select>
+              <Button variant="primary" onClick={doInvite}>+ Invite</Button>
+            </div>
+          )}
         </div>
         <div className="chapter-rule" aria-hidden>❦</div>
 
@@ -137,10 +123,14 @@ export function MembersView() {
                   <div style={{ fontSize: 15, fontWeight: 600 }}>{m.email}</div>
                   <div className="mono" style={{ fontSize: 12, color: "var(--ink-3)" }}>{m.user_id.slice(0, 8)}</div>
                 </div>
-                {canManage ? (
-                  <select className={`mono ${s.roleSel}`} value={m.role} onChange={(e) => changeRole(m.user_id, e.target.value)}>
+                {/* The canonical owner gets a badge, not a dropdown: the server
+                    refuses every change to them ("Cannot demote the workspace
+                    owner"), so offering the choice only produces an error. */}
+                {canManage && m.user_id !== ws?.owner_id ? (
+                  <Select compact className="mono" value={m.role}
+                    onChange={(e) => changeRole(m.user_id, e.target.value)}>
                     {ROLES.map((r) => <option key={r} value={r}>{ROLE_META[r].label}</option>)}
-                  </select>
+                  </Select>
                 ) : (
                   <div className={s.badge}>{ROLE_META[m.role].sigil} {ROLE_META[m.role].label}</div>
                 )}
@@ -167,7 +157,7 @@ export function MembersView() {
                 <div key={inv.token} className={s.row}>
                   <span style={{ fontSize: 15 }}>✉</span>
                   <div style={{ flex: 1, minWidth: 0 }}>
-                    <div className="mono" style={{ fontSize: 12.5, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                    <div className="mono" style={{ fontSize: 12, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
                       {inv.token}
                     </div>
                     <div className="mono" style={{ fontSize: 11, color: "var(--ink-3)" }}>
@@ -175,7 +165,8 @@ export function MembersView() {
                     </div>
                   </div>
                   <Button variant="ghost" style={{ fontSize: 12 }}
-                    onClick={() => { navigator.clipboard?.writeText(inv.token); push("Token copied"); }}>copy</Button>
+                    title="Copy the join link"
+                    onClick={() => { copyLink(inv.url); }}>copy link</Button>
                   <Button variant="ghost" style={{ fontSize: 12, color: "var(--oxblood)" }}
                     title="Revoke — the link stops admitting anyone, immediately"
                     onClick={() => doRevoke(inv.token)}>revoke</Button>
@@ -185,34 +176,9 @@ export function MembersView() {
           </>
         )}
 
-        {wid && <ProviderPanel wid={wid} isOwner={role === "owner"} />}
-        {wid && <ToolsPanel wid={wid} isOwner={role === "owner"} />}
-
-        {canManageWs && (
-          <>
-            <div className={s.matrixHead} style={{ marginTop: 38 }}>
-              <span className="serif-d" style={{ fontSize: 22 }}>Workspace</span>
-              <span className={`mono ${s.tag}`}>owner only</span>
-            </div>
-            <div className={s.row} style={{ flexDirection: "column", alignItems: "stretch", gap: 14 }}>
-              <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
-                <Input value={wsName} onChange={(e) => setWsName(e.target.value)}
-                  onKeyDown={(e) => e.key === "Enter" && doRename()}
-                  style={{ maxWidth: 320 }} placeholder="Workspace name" />
-                <Button variant="primary" disabled={wsBusy || !wsName.trim() || wsName.trim() === ws?.name}
-                  onClick={doRename}>Rename</Button>
-                <div style={{ flex: 1 }} />
-                <Button variant="oxblood" disabled={wsBusy} onClick={() => setConfirmDelete(true)}>
-                  Delete workspace
-                </Button>
-              </div>
-              <div style={{ fontSize: 12.5, color: "var(--ink-3)" }}>
-                Deleting removes every conversation, branch, document, run record and invite in
-                this workspace, for every member — there is no undo.
-              </div>
-            </div>
-          </>
-        )}
+        {/* Provider, agent tools and the workspace itself used to sit here.
+            They describe how the workspace is configured, not who is in it —
+            see routes/SettingsView.tsx. */}
 
         <div className={s.matrixHead} style={{ marginTop: 38 }}>
           <span className="serif-d" style={{ fontSize: 22 }}>Permission Matrix</span>
@@ -221,13 +187,13 @@ export function MembersView() {
         <div className={s.matrix}>
           <div className={`${s.mrow} ${s.mhead}`}>
             <span className="eyebrow">Action</span>
-            <span className="eyebrow" style={{ textAlign: "center", color: "var(--oxblood)" }}>♔ Owner</span>
-            <span className="eyebrow" style={{ textAlign: "center" }}>⌇ Collab</span>
-            <span className="eyebrow" style={{ textAlign: "center" }}>◉ Observer</span>
+            <span className="eyebrow" style={{ textAlign: "center", color: "var(--oxblood)" }}>{ROLE_SIGIL.owner} Owner</span>
+            <span className="eyebrow" style={{ textAlign: "center" }}>{ROLE_SIGIL.collaborator} Collab</span>
+            <span className="eyebrow" style={{ textAlign: "center" }}>{ROLE_SIGIL.observer} Observer</span>
           </div>
           {PERMISSION_ROWS.map((r, i) => (
             <div key={r.key} className={s.mrow} style={{ background: i % 2 ? "var(--stripe)" : undefined }}>
-              <span className="mono" style={{ fontSize: 13.5, color: "var(--ink-2)" }}>{r.key}</span>
+              <span className="mono" style={{ fontSize: 13, color: "var(--ink-2)" }}>{r.key}</span>
               {ROLES.map((role) => (
                 <span key={role} style={{ textAlign: "center", color: can(role, r.action) ? "var(--verde)" : "var(--ink-3)" }}>
                   {can(role, r.action) ? "✓" : "·"}
@@ -235,6 +201,15 @@ export function MembersView() {
               ))}
             </div>
           ))}
+        </div>
+        {/* The one row where Observer is a ✓, explained where a reader meets
+            it. Without this the exception looks like a mistake in the table. */}
+        <div style={{ fontSize: 12, color: "var(--ink-3)", marginTop: 10, lineHeight: 1.55, maxWidth: 620 }}>
+          An Observer's single write is the note. Notes never reach the model, so
+          an Observer cannot change a reply, spend the workspace's key, or alter a
+          thread's lineage — they can address the people in the room without being
+          able to address Helix. The person you invite to observe is usually the
+          reviewer who most needs to say “that citation is wrong”.
         </div>
       </div>
 
@@ -244,29 +219,27 @@ export function MembersView() {
             <Button variant="ghost" onClick={() => setConfirmKick(null)}>Cancel</Button>
             <Button variant="oxblood" onClick={doKick}>Remove member</Button>
           </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
             They lose access immediately. Messages they wrote in shared threads stay part of
             those conversations, and they can be invited back at any time.
           </div>
         </Dialog>
       )}
-      {confirmDelete && (
-        <Dialog title={`Delete ${ws?.name ?? "this workspace"}?`} onClose={() => setConfirmDelete(false)}
-          footer={<>
-            <Button variant="ghost" onClick={() => setConfirmDelete(false)}>Cancel</Button>
-            <Button variant="oxblood" disabled={wsBusy} onClick={doDeleteWorkspace}>Delete forever</Button>
-          </>}>
-          <div style={{ fontSize: 13.5, color: "var(--ink-2)" }}>
-            Every conversation, branch, document, run record and invite in this workspace is
-            deleted — for every member. This cannot be undone.
-          </div>
-        </Dialog>
-      )}
       {invite && (
         <Dialog title="Invite link" onClose={() => setInvite(null)}
-          footer={<Button variant="primary" onClick={() => { navigator.clipboard?.writeText(invite.token); push("Token copied"); }}>Copy token</Button>}>
-          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>Share this token; the recipient joins as a Collaborator.</div>
-          <div className="mono" style={{ wordBreak: "break-all", background: "var(--paper-3)", padding: 12, borderRadius: 8, fontSize: 12 }}>{invite.token}</div>
+          footer={<Button variant="primary"
+            onClick={() => copyLink(invite.url)}>
+            Copy link
+          </Button>}>
+          {/* The link, not the token. This dialog used to show the raw token
+              and say "share this token", so the join URL the server has always
+              generated was never handed to anyone — which is how it stayed
+              broken without being noticed. */}
+          <div style={{ fontSize: 13, color: "var(--ink-2)" }}>
+            Send this link. Whoever opens it joins as {ROLE_META[invite.role].label.toLowerCase()};
+            it works once, and you can revoke it below at any time.
+          </div>
+          <div className="mono" style={{ wordBreak: "break-all", background: "var(--paper-3)", padding: 12, borderRadius: 8, fontSize: 12 }}>{invite.url}</div>
         </Dialog>
       )}
     </div>
