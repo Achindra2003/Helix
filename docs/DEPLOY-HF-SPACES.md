@@ -84,6 +84,28 @@ works normally.
 
 ---
 
+## What you need on your machine
+
+**`git` and Node 20 or newer. That is the whole list.**
+
+Worth stating because the previous plan needed much more, and because the
+instinct on reading "deploy" is to install Docker. There is nothing to build
+here: Hugging Face builds the Space, and the Space pulls an image that already
+exists. No Docker, no Python, no database client, and no `npm install` — both
+verification scripts import only Node built-ins, so a clone plus `node` runs
+them.
+
+```bash
+git clone https://github.com/Achindra2003/Helix.git
+cd Helix
+```
+
+That checkout is needed twice: `deploy/hf-space/` holds the two files the Space
+runs (step 3), and `frontend/app/e2e/` holds the verification scripts (step 6),
+which are deliberately excluded from the image.
+
+---
+
 ## Step 0 — the three accounts
 
 All three are email sign-ups. None asks for a card, and none needs
