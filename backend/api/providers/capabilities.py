@@ -37,6 +37,12 @@ _REGISTRY: tuple[tuple[str, ModelCapabilities], ...] = (
     ("mixtral", ModelCapabilities(32_768, True, True)),
     ("gemma2", ModelCapabilities(8_192, True, False)),
     ("gemma", ModelCapabilities(8_192, False, False)),
+    # Groq's replacement for the Llama models it retires on 16 August 2026.
+    # Both sizes are 131k with tool use and JSON schema mode. This entry is
+    # load-bearing rather than cosmetic: "openai/gpt-oss-120b" matches none
+    # of the patterns below, so without it the default applies and Agent
+    # mode loses tool calling for a model that supports it.
+    ("gpt-oss", ModelCapabilities(131_072, True, True)),
     ("gpt-4o", ModelCapabilities(128_000, True, True)),
     ("gpt-4", ModelCapabilities(128_000, True, True)),
     ("gpt-3.5", ModelCapabilities(16_385, True, True)),

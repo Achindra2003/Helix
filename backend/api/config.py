@@ -140,7 +140,13 @@ class Settings(BaseSettings):
     llm_provider: str = "stub"
 
     groq_api_key: str = ""
-    groq_model: str = "llama-3.3-70b-versatile"
+    # Groq retires llama-3.3-70b-versatile and llama-3.1-8b-instant on
+    # 16 August 2026 for free and developer-tier keys, which is what a
+    # self-hoster will have. gpt-oss-20b is Groq's named replacement for the
+    # small fast model and is the right default for chat; deep reasoning
+    # takes the 120b below. A workspace with its own key can still name
+    # anything its provider serves.
+    groq_model: str = "openai/gpt-oss-20b"
 
     ollama_base_url: str = "http://localhost:11434"
     ollama_model: str = "llama3.2"
@@ -230,7 +236,13 @@ class Settings(BaseSettings):
     # Deliberately decoupled from `groq_model`: chat can stay on a fast/cheap
     # small model while the recursive self-critique loop — whose whole value is
     # reasoning quality — runs on the strongest available model.
-    deep_reasoning_model: str = "llama-3.3-70b-versatile"
+    # Was llama-3.3-70b-versatile until Groq's 16 August 2026 retirement of it
+    # on free and developer tiers; gpt-oss-120b is Groq's named replacement and
+    # is the strongest thing its free tier serves. The published evaluation in
+    # backend/evals/FINDINGS.md was measured on the 70B and still describes
+    # that run — it is a record of what was tested, not a claim about this
+    # default, and re-running it on the 120b is its own piece of work.
+    deep_reasoning_model: str = "openai/gpt-oss-120b"
     # The instance default only — a run picks its own mode (DeepRequest.mode).
     deep_reasoning_mode: str = "analyze"  # explore|analyze|create|solve|philosophize|review
     # Tool policy (FR-14): may deep runs reach out to the web (research fan-out)?

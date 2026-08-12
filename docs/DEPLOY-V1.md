@@ -9,12 +9,21 @@ minutes, rather than on a VM at the end.
 written, reviewed and covered by tests that use SQLite — which is precisely the
 kind of confidence that evaporates on first contact.
 
-> **Running the deployment?** Use **`DEPLOY-RUNBOOK.md`**, not this file. Since
-> the machine-side work is now done by someone who was not part of these
-> conversations, the commands live there as an ordered list with their
-> verification attached. This document is the reasoning behind that order —
-> read it to understand *why* a step exists or what a failure means, and read
-> the runbook to know what to type.
+> **Running the deployment?** Use **`DEPLOY-HF-SPACES.md`**, not this file and
+> not `DEPLOY-RUNBOOK.md`. Since the machine-side work is done by someone who
+> was not part of these conversations, the commands live there as an ordered
+> list with their verification attached. This document is the reasoning behind
+> that order — read it to understand *why* a step exists or what a failure
+> means, and read the runbook to know what to type.
+>
+> **Amendment, 11 August — there is no VM.** GCP and Azure were both abandoned
+> at the payment step (card declined; UPI wanting ₹1000 with reports of
+> suspensions after paying; student verification failing), so Helix runs on a
+> Hugging Face Space with a Neon Postgres behind it. Stage C below describes an
+> instance nobody has. What survived the move: the Postgres audit, the
+> migration work, the verification order, and the registration-bootstrap
+> constraint. What did not: the whole memory argument — a free Space has 16 GB,
+> so the 570 MB measurement is now a curiosity rather than a constraint.
 
 ---
 
