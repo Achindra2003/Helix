@@ -22,8 +22,8 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 | **FR-5** | Real-time sync & presence (WebSocket room) | ✅ | `/ws/workspaces/{id}` room: presence bar shows **who's online, live**; a teammate's turn on your open thread **streams in token-by-token**; new conversations/forks/prompts appear without refresh. Open two browsers to see it. |
 | **FR-6** | Fork & branch tree (inherit context, interactive tree) | ✅ | Hover a message → **fork here**, or the **Fork** button; **Branch lineage** sidebar shows parent→child, active highlighted, click to open. Fork inherits ancestor context, siblings stay isolated. |
 | **FR-7** | Shared prompt library (save, tag, search, insert) | ✅ | Rail → **PROMPTS**: search, tags, **+ Save prompt**, **Insert →** (runs the prompt as a turn); teammates' saves appear live. |
-| **FR-8** | LLM provider abstraction (Groq/Ollama by config) | ✅ | Backend provider interface; UI shows the active provider (`☉ groq`). Swap via `backend/.env`. Deep Reasoning uses its own `DEEP_REASONING_MODEL` (70B) independent of chat. |
-| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize on the 70B model; halts on **semantic convergence** (MiniLM embeddings) or budget; each step emits node/depth/energy/thought/synthesis/readings. The run itself executes **server-side** — closing the tab no longer kills it (reconnect on reload; explicit **Stop** button). The button's caret opens **six reasoning modes** — Explore, Analyze, Create, Solve, Philosophize, Review — each with its own depth, energy curve, steer interval and prompts, chosen **per run** (the mode is a property of the question, not of the workspace) and recorded in the run's provenance. |
+| **FR-8** | LLM provider abstraction (Groq/Ollama by config) | ✅ | Backend provider interface; UI shows the active provider (`☉ groq`). Swap via `backend/.env`. Deep Reasoning uses its own `DEEP_REASONING_MODEL` (`openai/gpt-oss-120b` by default) independent of chat. |
+| **FR-9** | Deep Reasoning mode (recursive, step events) | ✅ | Composer **⟳ Deep Reasoning** → recursive reason→reflect→synthesize on the workspace's deep model (`openai/gpt-oss-120b` by default); halts on **semantic convergence** (MiniLM embeddings) or budget; each step emits node/depth/energy/thought/synthesis/readings. The run itself executes **server-side** — closing the tab no longer kills it (reconnect on reload; explicit **Stop** button). The button's caret opens **six reasoning modes** — Explore, Analyze, Create, Solve, Philosophize, Review — each with its own depth, energy curve, steer interval and prompts, chosen **per run** (the mode is a property of the question, not of the workspace) and recorded in the run's provenance. |
 | **FR-10** | Deep Reasoning monitor (trace, topology, meters) | ✅ | Right panel: **topology strip** lighting node-by-node, **energy + budget** meters, **depth / loop-guard / stability / confidence / tokens**, live **step trace**, a **queue indicator** when a workspace's concurrency cap is hit, and a **Run history** drawer (past runs incl. model + provenance). Teammates watching the same shared branch see the trace live too. |
 | **FR-11** | Run control — kill & steer | ✅ | **Stop** halts a run server-side (`POST .../kill`) — no longer just an aborted local stream. **⟂ guided** toggle → the run **pauses between reasoning cycles**; the monitor opens a steer box — inject guidance (any Collaborator can) or continue as-is; the run resumes over HTTP from its checkpoint. |
 | **FR-12** | Budget meter & guardrails | ✅ | Budget meter (% of cap) + the engine's **compute-budget halt** + a **wall-clock deadline** per run segment (a rate-limited provider can no longer stretch a run indefinitely). *Per-workspace rate metering not yet surfaced.* |
@@ -65,12 +65,13 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
   milestone).
 - **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
 
-**Verification (8 August 2026):** backend `pytest -q` -> **461 passed, 6
-failed** — the six are long-known *environment* reds on Windows only (four
-alembic path resolutions in `test_migrations`, one POSIX file-mode assertion in
-`test_secure_config`, and one that fails *because* a real Tavily key is present
-in the local `.env`); Ubuntu CI is green. Hermetic otherwise: stub provider,
-throwaway SQLite, no network or keys required. Coverage includes RBAC gating,
+**Verification (12 August 2026):** backend `pytest -q` -> **508 passed, 4
+skipped** (512 collected), green on Windows and on Ubuntu CI alike. The six
+long-standing "environment reds" recorded here on 8 August turned out to be
+real bugs rather than platform facts, and were fixed; CI additionally runs the
+suite against a real `postgres:16` and applies every migration to it on each
+push. Hermetic: stub provider, throwaway SQLite, no network or keys required.
+Coverage includes RBAC gating,
 the WebSocket room, guided steer, provider resilience, durable deep runs, file
 grounding, citation persistence across stores and forks, branch votes, document
 metadata, the agent tool loop with its approval gate and allowlist policy, tool
