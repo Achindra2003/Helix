@@ -27,8 +27,9 @@ already tracked rather than surprises:
   server-side RBAC and tenancy are enforced on every route (see
   `REQUIREMENTS-COVERAGE.md` NFR-5), but the production hardening sweep
   (secure-by-default secret refusal, rate limiting, Postgres row-level
-  security) is in progress — check `BATON-MANSOOR.md` and `LAUNCH-PLAN.md`
-  for current status before assuming a hosted instance is hardened.
+  security) is not uniformly complete — see `REQUIREMENTS-COVERAGE.md`
+  (NFR-2) and the roadmap in `README.md` for what is and is not enforced
+  before assuming a hosted instance is hardened.
 - **BYO-key model:** each workspace supplies its own LLM API key
   (encrypted at rest); a compromised account can spend that workspace's own
   key, not a shared operator key.

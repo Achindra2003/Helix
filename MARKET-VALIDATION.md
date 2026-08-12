@@ -1,8 +1,7 @@
 # Helix — Market Validation (July 2026)
 
 An honest read of where Helix sits in the current landscape, researched July 2026.
-Companion to `REQUIREMENTS-COVERAGE.md` (what's built) and
-`helix-ui-standout-plan.md` (what this branch makes visible).
+Companion to `REQUIREMENTS-COVERAGE.md` (what's built).
 
 **Thesis being validated:** a multi-tenant *collaborative* AI workspace —
 "Git for your team's AI work" — with branchable shared conversations, live

@@ -1,7 +1,7 @@
 # Helix — API Contract (v0.1)
 
 > The interface frontend and backend build against in parallel. Grounded in the
-> data model and modules of `helix-build-plan.md` / `helix-srs.md`.
+> data model and modules of `helix-srs.md` / `docs/ARCHITECTURE.md`.
 >
 > **Transports:** REST (CRUD), **WebSocket** (one room per workspace: presence +
 > live broadcast), **SSE** (LLM token streams). `[impl]` = already scaffolded in

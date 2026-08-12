@@ -130,4 +130,4 @@ The **collaborative core (M1–M5, M8, M9)** is the product and ships first on p
 streaming chat (Weeks 1–5). **Deep Reasoning + monitor (M6–M7)** is the headline
 depth feature (Weeks 6–7) and is the cuttable layer — if engine integration runs
 long, Helix still ships and demos as a complete collaborative workspace. See
-`helix-build-plan.md` and `helix-srs.md`.
+`helix-srs.md` and `docs/ARCHITECTURE.md`.

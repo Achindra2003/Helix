@@ -185,8 +185,9 @@ owner can open TEAM → Provider, paste their own API key, pick models, and
 1. All model calls go through one `LLMProvider` interface
    (`backend/api/providers/base.py`) with three implementations behind it:
    Groq, Ollama, and a stub (for tests). The interface is OpenAI-shaped, so
-   a generic OpenAI-compatible endpoint is a contained addition — planned
-   (`LAUNCH-PLAN.md` Phase 1, `base_url` per workspace), not built.
+   a generic OpenAI-compatible endpoint was a contained addition, and has
+   since shipped: a workspace can choose `openai_compatible` and supply its
+   own `base_url`, which covers OpenRouter, vLLM and LM Studio alike.
 2. Which provider a call uses is decided per workspace by one pure function:
    `resolve()` in `backend/api/provider_settings.py`. Workspace settings win;
    the server `.env` is the fallback. A hosted instance ships with **no
@@ -384,8 +385,7 @@ clean, and a 10-step scripted browser click-through
 → cited grounding → resurfacing → agent run with approval → deep monitor →
 map against a real provider.
 
-What turns it from "finished" into "launchable" is the infra lane
-(`BATON-MANSOOR.md`):
+What turns it from "finished" into "launchable" is the infra lane:
 
 - **P1 — the install (✅ landed July 19, `8d691bc`).** One production container
   serving the built frontend from FastAPI; `git clone && docker compose up` →

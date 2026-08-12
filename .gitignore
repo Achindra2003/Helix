@@ -45,15 +45,71 @@ helix.db
 /Ouroboros/
 
 # Session logs / working notes (internal process chatter, not product docs).
-# BATON-RAJNISH.md, BATON-MANSOOR.md, and baton-2.md are curated handoff docs
-# and stay tracked; only the raw .txt session transcripts are ignored.
 baton*.txt
 *-baton.txt
 dump*.txt
 *-dump.txt
 
-# Impeccable: per-developer overrides (hook consent). Shared config.json is tracked.
-.impeccable/config.local.json
+# --- Not part of the product -----------------------------------------------
+# Everything below still lives in this working directory; it is simply not
+# something a visitor to the repository has any use for. Untracked rather than
+# deleted, because the coursework artefacts are still needed for submission.
+#
+# Every pattern is anchored with a leading `/` so it matches the repo root
+# only. Unanchored, `demo_artifacts/` would also swallow the backend's test
+# fixtures and `Helix.html` would swallow `frontend/helix.html`.
 
-# Written only when an e2e run fails — a diagnostic, not a deliverable.
-docs/screenshots/99-failure.png
+# University submission: the report, its LaTeX source, the pitch, the brief.
+/*.docx
+/*.pdf
+/Helix-LaTeX/
+/Helix-LaTeX.zip
+/latex.zip
+/main.aux
+/main.lof
+/main.log
+/main.lot
+/main.out
+/main.tex
+/main.toc
+
+# Internal handoffs between the three of us.
+/BATON-*.md
+/baton-2.md
+/read.txt
+/continue.txt
+
+# Demo-day and viva preparation - scripts, speaker notes, division of slides.
+/TEAM-PREP.md
+/PRESENT-*.md
+/HELIX-DEMO*.md
+/HELIX-TEAM-BRIEF.md
+/HELIX-STORY.md
+/HELIX-GENAI-STUDY.md
+/demo_artifacts/
+/helix.pptx*
+/media/
+/figs/
+
+# Planning documents that the built product has superseded.
+/LAUNCH-PLAN.md
+/helix-build-plan.md
+/helix-ui-standout-plan.md
+/helix-analysis-phase.md
+/helix-design-phase.md
+/helix-proposal.md
+/helix-presentation.md
+/helix.md
+/WALKTHROUGH.md
+
+# Standalone HTML prototypes, predating the React app.
+/Helix.html
+/helix-design.html
+/helix-poc.html
+/helix-prototype.html
+
+# Design-tool scratch space.
+/UIUX design request/
+/UIUX design request.zip
+/PRODUCT.md
+/m.json

@@ -410,7 +410,7 @@ the page body never scrolls horizontally. Verified with no document-level
 horizontal scroll at 1440 / 1280 / 1100 / 1024 / 900 / 760 / 560 / 390.
 
 Note that small-screen support is **not** an established product requirement
-(see PRODUCT.md); the commitment here is reachability of every control, not a
+(see `helix-product.md`); the commitment here is reachability of every control, not a
 designed phone layout.
 
 ### Named Rules

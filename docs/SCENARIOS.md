@@ -9,7 +9,7 @@ brainstorming, a dev team, and a research group between them exercise every
 primitive Helix has — divergent thinking, decisions that must be defended, and
 evidence that must be cited. If a module holds in all three it is finished. If
 it holds in one it is a vertical feature wearing horizontal clothes, and
-PRODUCT.md commits to horizontal (2026-07-27).
+`helix-product.md` commits to horizontal (2026-07-27).
 
 Verdicts here are **holds** / **bends** / **breaks**, and they are about
 *usability for that room*, not correctness. Everything named works.
@@ -175,7 +175,7 @@ eRisk 2025 paper for a reason.
 **Citations are not in the record.** This is the single most important finding
 in this document. Per-message grounding citations live *only in the live
 stream*: they were never persisted on nodes, so the Markdown and JSON exports
-deliberately omit them (PRODUCT.md states this, honestly, as a non-goal). For a
+deliberately omit them (`helix-product.md` states this, honestly, as a non-goal). For a
 research team the citation **is** the artifact. A workspace that grounds every
 answer on their own papers and then exports a decision report with no sources
 has dropped the one thing the room came for. Everything else here is polish

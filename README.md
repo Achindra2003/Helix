@@ -265,13 +265,18 @@ issued before the restart still works.
 | Document | What it's for |
 |---|---|
 | [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) | Modules, seams, data model, request lifecycle |
+| [`HELIX-USAGE.md`](HELIX-USAGE.md) | Click-by-click: what to do, and what you should see |
 | [`HELIX-AI-EXPLAINED.md`](HELIX-AI-EXPLAINED.md) | The AI layer in plain English, layer by layer |
+| [`HELIX-FEATURE-TRACES.md`](HELIX-FEATURE-TRACES.md) | Each feature's execution path, with file references |
 | [`REQUIREMENTS-COVERAGE.md`](REQUIREMENTS-COVERAGE.md) | Every requirement, its status, and where to see it running |
+| [`helix-api-contract.md`](helix-api-contract.md) | The REST, SSE and WebSocket contract |
 | [`AI-LANE-CONTRACTS.md`](AI-LANE-CONTRACTS.md) | The AI layer's frozen interfaces |
 | [`DESIGN.md`](DESIGN.md) | The visual system — tokens, type, motion |
 | [`backend/evals/FINDINGS.md`](backend/evals/FINDINGS.md) | The measured convergence evaluation |
+| [`docs/SCENARIOS.md`](docs/SCENARIOS.md) | Every module tested against three kinds of team: holds, bends, or breaks |
 | [`MARKET-VALIDATION.md`](MARKET-VALIDATION.md) | The landscape these features were built against |
 | [`helix-srs.md`](helix-srs.md) · [`helix-product.md`](helix-product.md) | Requirements, and the product argument |
+| [`docs/DEPLOY-HF-SPACES.md`](docs/DEPLOY-HF-SPACES.md) | Deploying a hosted instance |
 
 ## Install — one command
 

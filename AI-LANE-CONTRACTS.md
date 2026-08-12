@@ -6,8 +6,8 @@ what the **frontend** and **DB/backend** lanes build against, what is
 deliberately left as a seam, and the rituals that keep the AI layer honest.
 
 Companions: `HELIX-AI-EXPLAINED.md` (how the engine thinks),
-`LAUNCH-PLAN.md` (why these features), `MARKET-VALIDATION.md` (the gaps they
-close).
+`docs/ARCHITECTURE.md` (how the system is put together), and
+`MARKET-VALIDATION.md` (the gaps these features close).
 
 ---
 

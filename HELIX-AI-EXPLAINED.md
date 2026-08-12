@@ -448,6 +448,6 @@ one-paragraph version:
 - **FR-14.** *Addressed.* No longer a bare server-side flag: agent mode ships
   the three-layer policy model — catalog, owner-managed workspace allowlist
   (enforced at bind time, not call time), and human approval on sensitive
-  calls. See `HELIX-FEATURE-TRACES.md` §10 and `HELIX-GENAI-STUDY.md` ch. 3.
+  calls. See `HELIX-FEATURE-TRACES.md` §10.
 
 *These are the things to say out loud rather than hide — they're scoped and known.*
