@@ -6,13 +6,22 @@ Modal is a serverless platform, and Helix is a stateful long-lived server, so
 three of the choices below are load-bearing rather than stylistic. Each one is
 commented where it is made.
 
-**Why `web_server` and not `asgi_app`.** Modal offers both. `@modal.asgi_app`
-wraps the ASGI app and enforces a **150-second HTTP request timeout** on every
-request — which Helix would hit on a long Deep Reasoning run and hit instantly
-on a guided run paused for steering. `@modal.web_server` instead runs our own
-uvicorn inside the container and proxies to it, and that proxy's timeout is
-**3600 seconds**. Same uvicorn invocation as the Dockerfile's `CMD`; nothing in
-the application changes.
+**Why `asgi_app` and not `web_server`.** Modal offers both, and the choice was
+made the other way first, for a reason that turned out to be the lesser one.
+
+`@modal.web_server` runs our own uvicorn and proxies to it, with a 3600-second
+request ceiling against `asgi_app`'s **150 seconds**. That looked decisive. But
+that proxy does not carry WebSockets: the realtime socket opens and closes again
+within about two seconds, measured, while the identical build holds it open
+indefinitely locally and under `asgi_app`. Presence, live fan-out and watching a
+teammate's run — the whole reason the workspace feels shared — are on that
+socket.
+
+So `asgi_app`, and the 150-second ceiling is bought off rather than lived with:
+`DEEP_REASONING_DEADLINE_S` below is set under it, so a long run halts *itself*
+cleanly with `stop_reason="deadline"` before the platform can sever the stream.
+Deep runs also execute server-side and survive a dropped client, so the failure
+mode even then is a reconnect rather than a lost run.
 
 **Why the image comes from GHCR.** `.github/workflows/release.yml` already
 builds and tests it, and `Image.from_dockerfile` would re-implement a
@@ -24,8 +33,6 @@ constraint the Dockerfile's `--workers 1` comment describes, for the same
 reason, and on Modal it is easier to get wrong because the platform's default
 is to scale out.
 """
-import subprocess
-
 import modal
 
 # The image CI published. Bump this string after tagging a new release; that is
@@ -60,6 +67,17 @@ image = (
             "MKL_NUM_THREADS": "1",
             "TOKENIZERS_PARALLELISM": "false",
             "MALLOC_ARENA_MAX": "2",
+            # --- the 150s ceiling, bought off ------------------------------
+            # Modal cuts any HTTP request at 150 seconds. A deep run's own
+            # wall-clock cap defaults to 300, so on this platform a long run
+            # could be severed mid-stream by the proxy rather than ending on
+            # its own terms. Set under the ceiling, the run halts itself with
+            # `stop_reason="deadline"` — a state the product already models,
+            # renders and explains — and the platform never has to intervene.
+            #
+            # In practice runs converge in ~27s; this is the tail, not the
+            # common case.
+            "DEEP_REASONING_DEADLINE_S": "120",
         }
     )
 )
@@ -92,8 +110,10 @@ app = modal.App("helix")
     # Ten minutes of idle before the container is released. Long enough that a
     # pause between demo beats never costs a cold start.
     scaledown_window=600,
-    # Matches the web_server proxy's own 3600s ceiling. A request cannot outlive
-    # the proxy, so a smaller number here would only mean two different limits.
+    # The *container's* budget, not the request's — a WebSocket held open for a
+    # working session is one long-lived input, and this is what bounds it. HTTP
+    # requests are capped at 150s by the platform regardless; see the deep-run
+    # deadline above.
     timeout=3600,
     # ~570 MB resident once anything semantic has run (docs/DEPLOY-RUNBOOK.md),
     # plus room for an embedding batch during document ingest. 2 GB is four
@@ -107,29 +127,14 @@ app = modal.App("helix")
 # hold an input for their whole lifetime, so the ceiling has to comfortably
 # exceed the number of people in the room.
 @modal.concurrent(max_inputs=100)
-@modal.web_server(
-    8000,
-    # A cold start pulls a ~2.5 GB image and boots uvicorn. The default of five
-    # seconds is for a hello-world.
-    startup_timeout=300,
-)
+@modal.asgi_app()
 def serve():
-    """Start the same uvicorn the Dockerfile's CMD starts, and return.
+    """Hand Modal the same FastAPI app the image's CMD would have served.
 
-    `web_server` expects this function to launch a listener on the declared
-    port and exit; Modal proxies to it from there. `--workers 1` is the same
-    decision as `max_containers=1`, one level down.
+    There is no uvicorn here and no `--workers 1`: Modal runs the ASGI app in
+    one container, and `max_containers=1` above is what carries that decision
+    now. The application is imported unchanged.
     """
-    subprocess.Popen(
-        [
-            "uvicorn",
-            "api.main:app",
-            "--host",
-            "0.0.0.0",
-            "--port",
-            "8000",
-            "--workers",
-            "1",
-        ],
-        cwd="/app",
-    )
+    from api.main import app as fastapi_app
+
+    return fastapi_app
