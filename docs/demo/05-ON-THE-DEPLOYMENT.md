@@ -23,6 +23,19 @@ all three rooms hold
 
 That is the whole claim of this page, and it is reproducible with one command.
 
+One check the rooms cannot make, because they only ever speak HTTP:
+
+```
+$ node e2e/realtime-hold.mjs https://achindra2003--helix-serve.modal.run 60
+
+ok  held 60s — 1 presence frame(s), 5 pong(s)
+```
+
+Run both. A host that serves every request correctly and silently drops
+WebSockets passes the rooms suite clean — which is precisely what happened
+here once, and cost the demo its best moment without a single failing
+assertion.
+
 ---
 
 ## The history, because two earlier answers were wrong
@@ -76,6 +89,7 @@ measurements behind the interesting ones.
 | **Approval gate** | a sensitive call pauses the run; approving streams the continuation | room 2, checks 11–12 |
 | **Tool ledger** | `{tool: get_pull_request, source: mcp:github, status: ok, calls: 1, avg_latency_ms: 404}` | `GET …/usage` |
 | **Observer role** | can leave a margin note, **cannot** address the model | room 3, checks 8–9 |
+| **Realtime WebSocket** | held **60 s**, presence frame on connect, pongs throughout | `wss://…/ws/workspaces/{id}?token=` |
 | Explore ways, voting, adoption, ledger | all hold | room 1, checks 7–11 |
 | Decision export = the ADR | carries the verdict, the rejected alternative, **and** the change it was about | rooms 1 and 2 |
 | `@mention` → notice | holds | room 1, checks 4–5 |
@@ -109,7 +123,23 @@ rather than on budget.
 
 ## What still differs from local
 
-**One thing, and it is not a product limit.**
+**Two things, and neither is a product limit.**
+
+**Deep runs are capped at 120 seconds here, not 300.** Modal severs any HTTP
+request at 150 seconds — a hard platform ceiling with no way around it. Rather
+than let a long run be cut mid-stream, `DEEP_REASONING_DEADLINE_S` is set below
+that ceiling in `deploy/modal/app.py`, so the run halts *itself* with
+`stop_reason="deadline"` and renders the answer it has. Runs converge in around
+27 seconds, so this is the tail rather than the common case. If it does fire on
+stage, the honest line is that the run stopped on its budget — which is a
+control the product is meant to have, and one of the meters is showing it.
+
+This is the price of the other half of the decision: Modal's `web_server` proxy
+does not carry WebSockets (measured — the socket opens and closes within two
+seconds, while the identical build holds it open locally), and `asgi_app` does,
+at the cost of that 150-second ceiling. Realtime is worth more than the tail of
+the deep-run distribution, so the deployment runs on `asgi_app`. Verified on the
+live URL: a socket held 60 seconds with presence and pongs throughout.
 
 **Paused deep runs are session-scoped, and `/health` will lie to you about it.**
 The endpoint reports `durable_runs: true`, which means only *"the checkpointer

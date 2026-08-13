@@ -10,40 +10,42 @@ three journeys performed **by hand, in the browser, in front of people**.
 
 ## Local or the deployed URL
 
-> **Corrected 13 August 2026.** This section used to say a free host could not
-> run the neural embedder at all. Half of that was wrong and half was right, and
-> it is worth keeping both halves straight. **Wrong:** MiniLM is resident on
-> <https://helix-eqyu.onrender.com> and answering — grounding, citations and
-> convergence are all real there, measured rather than assumed. **Right:** the
-> box is too small. The application is ~570 MB resident and Render's free tier
-> is 512 MB with no swap, and it has been OOM-killed in practice. See
-> [`05-ON-THE-DEPLOYMENT.md`](05-ON-THE-DEPLOYMENT.md) for the evidence, the
-> deployed-instance script, and the hosting options.
+The deployed instance is **<https://achindra2003--helix-serve.modal.run>**, and
+`rooms.mjs` passes all 43 of its assertions against it. Both paths work.
 
-Both paths work. What separates them is headroom, not features:
+> **Rewritten 13 August 2026, twice.** This section first claimed a free host
+> could not run the neural embedder, then that a fatal outage was a database
+> problem. Both were wrong and both are recorded in
+> [`05-ON-THE-DEPLOYMENT.md`](05-ON-THE-DEPLOYMENT.md), because they are
+> mistakes worth not repeating. The truth was the boring one already written in
+> the sizing table: ~570 MB of application does not fit a 512 MB box. Moving to
+> one with 2 GB fixed it and changed nothing else.
 
 | | Local | Deployed |
 |---|---|---|
 | Grounding, citations, resurfacing, convergence | yes | **yes** — verified |
-| Realtime, two windows, steering a teammate's run | yes | **yes** — verified |
-| Deep Reasoning to a verdict | yes | **yes** — 22 steps, converged |
+| Deep Reasoning to a verdict | yes | **yes** — converged |
 | Agent mode, tool calls, the tool ledger | yes | **yes** — verified |
-| **Registering an account on stage** | yes | **no** — the memory spike that kills a 512 MB instance |
-| **Uploading a document on stage** | yes | **no** — same spike |
-| A paused run surviving a restart | yes | no — ephemeral disk, session-scoped |
+| Registering an account on stage | yes | **yes** — 201 in 29s |
+| Uploading a document on stage | yes | **yes** |
+| MCP tools, allowlist, approval gate | yes | **yes** — the stub is hosted too |
+| Observer role enforcement | yes | **yes** — verified |
+| Realtime, two windows, a teammate's tokens | yes | **yes** — verified |
+| A paused run surviving a restart | yes | no — no volume, session-scoped |
 | An MCP server on *your laptop* | yes | never — host the stub instead |
-| The seeded eRisk research workspace | yes | no — prepare your own the day before |
+| The seeded eRisk research workspace | yes | no — upload a paper live |
 | Handing someone a link they can open | no | **yes** |
 
-The deployed instance is fine to *use* and fragile to *fill*. Registration and
-upload both embed a batch, and a batch on top of a resident MiniLM is what puts
-a 512 MB container over its limit. Prepare accounts and documents a day ahead
-and the live demo never touches that path.
+**The one caveat.** A deep run on the deployment is capped at 120 seconds rather
+than 300, because the platform severs any HTTP request at 150 and a run that
+ends on its own terms (`stop_reason="deadline"`) is better than one cut
+mid-stream. Runs converge in around 27 seconds, so this is the tail rather than
+the common case — but a deliberately hard question can hit it, and the honest
+line if it does is that the run halted on its budget, which is a control the
+product is *supposed* to have.
 
 Demo locally when you want to improvise. Demo on the URL when the audience
-should be able to follow along, or join — and if the URL needs to be dependable
-rather than rehearsed, move it to the 1 GB instance `docs/DEPLOY-RUNBOOK.md`
-was written for.
+should be able to follow along, or join.
 
 ## The files
 

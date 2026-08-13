@@ -18,6 +18,19 @@ can watch, steer, and stop, that halts itself when its answer converges).
 Never a black box: you see the reasoning, the sources, the tool calls, the
 cost, and the moment it decided to stop.
 
+## Try it
+
+**<https://achindra2003--helix-serve.modal.run>** — registration is open, and a
+new account lands in a populated example workspace rather than an empty one.
+
+Everything below runs there: shared threads, forking, grounded answers with
+citations, agent runs under an approval gate, and Deep Reasoning. Two
+differences from running it yourself, both properties of the host rather than
+the product — a paused deep run is scoped to your session, and the workspace's
+realtime presence reconnects rather than staying open. `docs/demo/` covers both.
+
+Prefer your own machine? See **Install — one command**, below.
+
 ## See it
 
 *The moment Helix exists for — you start typing, and the workspace remembers:*
