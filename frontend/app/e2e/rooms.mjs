@@ -23,6 +23,10 @@
 // nothing is booted here, and the MCP server the app calls back into has to be
 // named by an address reachable *from the app*, which inside Docker is not
 // 127.0.0.1 — hence HELIX_E2E_MCP_HOST.
+//
+// A stub hosted on a platform (deploy/modal/mcp_stub.py) is neither http nor
+// on a port of its own: it is https on 443 behind the platform's hostname. So
+// HELIX_E2E_MCP_URL names the whole URL when host-and-port cannot express it.
 import { spawn } from "node:child_process";
 import { createServer } from "node:http";
 import { tmpdir } from "node:os";
@@ -32,6 +36,7 @@ const repo = "D:/Specialisation Project 4th Trimester";
 const EXTERNAL = process.env.HELIX_E2E_API || "";
 const API = EXTERNAL || "http://127.0.0.1:8023";
 const MCP_HOST = process.env.HELIX_E2E_MCP_HOST || "127.0.0.1";
+const MCP_URL = process.env.HELIX_E2E_MCP_URL || "";
 const dbFile = join(tmpdir(), `helix-rooms-${Date.now()}.db`);
 const children = [];
 const failures = [];
@@ -117,11 +122,19 @@ async function stream(path, { token, body }) {
   return events;
 }
 
+// The cast's addresses are fixed because they read well in the output, and in a
+// fresh database they are unique by construction — which is what the local run
+// gets, a new SQLite file per run. An external stack keeps its rows, so the
+// second run would collide on the very first register and never reach a single
+// assertion. Plus-addressing keeps the name legible while making the row new.
+const RUN_SUFFIX = EXTERNAL ? `+${Date.now().toString(36)}` : "";
+
 async function signUp(email) {
+  const address = RUN_SUFFIX ? email.replace("@", `${RUN_SUFFIX}@`) : email;
   const r = await api("/api/auth/register", {
-    method: "POST", body: { email, password: "demo-password-1" },
+    method: "POST", body: { email: address, password: "demo-password-1" },
   });
-  return { token: r.token, id: r.user.id, email };
+  return { token: r.token, id: r.user.id, email: address };
 }
 
 /** Put a second person in the room, the way a team actually does. */
@@ -206,7 +219,11 @@ async function roomOne() {
   // A note is addressed to the room; the model must never read it.
   await api(`/conversations/${main}/notes`, {
     token: teammate.token, method: "POST",
-    body: { content: "@mara I think the second one is closest, but it's expensive." },
+    // The handle is the address's local part (api/mentions.py:handle_of), so
+    // derive it from the account rather than writing "@mara" — otherwise the
+    // mention silently addresses nobody whenever the cast is suffixed for an
+    // external run.
+    body: { content: `@${facilitator.email.split("@")[0]} I think the second one is closest, but it's expensive.` },
   });
   const notices = await api("/api/notices", { token: facilitator.token });
   check(notices.notices.length === 1, "an @mention leaves a notice for the person named");
@@ -314,7 +331,7 @@ async function roomTwo(mcpPort) {
   // MCP as a catalog source: discovery, then the owner's allowlist.
   const added = await api(`/api/workspaces/${ws.id}/mcp`, {
     token: lead.token, method: "POST",
-    body: { name: "github", url: `http://${MCP_HOST}:${mcpPort}` },
+    body: { name: "github", url: MCP_URL || `http://${MCP_HOST}:${mcpPort}` },
   });
   const server = added.items[0];
   check(!!server, "an MCP server can be registered against a workspace");
