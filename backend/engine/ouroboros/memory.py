@@ -93,7 +93,15 @@ class SentenceTransformerEmbedder:
             chunks = _word_chunks(text)
             spans.append((len(all_chunks), len(chunks)))
             all_chunks.extend(chunks)
-        embeddings = self._model.encode(all_chunks, normalize_embeddings=True)
+        # batch_size is capped well below the library's default of 32. A
+        # document ingest hands this method every chunk of a paper at once, and
+        # peak memory during encode is set by the batch, not by the corpus —
+        # so on a small instance the default turns "ingest a PDF" into a
+        # transient allocation large enough to be OOM-killed. Eight chunks is
+        # slower per document by an amount nobody watching can perceive.
+        embeddings = self._model.encode(
+            all_chunks, normalize_embeddings=True, batch_size=8
+        )
         out: list[list[float]] = []
         for start, count in spans:
             if count == 1:

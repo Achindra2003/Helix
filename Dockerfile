@@ -47,6 +47,28 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
 
+# --- Memory: keep the footprint from scaling with the *host's* core count ----
+# These are set before any Python runs because every one of them is read at
+# import time and ignored afterwards.
+#
+# torch sizes its thread pool from `os.cpu_count()`, which on a shared host
+# reports the machine's cores, not the fraction of a core this container is
+# allowed. Each of those threads gets its own scratch arena, so the resident
+# set grows with hardware the app can never use. On an instance metered at a
+# tenth of a CPU the extra threads cost memory and buy no speed at all.
+#
+# MALLOC_ARENA_MAX is the same shape of problem one layer down: glibc opens up
+# to 8 arenas per core to reduce lock contention between threads, and freed
+# memory is returned to the arena rather than to the kernel — so peak usage
+# becomes resident usage.
+#
+# Together these are the difference between an app that fits a small instance
+# and one that is OOM-killed on it. See docs/DEPLOY-RUNBOOK.md on sizing.
+ENV OMP_NUM_THREADS=1 \
+    MKL_NUM_THREADS=1 \
+    TOKENIZERS_PARALLELISM=false \
+    MALLOC_ARENA_MAX=2
+
 WORKDIR /app
 
 # Requirements before source, again for layer caching: editing a route should
