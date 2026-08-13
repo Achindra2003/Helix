@@ -41,6 +41,28 @@ log = logging.getLogger(__name__)
 
 WORKSPACE_NAME = "Example workspace"
 
+
+def _seed_store():
+    """A store that writes nodes without firing per-node background embeds.
+
+    The router's store carries `on_node=ensure_soon`, which spawns a task per
+    node — and each of those opens its own database session. Seeding writes
+    nine nodes, so one registration asked for about eleven connections at once
+    and the request that wanted the twelfth waited on the pool. Against a
+    serverless Postgres that suspends when idle, those simultaneous connects
+    time out together and take the worker down with them; that is the
+    `asyncpg` TimeoutError seen in production on 13 August.
+
+    Deferring costs nothing that is not already designed for: `EmbeddingIndex.
+    ensure` backfills on first retrieval, which is the documented safety net
+    for a dropped background embed, and it does the whole batch in one session
+    instead of nine.
+    """
+    from .conversation.store import DbStore
+    from .db import SessionLocal
+
+    return DbStore(SessionLocal)
+
 # The seeded thread. Deliberately about a decision with more than one defensible
 # answer — a fork only makes sense when the alternative is genuinely arguable.
 _MAIN_THREAD = [
@@ -252,7 +274,7 @@ async def _seed(session: AsyncSession, user_id: str) -> str:
     # Imported here rather than at module scope: this pulls in the conversation
     # package, and importing it from api.models' neighbourhood at startup makes
     # a circular import out of what is otherwise a leaf module.
-    from .conversation.router import _store
+    _store = _seed_store()
 
     workspace = Workspace(name=WORKSPACE_NAME, owner_id=user_id)
     session.add(workspace)
@@ -351,7 +373,7 @@ async def _seed(session: AsyncSession, user_id: str) -> str:
 
 async def _add_turns(branch_id: str, turns, author_id: str):
     """Append (role, content) pairs, attributing only the user's own turns."""
-    from .conversation.router import _store
+    _store = _seed_store()
 
     return [
         await _store.add_node(

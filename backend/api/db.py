@@ -32,8 +32,20 @@ def _engine_kwargs() -> dict:
     regardless: DDL through a transaction pooler is its own set of surprises.
     """
     kwargs: dict = {"echo": False, "future": True}
+    if settings.database_url.startswith("postgresql+asyncpg"):
+        # Serverless Postgres (Neon, and the same shape on Supabase) suspends
+        # its compute after a few minutes idle and drops every connection in
+        # the pool with it. Without a pre-ping the next checkout hands out a
+        # corpse; with one, SQLAlchemy discards it and opens a live connection
+        # instead. `pool_recycle` retires connections before the provider does.
+        kwargs["pool_pre_ping"] = True
+        kwargs["pool_recycle"] = 300
+        # asyncpg waits 60s to connect by default, and a request holding a
+        # worker for a minute while the compute wakes is how one slow wake
+        # becomes an unresponsive instance. Fail fast; the pool retries.
+        kwargs["connect_args"] = {"timeout": 20}
     if settings.database_url.startswith("postgresql+asyncpg") and settings.db_pooled:
-        kwargs["connect_args"] = {"statement_cache_size": 0}
+        kwargs["connect_args"] = {**kwargs.get("connect_args", {}), "statement_cache_size": 0}
         kwargs["prepared_statement_cache_size"] = 0
     if settings.db_no_pool:
         # Test-suite posture only — see the setting's own note in config.py.
