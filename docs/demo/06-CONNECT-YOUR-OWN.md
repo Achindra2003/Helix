@@ -109,6 +109,14 @@ common reason discovery fails with a 401.
 
 Click **Add and discover**.
 
+> **Verified on the deployment, 14 August.** Registering
+> `https://api.githubcopilot.com/mcp/` against
+> <https://achindra2003--helix-serve.modal.run> reaches GitHub — a deliberately
+> invalid token came back as *"server answered HTTP 401"*, which is GitHub
+> refusing it rather than Helix failing to arrive. So this works from the hosted
+> instance, not only from a laptop. Anyone with the link and their own token can
+> connect their own repositories.
+
 ### Step 3 — deal with the fact that GitHub offers a lot of tools
 
 The stub in `02-DEV-TEAM.md` offers three tools. GitHub's server offers many,
@@ -222,8 +230,8 @@ retrying nervously.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| MCP discovery fails with `401` | auth value missing the scheme | the value is `Bearer ghp_…`, not `ghp_…` |
-| `502 mcp_unreachable` | the server is not reachable *from Helix* | a deployed Helix cannot dial into your laptop; host the server |
+| `mcp_unreachable`, message *"server answered HTTP 401"* | **the server was reached and rejected your token.** Usually the auth value is missing its scheme | the value is `Bearer ghp_…`, not `ghp_…`. Read the *message*, not the code — `mcp_unreachable` is the one error code every discovery failure wears, including ones where the server answered perfectly well |
+| `mcp_unreachable`, message *"could not reach the server: All connection attempts failed"* | genuinely not reachable *from Helix* | a deployed Helix cannot dial into your laptop; host the server |
 | Discovery returns nothing | server does not implement `tools/list`, or is not Streamable HTTP | check with `curl` before blaming Helix |
 | A tool is greyed out, *"description changed"* | the server rewrote what the model would be told | read the new text and accept it, or leave it un-armed. This is the feature working |
 | The model ignores your tools | it is a real model making a real choice | ask more directly. Two attempts is normal — `rooms.mjs` retries for this reason |
