@@ -71,6 +71,17 @@ Scroll to **Tool servers (MCP)**, tagged *owner-governed*. Click
 
 Click **Add and discover**.
 
+> **This is the demo stub, and the name `github` is a costume.** The dialog you
+> just filled in is the *real* one — the same four fields take GitHub's actual
+> MCP server (`https://api.githubcopilot.com/mcp/`, auth value
+> `Bearer <your token>`), and it works today with nothing to build.
+>
+> Use the stub on stage anyway: it is offline, it never rate-limits, and beat 7
+> depends on rewriting a description on demand, which you cannot do to GitHub.
+> But **know the answer to "could this talk to our real repo?"** — it is *yes,
+> here is how*, and [`06-CONNECT-YOUR-OWN.md`](06-CONNECT-YOUR-OWN.md) is the
+> how. Being able to say that turns a prop into a demo of something real.
+
 **Now point at the stub server's window.** It just logged:
 
 ```

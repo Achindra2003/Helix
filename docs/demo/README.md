@@ -60,6 +60,7 @@ files are scripts.
 | [`03-RESEARCH-GROUP.md`](03-RESEARCH-GROUP.md) | Room 3 — papers, citations that survive, the supervisor |
 | [`04-FEATURE-SWEEP.md`](04-FEATURE-SWEEP.md) | Everything the three rooms don't naturally reach. The small things, one line each. |
 | [`05-ON-THE-DEPLOYMENT.md`](05-ON-THE-DEPLOYMENT.md) | The same three rooms on the live URL — what was verified there, what differs, and how to get the dev room working on a hosted instance |
+| [`06-CONNECT-YOUR-OWN.md`](06-CONNECT-YOUR-OWN.md) | **Not a script.** How to point Helix at your own model, your own GitHub over MCP, and your own documents — the answer to *"could it talk to our actual repo?"* |
 
 ## The shape of a full run
 

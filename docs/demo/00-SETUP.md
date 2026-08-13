@@ -49,6 +49,13 @@ every button, no quota spent — set `LLM_PROVIDER=stub` and restart the backend
 The model echoes rather than answers, which is perfect for rehearsing clicks and
 useless for showing quality. Set it back to `groq` before the real thing.
 
+This file is the *server's* fallback, and it is the wrong place to configure a
+workspace that is not yours. A workspace owner sets their own provider in the
+app at `SETUP → Provider` — their own key, their own model, or their own Ollama
+— which is the thing to show if anyone asks about cost or privacy. The three
+shapes and their exact field values are in
+[`06-CONNECT-YOUR-OWN.md`](06-CONNECT-YOUR-OWN.md).
+
 ## 3. Start the MCP server (room 2 only)
 
 A third window, left running and **visible** — it logs every call Helix makes
