@@ -150,8 +150,22 @@ class RunManager:
         finally:
             handle.status = "paused" if paused else segment_status
             handle.ts = time.time()
-            handle._notify()
-            await self._persist(handle)
+            # Written down *before* anyone is told. `_notify` releases every
+            # subscriber, and `stream` ends a segment the moment it sees
+            # "paused" — so notifying first published the pause while it still
+            # existed only in this process's dict. A client that steers on the
+            # instant it is told to, against a process being replaced, then
+            # gets a 404 for a run that had neither finished nor expired:
+            # precisely the failure `conversation/resume.py` was written to
+            # prevent, reintroduced by the ordering of two lines.
+            #
+            # `_notify` stays in its own `finally` because a subscriber that is
+            # never woken waits forever; a failed write must still end the
+            # stream.
+            try:
+                await self._persist(handle)
+            finally:
+                handle._notify()
             wid = handle.workspace_id
             self._active[wid] = max(0, self._active.get(wid, 1) - 1)
             self._promote(wid)
