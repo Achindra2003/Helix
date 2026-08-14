@@ -11,7 +11,7 @@
 // The split follows the same rule useAgentRun set: the view keeps ownership of
 // what is on screen, so refreshing the transcript arrives here as a callback
 // rather than this hook learning how to build a message list.
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { streamSSE, attachSSE } from "@/lib/sse";
 import { getDeepRunStatus, killDeepRun } from "@/lib/api";
 import { useMonitor } from "@/store/monitor";
@@ -55,8 +55,15 @@ export function useDeepRun({
   isViewing: (branchId: string) => boolean;
 }) {
   const monitor = useMonitor();
+  // How many of this run's events we have read. The server numbers a run's
+  // event log and `?after=` resumes from an index, so this doubles as the
+  // resume point if a stream is cut. Every frame counts, `[DONE]` included —
+  // it occupies a slot in the log like any other event, and steering already
+  // relies on the same arithmetic (`resume_from = handle.seq`).
+  const received = useRef(0);
 
   function handleDeepEvent(ev: RunEvent) {
+    received.current += 1;
     const run = useMonitor.getState().run;
     if (!run) return;
     if (ev.kind === "deep_run") {
@@ -121,17 +128,64 @@ export function useDeepRun({
     }
   }
 
+  /** Pick a run back up from the last event we read, if it is still going.
+   *
+   *  Answers whether it reattached, so the caller can fall through to its
+   *  ordinary terminal handling when the run really has ended. */
+  async function reattachToRun(branchId: string): Promise<boolean> {
+    const cur = useMonitor.getState().run;
+    if (!cur?.runId) return false;
+    try {
+      const st = await getDeepRunStatus(cur.runId);
+      // Terminal, or the handle expired: there is nothing to follow, and the
+      // assistant node is in history already.
+      if (st.status !== "running" && st.status !== "queued" && st.status !== "paused") return false;
+    } catch {
+      return false;
+    }
+    const h = attachSSE(
+      `/conversations/deep/runs/${cur.runId}/stream?after=${received.current}`,
+      handleDeepEvent,
+    );
+    monitor.patch({ abort: h.abort });
+    // Recurses through this same function, so a run survives being cut any
+    // number of times rather than exactly once.
+    await finishDeepSegment(h.done, branchId);
+    return true;
+  }
+
   /** Await one SSE segment of a deep run; a guided run has several (each pause
    *  ends the stream, each steer opens the next). History refreshes only when
    *  the run truly finishes — a paused run has no assistant reply yet. */
   async function finishDeepSegment(done: Promise<void>, branchId: string) {
+    let failure: any = null;
     try {
       await done;
-      const cur = useMonitor.getState().run;
-      if (cur && cur.status === "live") monitor.patch({ status: "done", stopReason: cur.stopReason || "ended" });
     } catch (e: any) {
-      const cur = useMonitor.getState().run;
-      if (cur) monitor.patch({ status: e?.name === "AbortError" ? "killed" : "error", stopReason: e?.name === "AbortError" ? "killed by operator" : (e?.message ?? "error") });
+      failure = e;
+    }
+    const cur = useMonitor.getState().run;
+    const aborted = failure?.name === "AbortError";
+
+    // A stream ending is not the same as a run ending. The run says when it
+    // ends: `complete` sets a terminal status, `waiting` sets "waiting". If
+    // neither arrived, the transport went away underneath a run that is still
+    // executing server-side — a proxy's request ceiling, a sleeping laptop, a
+    // dropped network — and the truthful response is to pick the run back up.
+    //
+    // This used to report whatever the transport did: a cut stream became
+    // "done" on the success path and "error" on the failure path, both while
+    // the run went on to finish perfectly well without anyone watching.
+    if (!aborted && cur && (cur.status === "live" || cur.status === "queued")) {
+      if (await reattachToRun(branchId)) return;
+    }
+
+    if (aborted) {
+      monitor.patch({ status: "killed", stopReason: "killed by operator" });
+    } else if (failure) {
+      if (cur) monitor.patch({ status: "error", stopReason: failure?.message ?? "error" });
+    } else if (cur && cur.status === "live") {
+      monitor.patch({ status: "done", stopReason: cur.stopReason || "ended" });
     }
     const status = useMonitor.getState().run?.status;
     if (status !== "waiting" && status !== "live" && status !== "queued" && wid) {
@@ -161,6 +215,7 @@ export function useDeepRun({
     }
     // `mode` omitted = the instance default, which is what every run got
     // before the picker existed.
+    received.current = 0;  // a new run, a new event log
     const h = streamSSE(`/conversations/${branchId}/deep`, { prompt: text, steerable: guided, mode }, handleDeepEvent);
     monitor.start({
       status: "live", question: text, depth: 0, energy: 0, loopGuard: 0, stability: 0, confidence: 0,
@@ -209,6 +264,7 @@ export function useDeepRun({
           canControl: can(role, "run.control"),
           onSteer: saved.guided ? (g) => { steerRun(g); } : undefined,
         });
+        received.current = 0;  // replaying the log from the start rebuilds the monitor
         const h = attachSSE(`/conversations/deep/runs/${saved.runId}/stream?after=0`, handleDeepEvent);
         monitor.patch({ abort: h.abort });
         await finishDeepSegment(h.done, saved.branchId);
