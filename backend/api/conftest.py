@@ -177,7 +177,7 @@ def join_workspace(make_user):
 
 
 @pytest.fixture(autouse=True)
-def _fresh_checkpointer():
+def _fresh_checkpointer(tmp_path, monkeypatch):
     """Each test starts with an empty checkpoint store, like a fresh process.
 
     The graph checkpointer is a process-wide singleton now (a paused run is
@@ -185,9 +185,20 @@ def _fresh_checkpointer():
     mattered). Production keys every run by a fresh uuid, but tests reuse fixed
     thread ids like "t-test" — so without this, one test's checkpoint is
     another's starting state and graph tests fail only when run together.
+
+    Dropping the saver was not enough, which is why that kept happening anyway.
+    The saver is a handle onto a *file*, and the file outlived it: every test
+    reopened the same `helix-checkpoints.db`, so a paused run written under
+    "t-test" by one test was still sitting there for the next one. It showed up
+    as `test_resume.py` failing in a full run, passing in isolation, and naming
+    a different test each time — the signature of a shared resource rather than
+    a broken assertion. Giving each test its own path is what the docstring
+    above always claimed.
     """
     from api import checkpointing
+    from api.config import settings
 
+    monkeypatch.setattr(settings, "checkpoint_path", str(tmp_path / "checkpoints.db"))
     checkpointing._saver = None
     yield
     checkpointing._saver = None

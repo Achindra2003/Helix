@@ -68,6 +68,17 @@ async def connect() -> None:
     global _saver, _stack
     if _saver is not None:
         return
+    if _stack is not None:
+        # A stack that outlived its saver. Overwriting the reference below
+        # would strand the aiosqlite connection inside it, and that connection
+        # owns a thread which goes on posting results to an event loop that has
+        # since closed — `RuntimeError: Event loop is closed`, raised from a
+        # thread, long after the code that caused it has finished.
+        try:
+            await _stack.aclose()
+        except Exception:  # noqa: BLE001 — a loop that has gone is the case here
+            pass
+        _stack = None
     try:
         from contextlib import AsyncExitStack
 
