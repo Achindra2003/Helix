@@ -45,10 +45,14 @@ helix.db
 /Ouroboros/
 
 # Session logs / working notes (internal process chatter, not product docs).
-baton*.txt
-*-baton.txt
-dump*.txt
-*-dump.txt
+#
+# Matched anywhere in the name rather than only as a prefix or a suffix. The
+# narrower patterns below left real gaps: `2026-08-14-baton-1.txt` is neither
+# `baton*.txt` nor `*-baton.txt`, and a transcript is exactly the file most
+# likely to have a secret pasted into it — this one had a JWT signing key in
+# it, one `git add -A` away from being published.
+*baton*.txt
+*dump*.txt
 
 # --- Not part of the product -----------------------------------------------
 # Everything below still lives in this working directory; it is simply not
