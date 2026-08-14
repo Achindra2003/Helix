@@ -36,8 +36,12 @@ Thumbs.db
 postgres-data/
 ollama-data/
 
-# Local SQLite dev database
+# Local SQLite dev database. The `-wal` and `-shm` sidecars are part of the
+# database, not separate files: `*.db` alone left 38 of them untracked in the
+# working tree, one per test run that did not exit cleanly.
 *.db
+*.db-wal
+*.db-shm
 helix.db
 
 # Standalone Ouroboros clone (own git repo + 256MB venv + real .env); the
