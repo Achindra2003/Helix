@@ -44,6 +44,11 @@ app = modal.App("helix-mcp-stub")
     # `tools/list` actually returns. Across replicas the demo's sharpest beat
     # would fire or not depending on which one Helix happened to reach.
     max_containers=1,
+    # Next to Helix, for the same reason Helix sits next to Neon: this is a
+    # server Helix *calls*, so the distance is charged to every tool call the
+    # agent makes. The demo's tool ledger read `avg_latency_ms: 404` for a
+    # server answering static JSON, which is a round trip rather than work.
+    region="us-east",
     # Discovery and calls are bounded by Helix at 15s and 30s respectively
     # (api/tools/mcp.py), so a cold start here reads as a failed tool rather
     # than a slow one. Ten minutes of idle keeps it warm across a demo.

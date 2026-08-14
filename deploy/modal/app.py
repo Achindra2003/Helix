@@ -67,17 +67,20 @@ image = (
             "MKL_NUM_THREADS": "1",
             "TOKENIZERS_PARALLELISM": "false",
             "MALLOC_ARENA_MAX": "2",
-            # --- the 150s ceiling, bought off ------------------------------
-            # Modal cuts any HTTP request at 150 seconds. A deep run's own
-            # wall-clock cap defaults to 300, so on this platform a long run
-            # could be severed mid-stream by the proxy rather than ending on
-            # its own terms. Set under the ceiling, the run halts itself with
-            # `stop_reason="deadline"` — a state the product already models,
-            # renders and explains — and the platform never has to intervene.
+            # --- the 150s ceiling, no longer bought off --------------------
+            # Modal still cuts any HTTP request at 150 seconds, and this used
+            # to carry `DEEP_REASONING_DEADLINE_S=120` so that a long run
+            # halted itself before the platform could sever the stream. That
+            # traded a *product* capability for a *hosting* limit: the
+            # deployment shipped a smaller reasoning budget than the product
+            # has.
             #
-            # In practice runs converge in ~27s; this is the tail, not the
-            # common case.
-            "DEEP_REASONING_DEADLINE_S": "120",
+            # It is no longer needed. The client now treats a cut stream as
+            # what it is — a dropped transport over a run that is still
+            # executing server-side — and reattaches from the last event it
+            # read (`useDeepRun.ts`, `?after=`). A run that outlives one
+            # request is picked back up rather than reported as finished, so
+            # the deadline can be the product's own again.
         }
     )
 )
@@ -103,9 +106,31 @@ app = modal.App("helix")
     # replica took the request: the app would look like it scaled and would
     # quietly split one workspace into two rooms that cannot see each other.
     max_containers=1,
-    # Scale to zero when idle, which is what makes this free. The first visitor
-    # after an idle period pays a cold start, so before a demo either send one
-    # request five minutes early or set `min_containers=1` for the day.
+    # **Put the container next to the database.** Without this, Modal places it
+    # wherever it has room, and the distance to Neon (`us-east-2`) is then a
+    # matter of luck. Measured, same image, same database, one probe container
+    # against another: `SELECT 1` cost **2.5 ms** in Ohio and **334 ms**
+    # elsewhere. Nothing in the application is slow — but a fresh session per
+    # store operation means one registration makes 19 pool checkouts and 58
+    # statements, and a fresh session per checkout means `pool_pre_ping` pays
+    # the round trip twice. At 334 ms that arithmetic is a twelve-second
+    # sign-up; at 12.8 ms it is about a second.
+    #
+    # `us-east` is the narrowest region Modal offers here, and Neon is in
+    # `us-east-2` — near enough. The broad `"us"` measured ~35 ms, which would
+    # also be acceptable and costs 1.5x rather than 1.75x; the narrow one is
+    # worth it while the container only runs when someone is using it.
+    region="us-east",
+    # Scale to zero when idle, and that is deliberate rather than a compromise.
+    # Region pinning multiplies the compute price by 1.75, so an always-warm
+    # container would cost roughly $45/month against $30 of Starter credits.
+    # Billed per second of actual uptime instead, the same box costs about
+    # $0.11/hour — call it 270 hours a month inside the credits, which is far
+    # more than a demo instance is ever awake for.
+    #
+    # The price is that the first visitor after an idle period pays a cold
+    # start (~25 s). Before a demo, open the URL five minutes early; that is
+    # already step one of the pre-flight in docs/demo/05-ON-THE-DEPLOYMENT.md.
     min_containers=0,
     # Ten minutes of idle before the container is released. Long enough that a
     # pause between demo beats never costs a cold start.
