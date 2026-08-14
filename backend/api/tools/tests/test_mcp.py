@@ -379,3 +379,57 @@ def test_an_unknown_tool_name_is_still_rejected(make_workspace):
             headers=headers,
         )
         assert resp.status_code == 400
+
+
+async def test_a_refused_credential_is_not_reported_as_unreachable(patch_transport):
+    """The distinction the owner acts on.
+
+    Every discovery failure used to arrive as `mcp_unreachable`, including the
+    ones where the server answered immediately and correctly — it just did not
+    like the token. That sends someone with a mistyped credential off to debug
+    their network, and it is the single most likely first-run mistake, because
+    the auth value is written verbatim and a bare token arrives without its
+    scheme.
+    """
+    def refuse(request):
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    patch_transport(refuse)
+    with pytest.raises(McpError) as caught:
+        await McpClient(
+            url="https://mcp.example/x",
+            auth_header="Authorization",
+            auth_value="ghp_a_bare_token_with_no_scheme",
+        ).list_tools()
+
+    assert caught.value.code == "mcp_rejected"
+    message = str(caught.value)
+    assert "refused the credential" in message
+    # and it names the fix, rather than only the symptom
+    assert "Bearer" in message
+
+
+async def test_a_server_that_cannot_be_reached_still_says_so(patch_transport):
+    """The other half: the code has to keep meaning what it says."""
+    def refuse(request):
+        raise httpx.ConnectError("no route to host")
+
+    patch_transport(refuse)
+    with pytest.raises(McpError) as caught:
+        await McpClient(url="https://mcp.example/x").list_tools()
+
+    assert caught.value.code == "mcp_unreachable"
+    assert "could not reach the server" in str(caught.value)
+
+
+async def test_an_endpoint_that_is_not_mcp_is_a_protocol_error(patch_transport):
+    """A URL that serves a web page is a different mistake again, and answering
+    "unreachable" for it would be a third wrong signpost."""
+    def html(request):
+        return httpx.Response(200, text="<!doctype html><title>hello</title>")
+
+    patch_transport(html)
+    with pytest.raises(McpError) as caught:
+        await McpClient(url="https://mcp.example/x").list_tools()
+
+    assert caught.value.code == "mcp_protocol"

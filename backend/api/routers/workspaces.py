@@ -980,7 +980,11 @@ async def sync_mcp_server(
     try:
         summary = await sync_server(session, server)
     except McpError as exc:
-        raise api_error(502, "mcp_unreachable", str(exc))
+        # 502 is right for a server we could not reach; it is wrong for one
+        # that answered and refused us, which is the caller's credential to
+        # fix, not the gateway's problem. `exc.code` carries which happened.
+        status = 400 if exc.code == "mcp_rejected" else 502
+        raise api_error(status, exc.code, str(exc))
     return {"summary": summary, "items": await _mcp_servers_of(session, workspace_id)}
 
 

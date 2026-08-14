@@ -112,10 +112,15 @@ Click **Add and discover**.
 > **Verified on the deployment, 14 August.** Registering
 > `https://api.githubcopilot.com/mcp/` against
 > <https://achindra2003--helix-serve.modal.run> reaches GitHub — a deliberately
-> invalid token came back as *"server answered HTTP 401"*, which is GitHub
-> refusing it rather than Helix failing to arrive. So this works from the hosted
-> instance, not only from a laptop. Anyone with the link and their own token can
-> connect their own repositories.
+> invalid token came back refused, which is GitHub declining it rather than
+> Helix failing to arrive. So this works from the hosted instance, not only
+> from a laptop. Anyone with the link and their own token can connect their own
+> repositories.
+>
+> That probe also found a real defect, since fixed: every discovery failure
+> answered `mcp_unreachable`, including this one, where the server had answered
+> immediately and correctly. A mistyped token read as a network problem. The
+> codes below now say which of the two happened.
 
 ### Step 3 — deal with the fact that GitHub offers a lot of tools
 
@@ -230,9 +235,10 @@ retrying nervously.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| `mcp_unreachable`, message *"server answered HTTP 401"* | **the server was reached and rejected your token.** Usually the auth value is missing its scheme | the value is `Bearer ghp_…`, not `ghp_…`. Read the *message*, not the code — `mcp_unreachable` is the one error code every discovery failure wears, including ones where the server answered perfectly well |
-| `mcp_unreachable`, message *"could not reach the server: All connection attempts failed"* | genuinely not reachable *from Helix* | a deployed Helix cannot dial into your laptop; host the server |
-| Discovery returns nothing | server does not implement `tools/list`, or is not Streamable HTTP | check with `curl` before blaming Helix |
+| `mcp_rejected` — *"the server was reached and refused the credential"* | your token, not your network | the auth **value** is sent verbatim, so it needs its scheme: `Bearer ghp_…`, not `ghp_…`. This is the most common first-run mistake |
+| `mcp_unreachable` — *"could not reach the server"* | genuinely not reachable *from Helix* | a deployed Helix cannot dial into your laptop; host the server |
+| `mcp_protocol` — *"not JSON-RPC"* | the URL serves something that is not an MCP endpoint | check with `curl` before blaming Helix; Helix speaks Streamable HTTP, not stdio |
+| `mcp_error` — the server's own error | it answered, and said no | read the message; it is the server's words, not Helix's |
 | A tool is greyed out, *"description changed"* | the server rewrote what the model would be told | read the new text and accept it, or leave it un-armed. This is the feature working |
 | The model ignores your tools | it is a real model making a real choice | ask more directly. Two attempts is normal — `rooms.mjs` retries for this reason |
 | Tool result cut off | the 6,000-character cap | expected; ask for a narrower thing |

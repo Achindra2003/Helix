@@ -59,7 +59,19 @@ _CALL_TIMEOUT_S = 30.0
 
 class McpError(RuntimeError):
     """A server was unreachable, spoke nonsense, or refused. Surfaced to the
-    owner during discovery; folded into a tool result during a run."""
+    owner during discovery; folded into a tool result during a run.
+
+    `code` separates those three, because they are three different jobs for
+    whoever reads the message. "Unreachable" means fix the address or host the
+    server; "rejected" means fix the credential — the server was reached and
+    answered perfectly well; "bad protocol" means the endpoint is not an MCP
+    server at all. Collapsing them into one code, as this once did, sends
+    someone with a mistyped token off to debug their network.
+    """
+
+    def __init__(self, message: str, code: str = "mcp_unreachable") -> None:
+        super().__init__(message)
+        self.code = code
 
 
 def describe_digest(description: str, parameters: Any) -> str:
@@ -91,10 +103,13 @@ def _unwrap(payload: dict) -> dict:
     """The `result` of a JSON-RPC response, or raise with the server's error."""
     if "error" in payload:
         err = payload["error"] or {}
-        raise McpError(f"{err.get('code', 'error')}: {err.get('message', 'unknown')}")
+        raise McpError(
+            f"{err.get('code', 'error')}: {err.get('message', 'unknown')}",
+            code="mcp_error",
+        )
     result = payload.get("result")
     if not isinstance(result, dict):
-        raise McpError("server returned no result object")
+        raise McpError("server returned no result object", code="mcp_protocol")
     return result
 
 
@@ -113,7 +128,11 @@ def _parse_body(text: str) -> dict:
             candidate = line[len("data:"):].strip()
             if candidate.startswith("{"):
                 return json.loads(candidate)
-    raise McpError("server returned a body that was not JSON-RPC")
+    raise McpError(
+        "server returned a body that was not JSON-RPC — is this an MCP "
+        "endpoint, and does it speak Streamable HTTP?",
+        code="mcp_protocol",
+    )
 
 
 class McpClient:
@@ -150,8 +169,22 @@ class McpClient:
             )
         except httpx.HTTPError as exc:
             raise McpError(f"could not reach the server: {exc}") from exc
+        if resp.status_code in (401, 403):
+            # The single most common first-run mistake, and the one this used
+            # to describe as "unreachable": the header is written verbatim by
+            # `_headers`, so a bare token arrives without its scheme and every
+            # bearer-token server refuses it.
+            raise McpError(
+                f"the server was reached and refused the credential "
+                f"(HTTP {resp.status_code}). If it expects a bearer token, the "
+                f"auth value needs its scheme — 'Bearer <token>', not '<token>'.",
+                code="mcp_rejected",
+            )
         if resp.status_code >= 400:
-            raise McpError(f"server answered HTTP {resp.status_code}")
+            raise McpError(
+                f"the server was reached and answered HTTP {resp.status_code}",
+                code="mcp_error",
+            )
         # Servers hand out a session id on initialize and expect it back.
         session = resp.headers.get("Mcp-Session-Id")
         if session:
