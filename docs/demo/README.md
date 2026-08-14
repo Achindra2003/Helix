@@ -36,13 +36,16 @@ The deployed instance is **<https://achindra2003--helix-serve.modal.run>**, and
 | The seeded eRisk research workspace | yes | no — upload a paper live |
 | Handing someone a link they can open | no | **yes** |
 
-**The one caveat.** A deep run on the deployment is capped at 120 seconds rather
-than 300, because the platform severs any HTTP request at 150 and a run that
-ends on its own terms (`stop_reason="deadline"`) is better than one cut
-mid-stream. Runs converge in around 27 seconds, so this is the tail rather than
-the common case — but a deliberately hard question can hit it, and the honest
-line if it does is that the run halted on its budget, which is a control the
-product is *supposed* to have.
+The one row above that is a real difference is the paused run: the checkpoint
+file sits on a container filesystem with no volume, so pause and resume within
+a sitting and it works, but come back tomorrow and it is gone. Everything else
+lives in Postgres.
+
+Deep runs used to carry a second caveat — a budget cut to 120 seconds so a run
+would end before the platform's 150-second request ceiling could sever it. That
+is gone. The client reattaches to a run whose stream was cut rather than
+mistaking a dropped connection for a finished run, so the deployment runs the
+product's own budget.
 
 Demo locally when you want to improvise. Demo on the URL when the audience
 should be able to follow along, or join.

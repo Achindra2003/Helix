@@ -55,7 +55,7 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 | **NFR-6** | Reliability & interruptibility | ✅ | Kill switch + budget/depth halt; engine catches mid-stream failure → clean `complete(error)` (no torn stream); paused guided runs expire after 30 min. |
 | **NFR-7** | Streaming & backpressure (fan-out to N) | ✅ | SSE to the author + WS relay to every room member; dead sockets are dropped without breaking the sender. |
 | **NFR-8** | Privacy (minimal data) | ✅ | Only email + conversation content; no biometric/audio/video. Private threads never enter the room. |
-| **NFR-9** | Portability (containerised; pluggable providers) | 🟡 | Provider interface ✅; Dockerfile + compose exist; containerised run not exercised this milestone. |
+| **NFR-9** | Portability (containerised; pluggable providers) | ✅ | Provider interface ✅; the published GHCR image is what the live deployment runs (`deploy/modal/app.py` pulls it unchanged), so the container is now exercised continuously rather than theoretically. `docker run` locally and `modal deploy` use the same artifact. |
 
 ---
 
@@ -63,7 +63,10 @@ sign in → create/pick a workspace. (Or `./frontend/run-demo.ps1`.)
 
 - **Functional:** 16 of 16 fully delivered (14 original + 2 added this
   milestone).
-- **Non-functional:** NFR-1,3,5,6,7,8 delivered; NFR-2,4,9 partial.
+- **Non-functional:** NFR-1,3,5,6,7,8,9 delivered; NFR-2,4 partial by choice —
+  both are single, named seams (API-layer tenancy instead of RLS; an in-process
+  room behind `broadcast`/`roster`) rather than gaps, and the deployment is
+  pinned to one container precisely because that is the honest shape.
 
 **Verification (12 August 2026):** backend `pytest -q` -> **508 passed, 4
 skipped** (512 collected), green on Windows and on Ubuntu CI alike. The six

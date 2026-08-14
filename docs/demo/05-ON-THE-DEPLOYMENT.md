@@ -123,23 +123,38 @@ rather than on budget.
 
 ## What still differs from local
 
-**Two things, and neither is a product limit.**
+**One thing, and it is not a product limit.**
 
-**Deep runs are capped at 120 seconds here, not 300.** Modal severs any HTTP
-request at 150 seconds — a hard platform ceiling with no way around it. Rather
-than let a long run be cut mid-stream, `DEEP_REASONING_DEADLINE_S` is set below
-that ceiling in `deploy/modal/app.py`, so the run halts *itself* with
-`stop_reason="deadline"` and renders the answer it has. Runs converge in around
-27 seconds, so this is the tail rather than the common case. If it does fire on
-stage, the honest line is that the run stopped on its budget — which is a
-control the product is meant to have, and one of the meters is showing it.
+> **Corrected 14 August.** This section used to open with *"deep runs are
+> capped at 120 seconds here, not 300"* — the deployment shipped a smaller
+> reasoning budget than the product has, to stay under Modal's 150-second
+> request ceiling. That was paying for a hosting limit with a product
+> capability, and it is no longer done. The client treats a cut stream as a
+> dropped transport rather than a finished run and reattaches from the last
+> event it read, so a run may outlive any number of requests. The budget on the
+> deployment is the product's own again.
 
-This is the price of the other half of the decision: Modal's `web_server` proxy
-does not carry WebSockets (measured — the socket opens and closes within two
-seconds, while the identical build holds it open locally), and `asgi_app` does,
-at the cost of that 150-second ceiling. Realtime is worth more than the tail of
-the deep-run distribution, so the deployment runs on `asgi_app`. Verified on the
-live URL: a socket held 60 seconds with presence and pongs throughout.
+Modal still severs any HTTP request at 150 seconds — that part was never
+negotiable, and it is why the deployment runs on `asgi_app`: the alternative,
+`web_server`, has a 3600-second ceiling but does not carry WebSockets (measured
+— the socket opens and closes within two seconds, while the identical build
+holds it open locally). Realtime was worth more than the request ceiling.
+
+What changed is that the ceiling stopped costing anything. `GET
+/conversations/deep/runs/{id}/stream?after=N` replays a run's event log from an
+index and then follows live, so a client that has read N events carries on from
+exactly there. Verified against this URL by `e2e/deep-reattach.mjs`: a run whose
+reader is dropped mid-flight keeps executing, resumes with nothing repeated and
+nothing lost, and writes its answer.
+
+```
+$ node e2e/deep-reattach.mjs https://achindra2003--helix-serve.modal.run
+
+ok  the run outlived its reader (status: running)
+ok  reattaching from index 4 is accepted
+ok  the continuation does not replay what was already read
+ok  the run's `complete` frame arrives on the reattached stream
+```
 
 **Paused deep runs are session-scoped, and `/health` will lie to you about it.**
 The endpoint reports `durable_runs: true`, which means only *"the checkpointer
