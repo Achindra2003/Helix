@@ -37,7 +37,7 @@ import modal
 
 # The image CI published. Bump this string after tagging a new release; that is
 # the whole redeploy procedure.
-IMAGE_TAG = "ghcr.io/achindra2003/helix:v0.9.0-rc2"
+IMAGE_TAG = "ghcr.io/achindra2003/helix:v0.9.0-rc3"
 
 image = (
     modal.Image.from_registry(IMAGE_TAG)
